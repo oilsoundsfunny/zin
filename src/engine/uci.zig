@@ -4,8 +4,9 @@ const std = @import("std");
 
 pub fn printEngine() !void {
 	const stdout = std.io.getStdOut();
-	try stdout.writer().print("id name {s}\n", .{config.name});
-	try stdout.writer().print("id author {s}\n", .{config.author});
+	try stdout.writer().print("{s} {d}.{d}.{d} by {s}\n", .{
+	  config.name, config.version.major, config.version.minor, config.version.patch, config.author,
+	});
 }
 
 pub fn parseInput() !void {
