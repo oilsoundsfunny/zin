@@ -49,20 +49,21 @@ pub const Table = struct {
 	}
 
 	pub fn allocate(self: *Table, mb: usize) !void {
-		const in_test = builtin.is_test;
-		const allocator = if (in_test) std.testing.allocator else misc.heap.allocator;
-
 		const len = (mb << 20) / @sizeOf(Cluster);
+		self.tbl = try misc.heap.allocator.alignedAlloc(Cluster, std.heap.page_size_max, len);
+	}
 
-		self.tbl = try allocator.alignedAlloc(Cluster, std.heap.page_size_max, len);
+	pub fn clear(self: *Table) void {
+		if (self.tbl != null) {
+			for (self.tbl.?) |*p| {
+				p.* = std.mem.zeroes(@TypeOf(p.*));
+			}
+		}
 	}
 
 	pub fn free(self: *Table) void {
-		const in_test = builtin.is_test;
-		const allocator = if (in_test) std.testing.allocator else misc.heap.allocator;
-
 		if (self.tbl != null) {
-			allocator.free(self.tbl.?);
+			misc.heap.allocator.free(self.tbl.?);
 			self.tbl = null;
 		}
 	}
@@ -91,3 +92,9 @@ pub const Table = struct {
 		return .{replace, false};
 	}
 };
+
+test {
+	_ = Entry;
+	_ = Cluster;
+	_ = Table;
+}

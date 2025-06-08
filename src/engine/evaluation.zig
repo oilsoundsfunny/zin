@@ -73,8 +73,62 @@ pub const Taper = struct {
 		}
 	};
 
+	const mg_pt_score = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
+		.nil = undefined,
+		.pawn   = score.pawn / 2,
+		.knight = score.pawn * 46 / 16,
+		.bishop = score.pawn * 50 / 16,
+		.rook   = score.pawn * 5,
+		.queen  = score.pawn * 9,
+		.king   = score.draw,
+		.all = undefined,
+	});
+	const eg_pt_score = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
+		.nil = undefined,
+		.pawn   = score.pawn,
+		.knight = score.pawn * 54 / 16,
+		.bishop = score.pawn * 58 / 16,
+		.rook   = score.pawn * 5,
+		.queen  = score.pawn * 9,
+		.king   = score.draw,
+		.all = undefined,
+	});
+
+	pub const mobility_bonus = mobility_init: {
+		@setEvalBranchQuota(1 << 24);
+		var tbl = std.EnumArray(misc.types.Ptype, [32]Taper).initFill(std.mem.zeroes([32]Taper));
+
+		const mobility_cnt = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
+			.nil = undefined,
+			.pawn   = undefined,
+			.knight = bitboard.nAtk(.d4).cntSquares() + 1,
+			.bishop = bitboard.bAtk(.d4, .nil).cntSquares() + 1,
+			.rook   = bitboard.rAtk(.d4, .nil).cntSquares() + 1,
+			.queen  = bitboard.qAtk(.d4, .nil).cntSquares() + 1,
+			.king   = undefined,
+			.all = undefined,
+		});
+		const ptypes = [_]misc.types.Ptype {.knight, .bishop, .rook, .queen};
+
+		for (ptypes) |pt| {
+			const cnt = mobility_cnt.get(pt);
+			for (0 .. cnt) |idx| {
+				const c: comptime_float = @floatFromInt(cnt);
+				const i: comptime_float = @floatFromInt(idx);
+				const factor: comptime_float = 0.125 * @log2(i / c + 0.5);
+				tbl.getPtr(pt)[idx] = .{
+				  .mg = @intFromFloat(factor * @as(comptime_float, mg_pt_score.get(pt))),
+				  .eg = @intFromFloat(factor * @as(comptime_float, eg_pt_score.get(pt))),
+				};
+			}
+		}
+
+		break :mobility_init tbl;
+	};
+
 	pub const psqt = psqt_init: {
-		@setEvalBranchQuota(1 << 28);
+		@setEvalBranchQuota(1 << 24);
+
 		const mg_tbl = std
 		  .EnumArray(misc.types.Ptype, std.EnumArray(misc.types.Square, comptime_int)).init(.{
 			.nil = std.mem.zeroes(std.EnumArray(misc.types.Square, comptime_int)),
@@ -205,6 +259,7 @@ pub const Taper = struct {
 			}),
 			.all = std.mem.zeroes(std.EnumArray(misc.types.Square, comptime_int)),
 		});
+
 		var tbl = std.mem
 		  .zeroes(std.EnumArray(misc.types.Ptype, std.EnumArray(misc.types.Square, Taper)));
 
@@ -212,8 +267,8 @@ pub const Taper = struct {
 			const pt = p.ptype();
 			for (misc.types.Square.values) |s| {
 				tbl.getPtr(pt).set(s, .{
-					.mg = score.fromCentipawns(mg_tbl.get(pt).get(s)),
-					.eg = score.fromCentipawns(eg_tbl.get(pt).get(s)),
+					.mg = mg_pt_score.get(pt) + score.fromCentipawns(mg_tbl.get(pt).get(s)),
+					.eg = eg_pt_score.get(pt) + score.fromCentipawns(eg_tbl.get(pt).get(s)),
 				});
 			}
 		}
@@ -225,9 +280,6 @@ pub const Taper = struct {
 		return @divTrunc(self.mg * clamped + self.eg * (phase.max - clamped), phase.max);
 	}
 };
-test {
-	_ = Taper.psqt;
-}
 
 pub const Ft = struct {
 	piece_atk:	std.EnumArray(misc.types.Piece, misc.types.BitBoard),
@@ -307,8 +359,6 @@ pub const Ft = struct {
 		const stm = pos.stm;
 		var ev: isize = 0;
 
-		_ = self;
-
 		const pieces = std.EnumArray(misc.types.Color, misc.types.BitBoard).init(.{
 			.white = pos.pieceOcc(misc.types.Piece.fromPtype(.white, pt)),
 			.black = pos.pieceOcc(misc.types.Piece.fromPtype(.black, pt)),
@@ -329,6 +379,21 @@ pub const Ft = struct {
 			}
 		}
 
+		const occ = pos.allOcc();
+		inline for (misc.types.Color.values) |c| {
+			var b = pieces.get(c);
+			while (b != .nil) : (b.popLow()) {
+				const s = b.lowSquare();
+				const a = bitboard.ptAtk(pt, s, occ).bitAnd(self.mobile_area.get(c));
+				switch (c) {
+					.white => ev += if (mg) Taper.mobility_bonus.get(pt)[a.cntSquares()].mg
+						else Taper.mobility_bonus.get(pt)[a.cntSquares()].eg,
+					.black => ev -= if (mg) Taper.mobility_bonus.get(pt)[a.cntSquares()].mg
+						else Taper.mobility_bonus.get(pt)[a.cntSquares()].eg,
+				}
+			}
+		}
+
 		return switch (stm) {
 			.white =>  ev,
 			.black => -ev,
@@ -339,7 +404,6 @@ pub const Ft = struct {
 		var tbl = std.mem.zeroes(Ft);
 		const occ = pos.allOcc();
 
-		
 		inline for (misc.types.Color.values) |c| {
 			const all_piece = misc.types.Piece.fromPtype(c, .all);
 
@@ -414,4 +478,9 @@ pub const Ft = struct {
 pub fn scorePosition(pos: Position) isize {
 	const ft = Ft.init(pos);
 	return ft.eval(pos);
+}
+
+test {
+	_ = Taper;
+	_ = Ft;
 }

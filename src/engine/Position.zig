@@ -583,3 +583,8 @@ test {
 	try pos.doMove(movegen.Move.gen(.nil, .nil, .e2, .e4));
 	try std.testing.expectEqual(genKey(pos), pos.ssTop().key);
 }
+
+test {
+	_ = Self;
+	_ = Stack;
+}

@@ -461,7 +461,7 @@ test {
 	defer std.testing.allocator.destroy(pos);
 
 	const suite_len = Perft.suite[0 ..].len;
-	for (Perft.suite[suite_len - 1 .. suite_len]) |ref| {
+	for (Perft.suite[suite_len .. suite_len]) |ref| {
 		try pos.parseFen(ref.fen);
 		for (ref.result[0 ..], 1 ..) |expected, depth| {
 			const actual = Perft.div(pos, depth);
@@ -478,7 +478,6 @@ pub const RootMove = struct {
 	pub const List = struct {
 		arr:	[256]RootMove,
 		cnt:	usize,
-		idx:	usize,
 
 		pub const Int = usize;
 	};

@@ -10,8 +10,6 @@ const Self = @This();
 pos:	Position,
 depth:	isize,
 
-root_moves:	movegen.RootMove.List,
-
 bfhist:	[misc.types.Square.num][misc.types.Piece.num]Hist,
 capthist:	[misc.types.Square.num]
   [misc.types.Piece.num]
@@ -31,31 +29,32 @@ pub const Pool = struct {
 	cond:	std.Thread.Condition,
 	mtx:	std.Thread.Mutex,
 
+	root_moves:	movegen.RootMove.List,
+
 	pub var global = Pool {
 		.workers = null,
 		.cond = .{},
 		.mtx = .{},
+		.root_moves = std.mem.zeroes(movegen.RootMove.List),
 	};
+
+	pub fn allocate(self: *Pool, cnt: usize) !void {
+		if (self.workers != null) {
+			self.free();
+		}
+		self.workers = try misc.heap.allocator.alignedAlloc(Self, std.heap.page_size_max, cnt);
+	}
+
+	pub fn free(self: *Pool) void {
+		misc.heap.allocator.free(self.workers.?);
+	}
+
+	pub fn getMainWorker(self: Pool) ?*Self {
+		return if (self.workers == null) null else &self.workers.?[0];
+	}
 };
 
-pub fn genRootMoves(self: *Self) void {
-	var cnt: usize = 0;
-	var list = std.mem.zeroes(movegen.ScoredMove.List);
-
-	cnt += list.gen(self.pos, true);
-	cnt += list.gen(self.pos, false);
-	for (0 .. cnt) |i| {
-		const move = list.arr[i].move;
-
-		self.pos.doMove(move) catch continue;
-		self.pos.undoMove();
-
-		self.root_moves.arr[self.root_moves.cnt] = .{
-			.score = evaluation.score.draw,
-			.len   = 0,
-			.line  = std.mem.zeroes(@TypeOf(self.root_moves.arr[self.root_moves.cnt].line)),
-		};
-		self.root_moves.arr[self.root_moves.cnt].line[0] = move;
-		self.root_moves.cnt += 1;
-	}
+pub fn isMainWorker(self: *Self) bool {
+	const main_worker = Pool.global.getMainWorker() orelse return false;
+	return self == main_worker;
 }
