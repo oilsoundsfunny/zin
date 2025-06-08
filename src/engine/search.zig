@@ -144,11 +144,48 @@ fn ab(thread: *Thread, ss: [*]Position.Stack,
 	}
 }
 
-// pub fn onThread(thread: *Thread) isize {
-// }
+pub fn onThread(thread: *Thread) isize {
+	const pos = &thread.pos;
+	const ss: [*]Position.Stack = @ptrCast(&pos.ss[0]);
+	thread.genRootMoves();
+	if (thread.root_moves.cnt == 0) {
+		return if (pos.checkMask() == .all) evaluation.score.draw else evaluation.score.lose;
+	}
+
+	for (0 .. 256) |d| {
+		const depth: Thread.Depth = @intCast(d);
+
+		for (thread.root_moves.arr[0 .. thread.root_moves.cnt], 0 ..) |*rm, i| {
+			const move = rm.line[0];
+			var score = rm.score;
+
+			const window: struct {isize, isize} = .{
+				score - evaluation.score.pawn, score + evaluation.score.pawn,
+			};
+			pos.doMove(move) catch unreachable;
+			score = ab(thread, ss, window[0], window[1], depth);
+			while (score <= window[0] or score > window[1]) {
+				if (score <= window[0]) {
+					window[0] -= evaluation.score.pawn;
+				} else {
+					window[1] += evaluation.score.pawn;
+				}
+
+				score = ab(thread, ss, window[0], window[1], depth);
+			}
+			pos.undoMove();
+
+			var idx = i;
+			while (idx > 0 and score > thread.root_moves.arr[idx - 1].score) : (idx -= 1) {
+				std.mem.swap(movegen.RootMove,
+				  thread.root_moves.arr[idx], thread.root_moves.arr[idx - 1]);
+			}
+		}
+	}
+}
 
 test {
-	try transposition.Table.global.allocate(512);
+	try transposition.Table.global.allocate(64);
 	defer transposition.Table.global.free();
 
 	const fens = [_][]const u8 {
@@ -160,16 +197,16 @@ test {
 		"r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
 		"K6R/8/8/8/8/8/6kp/8 w - - 0 1",
 	};
-	var thread = std.mem.zeroes(Thread);
+	const thread = try std.testing.allocator.create(Thread);
+	defer std.testing.allocator.destroy(thread);
 
-	for (fens[6 .. 7]) |fen| {
+	for (fens[0 .. 0]) |fen| {
 		try thread.pos.parseFen(fen);
 		for (0 .. 10) |d| {
 			const depth: Thread.Depth = @intCast(d);
-			try thread.pos.printSelf();
-			std.log.defaultLog(.debug, .search, "ab(depth = {d}) == {d}", .{
-				d, ab(&thread, @ptrCast(&thread.pos.ss[0]), -32767, 32767, depth),
-			});
+			const score = ab(thread, @ptrCast(&thread.pos.ss[0]),
+			  evaluation.score.lose, evaluation.score.win, depth);
+			std.log.defaultLog(.debug, .search, "ab(depth = {d}) == {d}", .{depth, score});
 		}
 	}
 }

@@ -29,6 +29,9 @@ const Perft = struct {
 		}, .{
 			.fen = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
 			.result = .{46, 2079, 89890, 3894594, 164075551, 6923051137},
+		}, .{
+			.fen = "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1",
+			.result = .{24,  496,  9483,  182838,   3605103,   71179139},
 		},
 	};
 
@@ -453,11 +456,32 @@ pub const ScoredMove = packed struct(u32) {
 		}
 	};
 };
+test {
+	const pos = try std.testing.allocator.create(Position);
+	defer std.testing.allocator.destroy(pos);
+
+	const suite_len = Perft.suite[0 ..].len;
+	for (Perft.suite[suite_len - 1 .. suite_len]) |ref| {
+		try pos.parseFen(ref.fen);
+		for (ref.result[0 ..], 1 ..) |expected, depth| {
+			const actual = Perft.div(pos, depth);
+			try std.testing.expectEqual(expected, actual);
+		}
+	}
+}
 
 pub const RootMove = struct {
 	score:	evaluation.score.Int,
 	len:	u16,
 	line:	[256 - 2]Move,
+
+	pub const List = struct {
+		arr:	[256]RootMove,
+		cnt:	usize,
+		idx:	usize,
+
+		pub const Int = usize;
+	};
 };
 
 pub const Picker = struct {
