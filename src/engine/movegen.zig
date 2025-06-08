@@ -454,6 +454,12 @@ pub const ScoredMove = packed struct(u32) {
 	};
 };
 
+pub const RootMove = struct {
+	score:	evaluation.score.Int,
+	len:	u16,
+	line:	[256 - 2]Move,
+};
+
 pub const Picker = struct {
 	list:	ScoredMove.List,
 	thread:	*const Thread,

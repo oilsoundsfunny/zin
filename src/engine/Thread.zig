@@ -2,11 +2,15 @@ const misc = @import("misc");
 const std = @import("std");
 
 const Position = @import("Position.zig");
+const movegen = @import("movegen.zig");
 
 const Self = @This();
 
 pos:	Position,
 depth:	isize,
+
+root_move_cnt:	usize,
+root_moves:	[256]movegen.RootMove,
 
 bfhist:	[misc.types.Square.num][misc.types.Piece.num]Hist,
 capthist:	[misc.types.Square.num]
@@ -33,3 +37,6 @@ pub const Pool = struct {
 		.mtx = .{},
 	};
 };
+
+// pub fn genRootMoves(self: *Self) void {
+// }

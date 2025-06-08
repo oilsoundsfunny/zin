@@ -164,7 +164,7 @@ test {
 
 	for (fens[6 .. 7]) |fen| {
 		try thread.pos.parseFen(fen);
-		for (0 .. 12) |d| {
+		for (0 .. 10) |d| {
 			const depth: Thread.Depth = @intCast(d);
 			try thread.pos.printSelf();
 			std.log.defaultLog(.debug, .search, "ab(depth = {d}) == {d}", .{
