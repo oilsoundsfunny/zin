@@ -310,99 +310,100 @@ pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
 	self.* = std.mem.zeroes(Self);
 	errdefer self.* = backup;
 
-	const sa = [_]misc.types.Square {
-		.a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
-		.a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
-		.a6, .b6, .c6, .d6, .e6, .f6, .g6, .h6,
-		.a5, .b5, .c5, .d5, .e5, .f5, .g5, .h5,
-		.a4, .b4, .c4, .d4, .e4, .f4, .g4, .h4,
-		.a3, .b3, .c3, .d3, .e3, .f3, .g3, .h3,
-		.a2, .b2, .c2, .d2, .e2, .f2, .g2, .h2,
-		.a1, .b1, .c1, .d1, .e1, .f1, .g1, .h1,
-	};
+	var tokens = std.mem.tokenizeAny(u8, fen, &.{'\t', '\n', '\r', ' '});
+
+	const psq_token = tokens.next() orelse return error.InvalidFen;
 	var si: usize = 0;
-	var step: usize = 0;
-
-	var stm_set = false;
-	var cas_set = false;
-
-	var ep_f: ?misc.types.File = null;
-	var ep_r: ?misc.types.Rank = null;
-	var ep_set = false;
-
-	for (fen, 0 ..) |c, i| {
-		if (std.ascii.isWhitespace(c)) {
-			_ = i;
-			step += 1;
-			continue;
-		}
-		if (step == 0) {
-			const p = misc.types.Piece.fromChar(c) orelse .nil;
-			if (p != .nil) {
-				self.setSquare(sa[si], p);
-				si += 1;
-			} else si += skip: switch (c) {
-				'1' ... '8' => c - '0',
-				'/' => if (si % misc.types.File.num != 0) continue :skip '\n' else break :skip 0,
-				else => return error.InvalidPiece,
-			};
-		} else if (step == 1) {
-			if (stm_set) {
-				return error.InvalidStm;
-			}
-			self.stm = misc.types.Color.fromChar(c) orelse return error.InvalidStm;
-			stm_set = true;
-		} else if (step == 2) {
-			const char_cas = misc.types.Castle.fromChar(c) orelse return error.InvalidCastle;
-			switch (char_cas) {
-				.nil => {
-					if (self.ss[0].castle != .nil or cas_set) {
-						return error.InvalidCastle;
-					}
-				},
-				.wk, .wq, .bk, .bq => |v| {
-					if (self.ss[0].castle.bitAnd(v) != .nil) {
-						return error.InvalidCastle;
-					}
-					self.ss[0].castle = self.ss[0].castle.bitOr(v);
-				},
-				else => return error.InvalidCastle,
-			}
-			cas_set = true;
-		} else if (step == 3) {
-			sw: switch (c) {
-				'a' ... 'h' => {
-					if (ep_f != null or ep_r != null or ep_set) {
-						continue :sw '\n';
-					}
-					ep_f = misc.types.File.fromChar(c) orelse continue :sw '\n';
-				},
-				'1' ... '8' => {
-					if (ep_f == null or ep_r != null or ep_set) {
-						continue :sw '\n';
-					}
-					ep_r = misc.types.Rank.fromChar(c) orelse continue :sw '\n';
-
-					self.ss[0].en_pas = misc.types.Square.fromCoord(ep_r.?, ep_f.?);
-					ep_set = true;
-				},
-				'-' => {
-					if (ep_f != null or ep_r != null or ep_set) {
-						continue :sw '\n';
-					}
-
-					self.ss[0].en_pas = null;
-					ep_set = true;
-				},
-				else => return error.InvalidEnPassant,
-			}
-		} else if (step == 4) {
-		} else if (step == 5) {
-		} else return error.InvalidFen;
+	for (psq_token) |c| {
+		const p = misc.types.Piece.fromChar(c) orelse .nil;
+		self.setSquare(misc.types.Square.book_order[si], p);
+		si += if (p != .nil) 1 else switch (c) {
+			'1' ... '8' => c - '0',
+			'/' => skip: {
+				if (si % misc.types.File.num != 0) {
+					return error.InvalidSquare;
+				}
+				break :skip 0;
+			},
+			else => return error.InvalidSquare,
+		};
 	}
 
-	self.ss[0].chk = self.genChk();
-	self.ss[0].key = self.genKey();
+	const stm_token = tokens.next() orelse return error.InvalidFen;
+	if (stm_token.len != 1) {
+		return error.InvalidStm;
+	}
+	self.stm = misc.types.Color.fromChar(stm_token[0]) orelse return error.InvalidStm;
+
+	const castle_token = tokens.next() orelse return error.InvalidFen;
+	if (castle_token.len > 4) {
+		return error.InvalidCastle;
+	}
+	for (castle_token, 0 ..) |c, i| {
+		const castle = misc.types.Castle.fromChar(c) orelse return error.InvalidCastle;
+		switch (castle) {
+			.nil => {
+				if (self.ssTop().castle != .nil or i != 0) {
+					return error.InvalidCastle;
+				}
+			},
+			.wk, .wq, .bk, .bq => {
+				if (self.ssTop().castle.bitAnd(castle) != .nil) {
+					return error.InvalidCastle;
+				}
+				self.ssTopPtr()[0].castle = self.ssTop().castle.bitOr(castle);
+			},
+			else => return error.InvalidCastle,
+		}
+	}
+
+	const en_passant_token = tokens.next() orelse return error.InvalidFen;
+	var en_passant_file: ?misc.types.File = null;
+	var en_passant_rank: ?misc.types.Rank = null;
+	if (en_passant_token.len > 2) {
+		return error.InvalidEnPassant;
+	}
+	for (en_passant_token, 0 ..) |c, i| {
+		switch (c) {
+			'a' ... 'h' => {
+				if (en_passant_token.len != 2 or i != 0) {
+					return error.InvalidEnPassant;
+				}
+				en_passant_file = misc.types.File.fromChar(c) orelse unreachable;
+			},
+			'1' ... '8' => {
+				if (en_passant_token.len != 2 or i != 1) {
+					return error.InvalidEnPassant;
+				}
+				en_passant_rank = misc.types.Rank.fromChar(c) orelse unreachable;
+
+				self.ssTopPtr()[0].en_pas
+				  = misc.types.Square.fromCoord(en_passant_rank.?, en_passant_file.?);
+			},
+			'-' => {
+				if (en_passant_token.len != 1) {
+					return error.InvalidEnPassant;
+				}
+				self.ssTopPtr()[0].en_pas = null;
+			},
+			else => return error.InvalidEnPassant,
+		}
+	}
+
+	const half_move_token = tokens.next();
+	if (half_move_token != null) {
+		self.ssTopPtr()[0].rule50 = std.fmt.parseUnsigned(@TypeOf(self.ssTopPtr()[0].rule50),
+		  half_move_token.?, 10) catch return error.InvalidHalfMoveClock;
+	}
+
+	const move_token = tokens.next();
+	if (move_token != null) {
+		self.game_len = std.fmt.parseUnsigned(@TypeOf(self.game_len),
+		  move_token.?, 10) catch return error.InvalidMoveClock;
+	}
+
+	self.ssTopPtr()[0].chk = self.genChk();
+	self.ssTopPtr()[0].key = self.genKey();
 }
 
 pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
@@ -532,56 +533,68 @@ pub fn undoMove(self: *Self) void {
 
 pub fn printSelf(self: Self) !void {
 	const in_test = builtin.is_test;
-	const stdout = std.io.getStdOut();
+	const output = if (in_test) std.io.getStdErr() else std.io.getStdOut();
+	// const tty_config = std.io.tty.detectConfig(output);
 
-	const rank_arr = [_]misc.types.Rank {
-		.rank_8, .rank_7, .rank_6, .rank_5, .rank_4, .rank_3, .rank_2, .rank_1,
-	};
-
-	const board_format = "\t{c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}";
-	const coord_format = "\t{c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}";
+	const coord_format = if (in_test) "\t{c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}"
+		else "\t{c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}\n";
 	const coord_args = .{' ', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'};
 
 	if (in_test) {
 		std.log.defaultLog(.debug, .printSelf, coord_format, coord_args);
 	} else {
-		try stdout.writer().print(coord_format, coord_args);
-		try stdout.writer().print("\n", .{});
+		try output.writer().print(coord_format, coord_args);
 	}
+
+	const rank_arr = [_]misc.types.Rank {
+		.rank_8, .rank_7, .rank_6, .rank_5, .rank_4, .rank_3, .rank_2, .rank_1,
+	};
+	const file_arr = [_]misc.types.File {
+		.file_a, .file_b, .file_c, .file_d, .file_e, .file_f, .file_g, .file_h,
+	};
 	for (rank_arr) |r| {
+		const board_format = if (in_test) "\t{c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}"
+		  else "\t{c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}\n";
 		const board_args = .{
 			r.char() orelse unreachable,
-			self.getSquare(misc.types.Square.fromCoord(r, .file_a)).char() orelse '.',
-			self.getSquare(misc.types.Square.fromCoord(r, .file_b)).char() orelse '.',
-			self.getSquare(misc.types.Square.fromCoord(r, .file_c)).char() orelse '.',
-			self.getSquare(misc.types.Square.fromCoord(r, .file_d)).char() orelse '.',
-			self.getSquare(misc.types.Square.fromCoord(r, .file_e)).char() orelse '.',
-			self.getSquare(misc.types.Square.fromCoord(r, .file_f)).char() orelse '.',
-			self.getSquare(misc.types.Square.fromCoord(r, .file_g)).char() orelse '.',
-			self.getSquare(misc.types.Square.fromCoord(r, .file_h)).char() orelse '.',
+			self.getSquare(misc.types.Square.fromCoord(r, file_arr[0])).char() orelse '.',
+			self.getSquare(misc.types.Square.fromCoord(r, file_arr[1])).char() orelse '.',
+			self.getSquare(misc.types.Square.fromCoord(r, file_arr[2])).char() orelse '.',
+			self.getSquare(misc.types.Square.fromCoord(r, file_arr[3])).char() orelse '.',
+			self.getSquare(misc.types.Square.fromCoord(r, file_arr[4])).char() orelse '.',
+			self.getSquare(misc.types.Square.fromCoord(r, file_arr[5])).char() orelse '.',
+			self.getSquare(misc.types.Square.fromCoord(r, file_arr[6])).char() orelse '.',
+			self.getSquare(misc.types.Square.fromCoord(r, file_arr[7])).char() orelse '.',
+			r.char() orelse unreachable,
 		};
 
 		if (in_test) {
 			std.log.defaultLog(.debug, .printSelf, board_format, board_args);
 		} else {
-			try stdout.writer().print(board_format, board_args);
-			try stdout.writer().print("\n", .{});
+			try output.writer().print(board_format, board_args);
 		}
 	}
+
 	if (in_test) {
 		std.log.defaultLog(.debug, .printSelf, coord_format, coord_args);
 	} else {
-		try stdout.writer().print(coord_format, coord_args);
-		try stdout.writer().print("\n", .{});
+		try output.writer().print(coord_format, coord_args);
 	}
 }
 
 test {
 	var pos = std.mem.zeroes(Self);
 
-	try pos.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-	try pos.doMove(movegen.Move.gen(.nil, .nil, .e2, .e4));
-	try std.testing.expectEqual(genKey(pos), pos.ssTop().key);
+	try pos.parseFen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1");
+	try std.testing.expectEqual(misc.types.Piece.w_pawn, pos.getSquare(.g2));
+	try std.testing.expectEqual(misc.types.Piece.b_pawn, pos.getSquare(.c7));
+
+	try pos.doMove(movegen.Move.gen(.nil, .nil, .b4, .f4));
+	const chk = misc.types.BitBoard.fromSlice(misc.types.Square, &.{.f4, .g4});
+	const key = genKey(pos);
+
+	try std.testing.expectEqual(chk, pos.ssTop().chk);
+	try std.testing.expectEqual(key, pos.ssTop().key);
 }
 
 test {
