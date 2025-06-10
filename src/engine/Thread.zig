@@ -42,7 +42,7 @@ pub const Pool = struct {
 		if (self.workers != null) {
 			self.free();
 		}
-		self.workers = try misc.heap.allocator.alignedAlloc(Self, std.heap.page_size_max, cnt);
+		self.workers = try misc.heap.allocator.alignedAlloc(Self, null, cnt);
 	}
 
 	pub fn free(self: *Pool) void {

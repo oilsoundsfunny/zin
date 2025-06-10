@@ -50,7 +50,7 @@ pub const Table = struct {
 
 	pub fn allocate(self: *Table, mb: usize) !void {
 		const len = (mb << 20) / @sizeOf(Cluster);
-		self.tbl = try misc.heap.allocator.alignedAlloc(Cluster, std.heap.page_size_max, len);
+		self.tbl = try misc.heap.allocator.alignedAlloc(Cluster, .@"32", len);
 	}
 
 	pub fn clear(self: *Table) void {
