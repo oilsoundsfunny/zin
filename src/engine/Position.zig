@@ -58,9 +58,6 @@ fn pieceOccPtr(self: *Self, p: misc.types.Piece) *misc.types.BitBoard {
 fn squarePtr(self: *Self, s: misc.types.Square) *misc.types.Piece {
 	return self.mailbox.getPtr(s);
 }
-fn ssTopPtr(self: *Self) [*]Stack {
-	return self.ss[self.ss_ply ..].ptr;
-}
 
 fn colorOccPtrConst(self: *const Self, c: misc.types.Color) *const misc.types.BitBoard {
 	return self.pieceOccPtrConst(misc.types.Piece.fromPtype(c, .all));
@@ -70,9 +67,6 @@ fn pieceOccPtrConst(self: *const Self, p: misc.types.Piece) *const misc.types.Bi
 }
 fn squarePtrConst(self: *const Self, s: misc.types.Square) *const misc.types.Piece {
 	return self.mailbox.getPtrConst(s);
-}
-fn ssTopPtrConst(self: *const Self) [*]const Stack {
-	return self.ss[self.ss_ply ..].ptr;
 }
 
 fn genChk(self: Self) misc.types.BitBoard {
@@ -194,8 +188,7 @@ fn keyAfterMove(self: Self, move: movegen.Move) Zobrist.Int {
 	  else dst.shift(stm.forward().flip(), 1);
 	const this_ep = self.ssTop().en_pas;
 
-	var z = self.ssTop().key
-	  ^ (if (stm == .white) Zobrist.default.stm.get(.white) else 0)
+	var z = self.ssTop().key ^ Zobrist.default.stm.get(.white)
 	  ^ Zobrist.default.castle.get(this_cas)
 	  ^ Zobrist.default.castle.get(next_cas)
 	  ^ (if (this_ep) |s| Zobrist.default.en_pas.get(s.file()) else 0)
@@ -261,6 +254,12 @@ pub fn allOcc(self: Self) misc.types.BitBoard {
 	return self.ptypeOcc(.all);
 }
 
+pub fn ssTopPtr(self: *Self) [*]Stack {
+	return self.ss[self.ss_ply ..].ptr;
+}
+pub fn ssTopPtrConst(self: *const Self) [*]const Stack {
+	return self.ss[self.ss_ply ..].ptr;
+}
 pub fn ssTop(self: Self) Stack {
 	return self.ssTopPtrConst()[0];
 }
@@ -590,9 +589,14 @@ test {
 	try std.testing.expectEqual(misc.types.Piece.b_pawn, pos.getSquare(.c7));
 
 	try pos.doMove(movegen.Move.gen(.nil, .nil, .b4, .f4));
-	const chk = misc.types.BitBoard.fromSlice(misc.types.Square, &.{.f4, .g4});
-	const key = genKey(pos);
+	var chk = misc.types.BitBoard.fromSlice(misc.types.Square, &.{.f4, .g4});
+	var key = genKey(pos);
+	try std.testing.expectEqual(chk, pos.ssTop().chk);
+	try std.testing.expectEqual(key, pos.ssTop().key);
 
+	try pos.doMove(movegen.Move.gen(.nil, .nil, .h4, .g3));
+	chk = misc.types.BitBoard.all;
+	key = genKey(pos);
 	try std.testing.expectEqual(chk, pos.ssTop().chk);
 	try std.testing.expectEqual(key, pos.ssTop().key);
 }

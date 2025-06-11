@@ -471,15 +471,16 @@ test {
 }
 
 pub const RootMove = struct {
-	score:	evaluation.score.Int,
-	len:	u16,
-	line:	[256 - 2]Move,
+	score:	isize,
+	len:	usize,
+	line:	[256 - 16]Move,
 
-	pub const List = struct {
-		arr:	[256]RootMove,
+	pub const List = std.BoundedArray(RootMove, 256);
+
+	pub const Slice = struct {
+		slice:	[]RootMove,
 		cnt:	usize,
-
-		pub const Int = usize;
+		idx:	usize,
 	};
 };
 
@@ -506,7 +507,6 @@ pub const Picker = struct {
 		gen_quiet, good_quiet,
 		bad_noisy,
 		bad_quiet,
-		end,
 
 		pub const Int = std.meta.Tag(Stage);
 
@@ -632,13 +632,35 @@ pub const Picker = struct {
 		}
 
 		while (self.stage == .bad_quiet) {
-			const move = self.pick() orelse {
-				self.stage = self.stage.inc();
-				break;
-			};
+			const move = self.pick() orelse break;
 			return move;
 		}
 
 		return null;
 	}
 };
+
+test {
+	const seq = [_]Move {
+	  Move.gen(.nil, .nil, .g2, .h3),
+	  Move.gen(.nil, .nil, .d5, .e6),
+
+	  Move.gen(.nil, .nil, .e5, .g6),
+	  Move.gen(.nil, .nil, .e5, .d7),
+	  Move.gen(.nil, .nil, .e5, .f7),
+
+	  Move.gen(.nil, .nil, .e2, .a6),
+
+	  Move.gen(.nil, .nil, .f3, .h3),
+	  Move.gen(.nil, .nil, .f3, .f6),
+	};
+
+	const thread = try misc.heap.allocator.create(Thread);
+	try thread.pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+	defer misc.heap.allocator.destroy(thread);
+
+	var noisy_mp = Picker.init(thread, Move.zero, Move.zero, Move.zero, true);
+	for (seq[0 ..]) |move| {
+		try std.testing.expectEqual(move, noisy_mp.next());
+	}
+}

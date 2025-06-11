@@ -10,11 +10,29 @@ const EvalTest = struct {
 
 	pub const suite = [_]EvalTest {
 		.{
-			.fen = "rn1qk2r/pb1pbppp/1p2pn2/8/2PQ4/2N2NP1/PP2PPBP/R1B2RK1 b kq - 0 8",
-			.centipawns = 28,
+			.fen = "r1br1nk1/ppq1b1pp/2pp1p2/4p3/P2PP2N/1P2N3/1BP1RPPP/R1Q3K1 b - - 0 15",
+			.centipawns = 17,
 		}, .{
-			.fen = "6k1/4Rp1p/4p1p1/1P4N1/p2PPPnP/1r6/6P1/5K2 w - - 4 35",
-			.centipawns = 0,
+			.fen = "r1bqr1k1/1p3pbp/p2n2p1/3P4/P7/1Q1B1N2/1P4PP/R1B2R1K b - - 0 20",
+			.centipawns = 47,
+		}, .{
+			.fen = "r1bqr1k1/p1pnbpp1/1p3n1p/3p4/3P3B/2NBPN2/PPQ2PPP/R3K2R w KQ - 0 11",
+			.centipawns = 79,
+		}, .{
+			.fen = "3q2k1/1Bnr1pb1/r3p1p1/pp5p/2PP4/1PBR3P/2Q2PP1/3R2K1 b - - 0 25",
+			.centipawns = -52,
+		}, .{
+			.fen = "r2n1rk1/2pqbppp/p7/1p1pP3/3P4/2Q2N1P/PP1B1PP1/R3R1K1 w - - 0 17",
+			.centipawns = 53,
+		}, .{
+			.fen = "r1bq1rk1/pp1nppbp/2p2np1/3p4/2PP1B2/2NBPN2/PP3PPP/R2QK2R w KQ - 3 8",
+			.centipawns = 52,
+		}, .{
+			.fen = "r2qr1k1/1b1nbpp1/p4n1p/1p1p1B2/2pP3B/1PN1PN2/P1Q2PPP/2R2RK1 b - - 1 18",
+			.centipawns = 116,
+		}, .{
+			.fen = "3q1rk1/3n1pbp/4p1p1/4P3/1pBB1P2/rP6/1Q3P1P/2R2RK1 b - - 0 27",
+			.centipawns = 50,
 		},
 	};
 };
@@ -24,18 +42,18 @@ pub const score = struct {
 
 	pub const Int = i16;
 
-	pub const win  = 0 + 32767;
+	pub const win  = 0 + std.math.maxInt(Int);
 	pub const draw = 0;
-	pub const lose = 0 - 32767;
+	pub const lose = 0 - std.math.maxInt(Int);
 
-	pub const nil  = -32768;
+	pub const nil  = std.math.minInt(Int);
 	pub const pawn = 256;
 
-	pub fn centipawns(eval: Int) isize {
+	pub fn centipawns(eval: isize) isize {
 		return @divTrunc(eval * 100, pawn);
 	}
 
-	pub fn fromCentipawns(c: isize) Int {
+	pub fn fromCentipawns(c: isize) isize {
 		return @divTrunc(c * pawn, 100);
 	}
 };
@@ -267,8 +285,8 @@ pub const Taper = struct {
 			const pt = p.ptype();
 			for (misc.types.Square.values) |s| {
 				tbl.getPtr(pt).set(s, .{
-					.mg = mg_pt_score.get(pt) + score.fromCentipawns(mg_tbl.get(pt).get(s)),
-					.eg = eg_pt_score.get(pt) + score.fromCentipawns(eg_tbl.get(pt).get(s)),
+				  .mg = mg_pt_score.get(pt) + score.fromCentipawns(mg_tbl.get(pt).get(s)),
+				  .eg = eg_pt_score.get(pt) + score.fromCentipawns(eg_tbl.get(pt).get(s)),
 				});
 			}
 		}
@@ -428,6 +446,26 @@ pub const Ft = struct {
 			}
 		}
 
+		inline for (misc.types.Color.values) |c| {
+			const our_pawns = pos.pieceOcc(misc.types.Piece.fromPtype(c, .pawn));
+			const home_pawns = switch (c) {
+				.white => our_pawns
+				  .bitAnd(misc.types.BitBoard.fromSlice(misc.types.Rank, &.{.rank_2, .rank_3})),
+				.black => our_pawns
+				  .bitAnd(misc.types.BitBoard.fromSlice(misc.types.Rank, &.{.rank_7, .rank_6})),
+			};
+			const blocked_pawns = bitboard.blockedPawns(our_pawns, occ, c);
+
+			const our_royalty = misc.types.BitBoard.nil
+			  .bitOr(pos.pieceOcc(misc.types.Piece.fromPtype(c, .queen)))
+			  .bitOr(pos.pieceOcc(misc.types.Piece.fromPtype(c, .king)));
+
+			const their_pawns_atk = tbl.piece_atk.get(misc.types.Piece.fromPtype(c.flip(), .pawn));
+
+			tbl.mobile_area.set(c, misc.types.BitBoard.all.bitAnd(blocked_pawns.flip())
+			  .bitAnd(home_pawns.flip()).bitAnd(our_royalty.flip()).bitAnd(their_pawns_atk.flip()));
+		}
+
 		return tbl;
 	}
 
@@ -475,6 +513,58 @@ pub const Ft = struct {
 	}
 };
 
+pub fn debugPosition(pos: Position) !void {
+	const ft = Ft.init(pos);
+	const by_ptype = std.EnumArray(misc.types.Ptype, Taper).init(.{
+		.nil = undefined,
+		.pawn = .{
+			.mg = ft.evalPawn(pos, true),
+			.eg = ft.evalPawn(pos, false),
+		},
+		.knight = .{
+			.mg = ft.evalPtype(pos, .knight, true),
+			.eg = ft.evalPtype(pos, .knight, false),
+		},
+		.bishop = .{
+			.mg = ft.evalPtype(pos, .bishop, true),
+			.eg = ft.evalPtype(pos, .bishop, false),
+		},
+		.rook = .{
+			.mg = ft.evalPtype(pos, .rook, true),
+			.eg = ft.evalPtype(pos, .rook, false),
+		},
+		.queen = .{
+			.mg = ft.evalPtype(pos, .queen, true),
+			.eg = ft.evalPtype(pos, .queen, false),
+		},
+		.king = .{
+			.mg = ft.evalKing(pos, true),
+			.eg = ft.evalKing(pos, false),
+		},
+		.all = .{
+			.mg = ft.evalPawn(pos, true) + ft.evalKing(pos, true)
+			  + ft.evalPtype(pos, .knight, true) + ft.evalPtype(pos, .bishop, true)
+			  + ft.evalPtype(pos, .rook,   true) + ft.evalPtype(pos, .queen,  true),
+			.eg = ft.evalPawn(pos, false) + ft.evalKing(pos, false)
+			  + ft.evalPtype(pos, .knight, false) + ft.evalPtype(pos, .bishop, false)
+			  + ft.evalPtype(pos, .rook,   false) + ft.evalPtype(pos, .queen,  false),
+		},
+	});
+	const phase = Taper.phase.fromPosition(pos);
+
+	const ev = @divTrunc(by_ptype.get(.all).dither(phase) * (100 - pos.ssTop().rule50), 100);
+
+	try pos.printSelf();
+	std.log.defaultLog(.debug, .evaluation, "pawn:   {d}", .{by_ptype.get(.pawn).dither(phase)});
+	std.log.defaultLog(.debug, .evaluation, "knight: {d}", .{by_ptype.get(.knight).dither(phase)});
+	std.log.defaultLog(.debug, .evaluation, "bishop: {d}", .{by_ptype.get(.bishop).dither(phase)});
+	std.log.defaultLog(.debug, .evaluation, "rook:   {d}", .{by_ptype.get(.rook).dither(phase)});
+	std.log.defaultLog(.debug, .evaluation, "queen:  {d}", .{by_ptype.get(.queen).dither(phase)});
+	std.log.defaultLog(.debug, .evaluation, "king:   {d}", .{by_ptype.get(.king).dither(phase)});
+	std.log.defaultLog(.debug, .evaluation, "phase:  {d}", .{phase});
+	std.log.defaultLog(.debug, .evaluation, "score:  {d}", .{ev});
+}
+
 pub fn scorePosition(pos: Position) isize {
 	const ft = Ft.init(pos);
 	return ft.eval(pos);
@@ -483,4 +573,21 @@ pub fn scorePosition(pos: Position) isize {
 test {
 	_ = Taper;
 	_ = Ft;
+
+	var pos = std.mem.zeroes(Position);
+
+	for (EvalTest.suite[0 .. 0]) |ref| {
+		try pos.parseFen(ref.fen);
+		const ev = scorePosition(pos);
+		const cp = score.centipawns(ev);
+		try std.testing.expectApproxEqAbs(
+		  @as(f32, @floatFromInt(ref.centipawns)),
+		  @as(f32, @floatFromInt(cp)),
+		  @as(f32, @floatFromInt(score.pawn * 3 / 4)),
+		);
+
+		try pos.printSelf();
+		std.log.defaultLog(.debug, .evaluation, "reference:  {d}", .{ref.centipawns});
+		std.log.defaultLog(.debug, .evaluation, "evaluation: {d}", .{cp});
+	}
 }

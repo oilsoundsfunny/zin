@@ -21,6 +21,15 @@ pub const Entry = packed struct(u80) {
 		pv,
 		beta,
 	};
+
+	pub fn shouldTrust(self: Entry, alpha: isize, beta: isize) bool {
+		if (self.flag == .pv
+		  or (self.flag == .alpha and self.score <= alpha)
+		  or (self.flag == .beta  and self.score >  beta)) {
+			return true;
+		}
+		return false;
+	}
 };
 
 pub const Cluster = packed struct(u256) {

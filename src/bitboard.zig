@@ -37,6 +37,11 @@ pub fn pPush2(pawns: misc.types.BitBoard, occ: misc.types.BitBoard,
 	return pPush1(pPush1(pawns.bitAnd(stm.pawnRank().bb()), occ, stm), occ, stm);
 }
 
+pub fn blockedPawns(pawns: misc.types.BitBoard, occ: misc.types.BitBoard,
+  stm: misc.types.Color) misc.types.BitBoard {
+	return pawns.bitAnd(pPush1(occ, .nil, stm.flip()));
+}
+
 pub fn nAtk(s: misc.types.Square) misc.types.BitBoard {
 	return n_atk_tbl.get(s);
 }
