@@ -66,6 +66,7 @@ pub fn build(bld: *std.Build) !void {
 		.pic = true,
 		.link_libc = false,
 		.link_libcpp = false,
+		.single_threaded = false,
 		.strip = ndebug,
 		.unwind_tables = if (ndebug) .none else .sync,
 		.stack_check = !ndebug,
@@ -86,6 +87,7 @@ pub fn build(bld: *std.Build) !void {
 		.pic = true,
 		.link_libc = false,
 		.link_libcpp = false,
+		.single_threaded = false,
 		.strip = ndebug,
 		.unwind_tables = if (ndebug) .none else .sync,
 		.stack_check = !ndebug,
@@ -132,6 +134,7 @@ pub fn build(bld: *std.Build) !void {
 		.root_module = root,
 		.name = config_src.name,
 		.version = config_src.version,
+		.linkage = .static,
 		.use_llvm = optimize != .Debug,
 		.use_lld = optimize != .Debug,
 	});
