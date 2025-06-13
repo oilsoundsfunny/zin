@@ -393,12 +393,16 @@ pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
 	if (half_move_token != null) {
 		self.ssTopPtr()[0].rule50 = std.fmt.parseUnsigned(@TypeOf(self.ssTopPtr()[0].rule50),
 		  half_move_token.?, 10) catch return error.InvalidHalfMoveClock;
+	} else {
+		self.ssTopPtr()[0].rule50 = 0;
 	}
 
 	const move_token = tokens.next();
 	if (move_token != null) {
 		self.game_len = std.fmt.parseUnsigned(@TypeOf(self.game_len),
 		  move_token.?, 10) catch return error.InvalidMoveClock;
+	} else {
+		self.game_len = 1;
 	}
 
 	self.ssTopPtr()[0].chk = self.genChk();

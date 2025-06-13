@@ -468,49 +468,6 @@ pub const Ft = struct {
 
 		return tbl;
 	}
-
-	pub fn eval(self: Ft, pos: Position) isize {
-		const by_ptype = std.EnumArray(misc.types.Ptype, Taper).init(.{
-			.nil = undefined,
-			.pawn = .{
-				.mg = self.evalPawn(pos, true),
-				.eg = self.evalPawn(pos, false),
-			},
-			.knight = .{
-				.mg = self.evalPtype(pos, .knight, true),
-				.eg = self.evalPtype(pos, .knight, false),
-			},
-			.bishop = .{
-				.mg = self.evalPtype(pos, .bishop, true),
-				.eg = self.evalPtype(pos, .bishop, false),
-			},
-			.rook = .{
-				.mg = self.evalPtype(pos, .rook, true),
-				.eg = self.evalPtype(pos, .rook, false),
-			},
-			.queen = .{
-				.mg = self.evalPtype(pos, .queen, true),
-				.eg = self.evalPtype(pos, .queen, false),
-			},
-			.king = .{
-				.mg = self.evalKing(pos, true),
-				.eg = self.evalKing(pos, false),
-			},
-			.all = undefined,
-		});
-
-		const accum = Taper {
-			.mg = by_ptype.get(.pawn).mg + by_ptype.get(.knight).mg + by_ptype.get(.bishop).mg
-			  + by_ptype.get(.rook).mg + by_ptype.get(.queen).mg + by_ptype.get(.king).mg,
-			.eg = by_ptype.get(.pawn).eg + by_ptype.get(.knight).eg + by_ptype.get(.bishop).eg
-			  + by_ptype.get(.rook).eg + by_ptype.get(.queen).eg + by_ptype.get(.king).eg,
-		};
-		const phase = Taper.phase.fromPosition(pos);
-
-		var ev = accum.dither(phase);
-		ev = @divTrunc(ev * (100 - pos.ssTop().rule50), 100);
-		return ev;
-	}
 };
 
 pub fn debugPosition(pos: Position) !void {
@@ -567,7 +524,54 @@ pub fn debugPosition(pos: Position) !void {
 
 pub fn scorePosition(pos: Position) isize {
 	const ft = Ft.init(pos);
-	return ft.eval(pos);
+
+	const by_ptype = std.EnumArray(misc.types.Ptype, Taper).init(.{
+		.nil = undefined,
+		.pawn = .{
+			.mg = ft.evalPawn(pos, true),
+			.eg = ft.evalPawn(pos, false),
+		},
+		.knight = .{
+			.mg = ft.evalPtype(pos, .knight, true),
+			.eg = ft.evalPtype(pos, .knight, false),
+		},
+		.bishop = .{
+			.mg = ft.evalPtype(pos, .bishop, true),
+			.eg = ft.evalPtype(pos, .bishop, false),
+		},
+		.rook = .{
+			.mg = ft.evalPtype(pos, .rook, true),
+			.eg = ft.evalPtype(pos, .rook, false),
+		},
+		.queen = .{
+			.mg = ft.evalPtype(pos, .queen, true),
+			.eg = ft.evalPtype(pos, .queen, false),
+		},
+		.king = .{
+			.mg = ft.evalKing(pos, true),
+			.eg = ft.evalKing(pos, false),
+		},
+		.all = undefined,
+	});
+
+	const accum = Taper {
+		.mg = by_ptype.get(.pawn).mg
+		  + by_ptype.get(.knight).mg
+		  + by_ptype.get(.bishop).mg
+		  + by_ptype.get(.rook).mg
+		  + by_ptype.get(.queen).mg
+		  + by_ptype.get(.king).mg,
+		.eg = by_ptype.get(.pawn).eg
+		  + by_ptype.get(.knight).eg
+		  + by_ptype.get(.bishop).eg
+		  + by_ptype.get(.rook).eg
+		  + by_ptype.get(.queen).eg
+		  + by_ptype.get(.king).eg,
+	};
+	const phase = Taper.phase.fromPosition(pos);
+
+	const ev = @divTrunc(accum.dither(phase) * (100 - pos.ssTop().rule50), 100);
+	return ev;
 }
 
 test {

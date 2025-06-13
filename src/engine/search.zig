@@ -8,6 +8,10 @@ const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
 const transposition = @import("transposition.zig");
 
+pub var execing: bool = true;
+pub var sigabrt: bool = false;
+pub var sigstop: bool = false;
+
 fn qs(thread: *Thread, ss: [*]Position.Stack, alpha: isize, beta: isize) isize {
 	const b = beta;
 	var a = alpha;
@@ -142,7 +146,7 @@ fn ab(thread: *Thread, ss: [*]Position.Stack,
 	}
 }
 
-pub fn onThread(thread: *Thread) void {
+pub fn onThread(thread: *Thread) !void {
 	const pos = &thread.pos;
 	const ss  = pos.ssTopPtr();
 
@@ -154,7 +158,12 @@ pub fn onThread(thread: *Thread) void {
 
 		const depth: isize = @intCast(d);
 
-		for (thread.root_moves.slice[0 ..]) |*rm| {
+		for (thread.root_moves[0 ..]) |*rm| {
+			if (sigabrt) {
+				break;
+			}
+			thread.sleep(&execing);
+
 			const move = rm.line[0];
 			var window: struct {isize, isize} = .{-evaluation.score.pawn, evaluation.score.pawn};
 
@@ -162,11 +171,9 @@ pub fn onThread(thread: *Thread) void {
 			var score = -ab(thread, ss + 1, rm.score + window[0], rm.score + window[1], depth);
 			if (score <= window[0] or score > window[1]) {
 				if (score <= window[0]) {
-					window[0] *= 2;
-					window[0] = std.math.clamp(window[0], evaluation.score.lose - score, 0);
+					window[0] = std.math.clamp(window[0] * 4, evaluation.score.lose - score, 0);
 				} else {
-					window[1] *= 2;
-					window[1] = std.math.clamp(window[1], 0, evaluation.score.win - score);
+					window[1] = std.math.clamp(window[1] * 4, 0, evaluation.score.win - score);
 				}
 				score = -ab(thread, ss + 1, score + window[0], score + window[1], depth);
 			}
@@ -179,10 +186,22 @@ pub fn onThread(thread: *Thread) void {
 			rm.score = score;
 		}
 
+		if (!thread.isMainWorker()) {
+			thread.sleep(&execing);
+			continue;
+		}
+
+		Thread.Pool.global.sortRootMoves();
+
 		if (builtin.is_test) {
 			std.log.defaultLog(.debug, .onThread,
 			  "info depth {d} cp {d} pv {s}",
 			  .{depth, best.score, best.move.print()});
+		} else {
+			const stdout = std.io.getStdOut();
+			try stdout.writer().print("info depth {d} cp {d} pv {s}\n", .{
+			  depth, best.score, best.move.print(),
+			});
 		}
 	}
 }
@@ -205,7 +224,7 @@ test {
 	};
 	const main_worker = try Thread.Pool.global.getMainWorker();
 
-	for (fens[2 ..][0 .. 1]) |fen| {
+	for (fens[2 ..][0 .. 0]) |fen| {
 		try main_worker.pos.parseFen(fen);
 		try Thread.Pool.global.genRootMoves();
 
