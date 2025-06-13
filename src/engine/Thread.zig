@@ -4,15 +4,21 @@ const std = @import("std");
 const Position = @import("Position.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
+const timeman = @import("timeman.zig");
 
 const Self = @This();
+
+const spawn_args = std.Thread.SpawnConfig {
+  .allocator = misc.heap.allocator,
+  .stack_size = 16 * 1024 * 1024,
+};
 
 handle:	std.Thread,
 
 pos:	Position,
 depth:	isize,
 
-root_moves:	movegen.RootMove.Slice,
+root_moves:	[]movegen.RootMove,
 
 bfhist:	[misc.types.Square.num][misc.types.Piece.num]Hist,
 capthist:	[misc.types.Square.num]
@@ -43,7 +49,7 @@ pub const Pool = struct {
 		.workers = null,
 		.cond = .{},
 		.mtx = .{},
-		.root_moves = undefined,
+		.root_moves = std.mem.zeroes(movegen.RootMove.List),
 	};
 
 	pub fn allocate(self: *Pool, cnt: usize) !void {
@@ -54,20 +60,29 @@ pub const Pool = struct {
 	}
 
 	pub fn free(self: *Pool) void {
-		misc.heap.allocator.free(self.workers.?);
+		if (self.workers != null) {
+			misc.heap.allocator.free(self.workers.?);
+		}
 	}
 
-	pub fn getMainWorker(self: Pool) !*Self {
-		return if (self.workers == null) error.Uninitialized else &self.workers.?[0];
+	pub fn getMainWorker(self: *Pool) !*Self {
+		const workers = self.workers orelse return error.Uninitialized;
+		return &workers[0];
+	}
+
+	pub fn getHelpers(self: *Pool) ![]Self {
+		const workers = self.workers orelse return error.Uninitialized;
+		return workers[1 ..];
 	}
 
 	pub fn genRootMoves(self: *Pool) !void {
+		const workers = self.workers orelse return error.Uninitialized;
 		const main_worker = try self.getMainWorker();
 		const pos = &main_worker.pos;
 
 		var list = std.mem.zeroes(movegen.ScoredMove.List);
-		_ = list.gen(main_worker.pos, true);
-		_ = list.gen(main_worker.pos, false);
+		_ = list.gen(pos.*, true);
+		_ = list.gen(pos.*, false);
 
 		self.root_moves = try movegen.RootMove.List.init(0);
 		for (list.arr[0 .. list.cnt]) |sm| {
@@ -82,21 +97,48 @@ pub const Pool = struct {
 			try self.root_moves.append(rm);
 		}
 
-		const div = self.root_moves.constSlice().len / self.workers.?.len;
-		const mod = self.root_moves.constSlice().len % self.workers.?.len;
+		const div = self.root_moves.constSlice().len / workers.len;
+		const mod = self.root_moves.constSlice().len % workers.len;
 		var start: usize = 0;
-		for (self.workers.?, 0 ..) |*thread, i| {
-			thread.root_moves.slice = self.root_moves
+		for (workers, 0 ..) |*thread, i| {
+			thread.root_moves = self.root_moves
 			  .slice()[start .. if (i < mod) start + div + 1 else start + div];
-			thread.root_moves.cnt = thread.root_moves.slice.len;
-			thread.root_moves.idx = 0;
-
-			start += thread.root_moves.cnt;
+			start += thread.root_moves.len;
 		}
+	}
+
+	pub fn sortRootMoves(self: *Pool) void {
+		const desc = struct {
+			pub fn inner(_: void, a: movegen.RootMove, b: movegen.RootMove) bool {
+				return a.score > b.score;
+			}
+		}.inner;
+		std.sort.insertion(movegen.RootMove, self.root_moves.slice(), {}, desc);
+	}
+
+	pub fn startMainWorker(self: *Pool, comptime func: anytype, comptime args: anytype) !void {
+		const main_worker = try self.getMainWorker();
+		main_worker.handle = try std.Thread.spawn(spawn_args, func, .{main_worker} ++ args);
+		std.Thread.detach(main_worker.handle);
+	}
+
+	pub fn prepare(self: *Pool) !void {
+		const main_worker = try self.getMainWorker();
+		main_worker.depth = timeman.depth;
 	}
 };
 
 pub fn isMainWorker(self: *Self) bool {
 	const main_worker = Pool.global.getMainWorker() catch return false;
 	return self == main_worker;
+}
+
+pub fn sleep(self: *Self, condition: *bool) void {
+	_ = self;
+
+	Pool.global.mtx.lock();
+	while (!@atomicLoad(bool, condition, .monotonic)) {
+		Pool.global.cond.wait(&Pool.global.mtx);
+	}
+	Pool.global.mtx.unlock();
 }
