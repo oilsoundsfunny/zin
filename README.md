@@ -5,4 +5,7 @@
 1. install zig master e.g. via zvm
 2. build:
 
-	$ zig build
+```
+$ zig build
+```
+
