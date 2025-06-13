@@ -1,3 +1,8 @@
-# <div align="center">zin</div>
+# <div align="center">chess engine written in zig</div>
 
-A chess engine written in Zig
+## building
+
+1. install zig master e.g. via zvm
+2. build:
+
+	$ zig build
