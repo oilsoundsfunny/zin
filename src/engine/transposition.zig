@@ -59,7 +59,11 @@ pub const Table = struct {
 
 	pub fn allocate(self: *Table, mb: usize) !void {
 		const len = (mb << 20) / @sizeOf(Cluster);
-		self.tbl = try misc.heap.allocator.alignedAlloc(Cluster, .@"32", len);
+		if (self.tbl == null) {
+			self.tbl = try misc.heap.allocator.alignedAlloc(Cluster, .@"64", len);
+		} else {
+			self.tbl = try misc.heap.allocator.realloc(self.tbl.?, mb << 20);
+		}
 	}
 
 	pub fn clear(self: *Table) void {

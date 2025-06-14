@@ -10,10 +10,9 @@ pub const std_options = std.Options {
 };
 
 pub fn main() !void {
-	try engine.Thread.Pool.global.allocate(1);
-	try engine.transposition.Table.global.allocate(64);
-
 	try engine.uci.printEngine();
+	_ = try engine.uci.parseCommand("setoption name Hash value 64");
+	_ = try engine.uci.parseCommand("setoption name Threads value 1");
 	_ = try engine.uci.parseCommand("position startpos");
 
 	try misc.time.init();

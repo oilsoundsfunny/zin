@@ -92,24 +92,24 @@ pub const Taper = struct {
 	};
 
 	const mg_pt_score = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
-		.nil = undefined,
-		.pawn   = score.pawn / 2,
-		.knight = score.pawn * 46 / 16,
-		.bishop = score.pawn * 50 / 16,
+		.nil = score.draw,
+		.pawn   = score.pawn,
+		.knight = score.pawn * 23 / 8,
+		.bishop = score.pawn * 25 / 8,
 		.rook   = score.pawn * 5,
 		.queen  = score.pawn * 9,
 		.king   = score.draw,
-		.all = undefined,
+		.all = score.draw,
 	});
 	const eg_pt_score = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
-		.nil = undefined,
+		.nil = score.draw,
 		.pawn   = score.pawn,
-		.knight = score.pawn * 54 / 16,
-		.bishop = score.pawn * 58 / 16,
+		.knight = score.pawn * 22 / 8,
+		.bishop = score.pawn * 26 / 8,
 		.rook   = score.pawn * 5,
 		.queen  = score.pawn * 9,
 		.king   = score.draw,
-		.all = undefined,
+		.all = score.draw,
 	});
 
 	pub const mobility_bonus = mobility_init: {
@@ -117,14 +117,14 @@ pub const Taper = struct {
 		var tbl = std.EnumArray(misc.types.Ptype, [32]Taper).initFill(std.mem.zeroes([32]Taper));
 
 		const mobility_cnt = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
-			.nil = undefined,
-			.pawn   = undefined,
+			.nil = 0,
+			.pawn   = 0,
 			.knight = bitboard.nAtk(.d4).cntSquares() + 1,
 			.bishop = bitboard.bAtk(.d4, .nil).cntSquares() + 1,
 			.rook   = bitboard.rAtk(.d4, .nil).cntSquares() + 1,
 			.queen  = bitboard.qAtk(.d4, .nil).cntSquares() + 1,
-			.king   = undefined,
-			.all = undefined,
+			.king   = 0,
+			.all = 0,
 		});
 		const ptypes = [_]misc.types.Ptype {.knight, .bishop, .rook, .queen};
 
@@ -133,7 +133,7 @@ pub const Taper = struct {
 			for (0 .. cnt) |idx| {
 				const c: comptime_float = @floatFromInt(cnt);
 				const i: comptime_float = @floatFromInt(idx);
-				const factor: comptime_float = 0.125 * @log2(i / c + 0.5);
+				const factor: comptime_float = (1.0 / 16.0) * @log2(i / c + 0.5);
 				tbl.getPtr(pt)[idx] = .{
 				  .mg = @intFromFloat(factor * @as(comptime_float, mg_pt_score.get(pt))),
 				  .eg = @intFromFloat(factor * @as(comptime_float, eg_pt_score.get(pt))),
@@ -285,8 +285,8 @@ pub const Taper = struct {
 			const pt = p.ptype();
 			for (misc.types.Square.values) |s| {
 				tbl.getPtr(pt).set(s, .{
-				  .mg = mg_pt_score.get(pt) + score.fromCentipawns(mg_tbl.get(pt).get(s)),
-				  .eg = eg_pt_score.get(pt) + score.fromCentipawns(eg_tbl.get(pt).get(s)),
+					.mg = mg_pt_score.get(pt) + score.fromCentipawns(mg_tbl.get(pt).get(s)),
+					.eg = eg_pt_score.get(pt) + score.fromCentipawns(eg_tbl.get(pt).get(s)),
 				});
 			}
 		}
@@ -302,7 +302,7 @@ pub const Taper = struct {
 pub const Ft = struct {
 	piece_atk:	std.EnumArray(misc.types.Piece, misc.types.BitBoard),
 	passed_pawns:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
-	mobile_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
+	mobility_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
 	king_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
 	king_atk_cnt:	std.EnumArray(misc.types.Color, isize),
 	king_atk_mat:	std.EnumArray(misc.types.Color, isize),
@@ -402,7 +402,7 @@ pub const Ft = struct {
 			var b = pieces.get(c);
 			while (b != .nil) : (b.popLow()) {
 				const s = b.lowSquare();
-				const a = bitboard.ptAtk(pt, s, occ).bitAnd(self.mobile_area.get(c));
+				const a = bitboard.ptAtk(pt, s, occ).bitAnd(self.mobility_area.get(c));
 				switch (c) {
 					.white => ev += if (mg) Taper.mobility_bonus.get(pt)[a.cntSquares()].mg
 						else Taper.mobility_bonus.get(pt)[a.cntSquares()].eg,
@@ -462,8 +462,11 @@ pub const Ft = struct {
 
 			const their_pawns_atk = tbl.piece_atk.get(misc.types.Piece.fromPtype(c.flip(), .pawn));
 
-			tbl.mobile_area.set(c, misc.types.BitBoard.all.bitAnd(blocked_pawns.flip())
-			  .bitAnd(home_pawns.flip()).bitAnd(our_royalty.flip()).bitAnd(their_pawns_atk.flip()));
+			tbl.mobility_area.set(c, misc.types.BitBoard.all
+			  .bitAnd(blocked_pawns.flip())
+			  .bitAnd(home_pawns.flip())
+			  .bitAnd(our_royalty.flip())
+			  .bitAnd(their_pawns_atk.flip()));
 		}
 
 		return tbl;
@@ -518,7 +521,8 @@ pub fn debugPosition(pos: Position) !void {
 	std.log.defaultLog(.debug, .evaluation, "rook:   {d}", .{by_ptype.get(.rook).dither(phase)});
 	std.log.defaultLog(.debug, .evaluation, "queen:  {d}", .{by_ptype.get(.queen).dither(phase)});
 	std.log.defaultLog(.debug, .evaluation, "king:   {d}", .{by_ptype.get(.king).dither(phase)});
-	std.log.defaultLog(.debug, .evaluation, "phase:  {d}", .{phase});
+	std.log.defaultLog(.debug, .evaluation, "phase:  {d}",
+	  .{@divTrunc(phase * 100, Taper.phase.max)});
 	std.log.defaultLog(.debug, .evaluation, "score:  {d}", .{ev});
 }
 
@@ -580,18 +584,34 @@ test {
 
 	var pos = std.mem.zeroes(Position);
 
-	for (EvalTest.suite[0 .. 0]) |ref| {
+	for (EvalTest.suite[1 ..][0 .. 1]) |ref| {
 		try pos.parseFen(ref.fen);
-		const ev = scorePosition(pos);
-		const cp = score.centipawns(ev);
-		try std.testing.expectApproxEqAbs(
-		  @as(f32, @floatFromInt(ref.centipawns)),
-		  @as(f32, @floatFromInt(cp)),
-		  @as(f32, @floatFromInt(score.pawn * 3 / 4)),
-		);
+		try debugPosition(pos);
 
-		try pos.printSelf();
-		std.log.defaultLog(.debug, .evaluation, "reference:  {d}", .{ref.centipawns});
-		std.log.defaultLog(.debug, .evaluation, "evaluation: {d}", .{cp});
+		const mobility_area = std.EnumArray(misc.types.Color, misc.types.BitBoard).init(.{
+			.white = misc.types.BitBoard.fromSlice(misc.types.Square, &.{
+				.a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
+				.a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
+				     .b6,      .d6,      .f6,      .h6,
+				.a5,      .c5,      .e5,      .g5,
+				.a4, .b4, .c4, .d4, .e4, .f4, .g4, .h4,
+				.a3,      .c3, .d3, .e3, .f3, .g3, .h3,
+				.a2,      .c2, .d2, .e2, .f2,
+				.a1, .b1, .c1, .d1, .e1, .f1, .g1,
+			}),
+			.black = misc.types.BitBoard.fromSlice(misc.types.Square, &.{
+				.a1, .b1, .c1, .d1, .e1, .f1, .g1, .h1,
+				.a2, .b2, .c2, .d2, .e2, .f2, .g2, .h2,
+				     .b3,      .d3, .e3,
+				.a4, .b4, .c4, .d4, .e4, .f4, .g4, .h4,
+				.a5,      .c5, .d5, .e5, .f5, .g5, .h5,
+				     .b6,      .d6,      .f6,      .h6,
+				.a7,      .c7, .d7, .e7,      .g7,
+				.a8, .b8, .c8,      .e8, .f8,      .h8,
+			}),
+		});
+
+		const ft = Ft.init(pos);
+		try std.testing.expectEqual(mobility_area, ft.mobility_area);
 	}
 }

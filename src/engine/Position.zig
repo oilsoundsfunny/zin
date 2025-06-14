@@ -305,11 +305,14 @@ pub fn is3peat(self: Self) bool {
 }
 
 pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
+	var tokens = std.mem.tokenizeAny(u8, fen, &.{'\t', '\n', '\r', ' '});
+	try self.parseFenTokens(&tokens);
+}
+
+pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
 	const backup = self.*;
 	self.* = std.mem.zeroes(Self);
 	errdefer self.* = backup;
-
-	var tokens = std.mem.tokenizeAny(u8, fen, &.{'\t', '\n', '\r', ' '});
 
 	const psq_token = tokens.next() orelse return error.InvalidFen;
 	var si: usize = 0;
@@ -405,6 +408,10 @@ pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
 		self.game_len = 1;
 	}
 
+	if (tokens.peek() != null) {
+		return error.InvalidFen;
+	}
+
 	self.ssTopPtr()[0].chk = self.genChk();
 	self.ssTopPtr()[0].key = self.genKey();
 }
@@ -418,6 +425,7 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 
 	const next_cas = self.casAfterMove(move);
 	const next_key = self.keyAfterMove(move);
+	const ply_clock = self.ssTop().rule50;
 
 	self.ss_ply += 1;
 	self.popSquare(src, src_piece);
@@ -469,6 +477,9 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	  = if (src_piece.ptype() == .pawn and dst.shift(stm.forward().flip(), 2) == src)
 		dst.shift(stm.forward().flip(), 1) else null;
 	self.ssTopPtr()[0].key = next_key;
+	self.ssTopPtr()[0].rule50 = if (src_piece.ptype() != .pawn and dst_piece.ptype() == .nil) 0
+		else ply_clock + 1;
+	self.game_len += if (self.stm == .white) 1 else 0;
 
 	self.ssTopPtr()[0].move = move;
 	self.ssTopPtr()[0].dst_piece = dst_piece;
@@ -482,6 +493,8 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 
 pub fn undoMove(self: *Self) void {
 	self.stm = self.stm.flip();
+	self.game_len -= if (self.stm == .black) 1 else 0;
+
 	const move = self.ssTop().move;
 	const dst_piece = self.ssTop().dst_piece;
 	const src_piece = self.ssTop().src_piece;

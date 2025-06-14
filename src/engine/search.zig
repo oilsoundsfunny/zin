@@ -6,18 +6,15 @@ const Position = @import("Position.zig");
 const Thread = @import("Thread.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
+const timeman = @import("timeman.zig");
 const transposition = @import("transposition.zig");
-
-pub var execing: bool = true;
-pub var sigabrt: bool = false;
-pub var sigstop: bool = false;
 
 fn qs(thread: *Thread, ss: [*]Position.Stack, alpha: isize, beta: isize) isize {
 	const b = beta;
 	var a = alpha;
 	var pos = &thread.pos;
 
-	if (pos.is3peat()) {
+	if (pos.is3peat() or pos.ssTop().rule50 >= 100) {
 		return evaluation.score.draw;
 	}
 
@@ -38,21 +35,31 @@ fn qs(thread: *Thread, ss: [*]Position.Stack, alpha: isize, beta: isize) isize {
 	};
 	var mp = movegen.Picker.init(thread,
 	  ttm, movegen.Move.zero, movegen.Move.zero, pos.checkMask() == .all);
+	var mp_idx: usize = 0;
 
-	while (mp.next()) |move| {
+	while (mp.next()) |move| : (mp_idx += 1) {
+		var s: isize = evaluation.score.nil;
+
 		pos.doMove(move) catch continue;
-		const s = -qs(thread, ss + 1, -b, -a);
+		if (mp_idx == 0) {
+			s = -qs(thread, ss + 1, -b, -a);
+		} else {
+			s = -qs(thread, ss + 1, -a - 1, -a);
+			if (s >= a + 1) {
+				s = -qs(thread, ss + 1, -b, -a);
+			}
+		}
 		pos.undoMove();
 
 		if (s > best.score) {
 			best.score = @intCast(s);
-			if (s >= b) {
-				tt_flag = .beta;
-				break;
-			}
 			if (s > a) {
 				a = s;
 				best.move = move;
+			}
+			if (s >= b) {
+				tt_flag = .beta;
+				break;
 			}
 		}
 	}
@@ -88,7 +95,7 @@ fn ab(thread: *Thread, ss: [*]Position.Stack,
 	var a = alpha;
 	var pos = &thread.pos;
 
-	if (thread.pos.is3peat()) {
+	if (pos.is3peat() or pos.ssTop().rule50 >= 100) {
 		return evaluation.score.draw;
 	}
 
@@ -102,25 +109,39 @@ fn ab(thread: *Thread, ss: [*]Position.Stack,
 	}
 	const eval = if (tt_hit) tte.?.eval else evaluation.scorePosition(pos.*);
 
+	const rfp_margin = depth * 128;
+	if (pos.checkMask() == .all and beta - alpha == 1 and eval >= beta + rfp_margin) {
+		return eval;
+	}
+
 	const ttm = if (tt_hit) tte.?.move else movegen.Move.zero;
 	var best = movegen.ScoredMove {.move = ttm, .score = evaluation.score.nil};
 	var mp = movegen.Picker.init(thread, ttm, movegen.Move.zero, movegen.Move.zero, false);
+	var mp_idx: usize = 0;
 
-	while (mp.next()) |move| {
+	while (mp.next()) |move| : (mp_idx += 1) {
 		pos.doMove(move) catch continue;
-		const s = -ab(thread, ss + 1, -b, -a, d - 1);
+		var s: isize = evaluation.score.nil;
+		if (mp_idx == 0) {
+			s = -ab(thread, ss + 1, -b, -a, d - 1);
+		} else {
+			s = -ab(thread, ss + 1, -a - 1, -a, d - 1);
+			if (s >= a + 1) {
+				s = -ab(thread, ss + 1, -b, -a, d - 1);
+			}
+		}
 		pos.undoMove();
 
 		if (s > best.score) {
 			best.score = @intCast(s);
-			if (s >= b) {
-				tt_flag = .beta;
-				break;
-			}
 			if (s > a) {
 				tt_flag = .pv;
 				a = s;
 				best.move = move;
+			}
+			if (s >= b) {
+				tt_flag = .beta;
+				break;
 			}
 		}
 	}
@@ -147,63 +168,88 @@ fn ab(thread: *Thread, ss: [*]Position.Stack,
 }
 
 pub fn onThread(thread: *Thread) !void {
+	const is_main = thread.isMainWorker();
 	const pos = &thread.pos;
-	const ss  = pos.ssTopPtr();
+	const ss = pos.ssTopPtr();
+	const stdout = std.io.getStdOut();
 
-	for (0 .. @intCast(thread.depth)) |d| {
+	for (0 .. @intCast(timeman.depth.?)) |d| {
+		if (is_main) {
+			@atomicStore(bool, &Thread.Pool.global.is_helpers_awake, true, .monotonic);
+			Thread.Pool.global.cond.broadcast();
+			@atomicStore(bool, &Thread.Pool.global.is_helpers_awake, false, .monotonic);
+		}
+
 		var best = movegen.ScoredMove {
 		  .move  = movegen.Move.zero,
-		  .score = evaluation.score.nil,
+		  .score = evaluation.score.lose,
 		};
-
 		const depth: isize = @intCast(d);
+		thread.depth = depth;
 
-		for (thread.root_moves[0 ..]) |*rm| {
-			if (sigabrt) {
-				break;
-			}
-			thread.sleep(&execing);
-
+		for (thread.root_moves.slice[0 ..], 0 ..) |*rm, i| {
 			const move = rm.line[0];
 			var window: struct {isize, isize} = .{-evaluation.score.pawn, evaluation.score.pawn};
+			var score: isize = evaluation.score.nil;
 
+			thread.root_moves.idx = i;
 			pos.doMove(move) catch unreachable;
-			var score = -ab(thread, ss + 1, rm.score + window[0], rm.score + window[1], depth);
+			defer {
+				pos.undoMove();
+				if (score > best.score) {
+					best = .{.move = move, .score = @intCast(score)};
+				}
+				rm.score = score;
+			}
+
+			if (is_main) {
+				@atomicStore(bool, &Thread.Pool.global.is_searching,
+				  !timeman.hardStop(), .monotonic);
+			}
+			if (!Thread.Pool.global.isSearching()) {
+				break;
+			}
+			score = -ab(thread, ss + 1, rm.score + window[0], rm.score + window[1], depth);
+
 			if (score <= window[0] or score > window[1]) {
 				if (score <= window[0]) {
 					window[0] = std.math.clamp(window[0] * 4, evaluation.score.lose - score, 0);
 				} else {
 					window[1] = std.math.clamp(window[1] * 4, 0, evaluation.score.win - score);
 				}
+
+				if (is_main) {
+					@atomicStore(bool, &Thread.Pool.global.is_searching,
+					  !timeman.hardStop(), .monotonic);
+				}
+				if (!Thread.Pool.global.isSearching()) {
+					break;
+				}
 				score = -ab(thread, ss + 1, score + window[0], score + window[1], depth);
 			}
-			pos.undoMove();
-
-			if (score > best.score) {
-				best = .{.move = move, .score = @intCast(score)};
-			}
-
-			rm.score = score;
 		}
 
-		if (!thread.isMainWorker()) {
-			thread.sleep(&execing);
+		if (!is_main) {
+			thread.sleep(&Thread.Pool.global.is_helpers_awake);
 			continue;
 		}
 
 		Thread.Pool.global.sortRootMoves();
 
-		if (builtin.is_test) {
-			std.log.defaultLog(.debug, .onThread,
-			  "info depth {d} cp {d} pv {s}",
-			  .{depth, best.score, best.move.print()});
-		} else {
-			const stdout = std.io.getStdOut();
-			try stdout.writer().print("info depth {d} cp {d} pv {s}\n", .{
-			  depth, best.score, best.move.print(),
-			});
+		const pv = thread.root_moves.slice[0];
+		try stdout.writer().print("info depth {d} pv", .{depth});
+		for (pv.line[0 .. pv.len]) |move| {
+			try stdout.writer().print(" {s}", .{move.print()});
+		}
+		try stdout.writer().print(" score cp {d}", .{evaluation.score.centipawns(pv.score)});
+		try stdout.writer().print("\n", .{});
+
+		if (!Thread.Pool.global.isSearching()) {
+			break;
 		}
 	}
+
+	try stdout.writer().print("bestmove {s}\n", .{thread.root_moves.slice[0].line[0].print()});
 }
 
 test {

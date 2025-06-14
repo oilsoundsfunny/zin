@@ -5,15 +5,21 @@ const Position = @import("Position.zig");
 const Thread = @import("Thread.zig");
 const movegen = @import("movegen.zig");
 
-pub var depth: u8 = std.math.maxInt(u8);
-pub var movetime: u64 = std.math.maxInt(u64);
-
-pub var increment = std.EnumArray(misc.types.Color, u64).init(.{
-  .white = std.math.maxInt(u64),
-  .black = std.math.maxInt(u64),
+pub var depth: ?u8 = null;
+pub var movetime: ?u64 = null;
+pub var increment = std.EnumArray(misc.types.Color, ?u64).init(.{
+  .white = null,
+  .black = null,
+});
+pub var time = std.EnumArray(misc.types.Color, ?u64).init(.{
+  .white = null,
+  .black = null,
 });
 
-pub var time = std.EnumArray(misc.types.Color, u64).init(.{
-  .white = std.math.maxInt(u64),
-  .black = std.math.maxInt(u64),
-});
+pub var start: ?u64 = null;
+pub var stop: ?u64 = null;
+
+pub fn hardStop() bool {
+	const ms = misc.time.read(.ms);
+	return stop != null and ms >= stop.?;
+}

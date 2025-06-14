@@ -5,6 +5,7 @@ const std = @import("std");
 const Position = @import("Position.zig");
 const Thread = @import("Thread.zig");
 const evaluation = @import("evaluation.zig");
+const transposition = @import("transposition.zig");
 
 const Perft = struct {
 	fen:	[]const u8,
@@ -479,14 +480,13 @@ pub const RootMove = struct {
 
 	pub const Slice = struct {
 		slice:	[]RootMove,
-		cnt:	usize,
 		idx:	usize,
 	};
 };
 
 pub const Picker = struct {
 	list:	ScoredMove.List,
-	thread:	*const Thread,
+	thread:	*Thread,
 
 	noisy:	bool,
 	stage:	Stage,
@@ -532,11 +532,7 @@ pub const Picker = struct {
 		return null;
 	}
 
-	pub fn init(thread: *const Thread,
-	  ttm: Move,
-	  killer0: Move,
-	  killer1: Move,
-	  noisy: bool) Picker {
+	pub fn init(thread: *Thread, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
 		return .{
 			.list = std.mem.zeroes(ScoredMove.List),
 			.thread = thread,
@@ -563,6 +559,35 @@ pub const Picker = struct {
 		if (self.stage == .gen_noisy) {
 			self.stage = self.stage.inc();
 			self.noisy_cnt = self.list.gen(self.thread.pos, true);
+
+			var noisy_cnt: @TypeOf(self.noisy_cnt) = self.noisy_cnt;
+			for (self.list.arr[0 .. self.noisy_cnt]) |*sm| {
+				const move = sm.move;
+				self.thread.pos.doMove(move) catch {
+					sm.* = .{
+						.move  = Move.zero,
+						.score = evaluation.score.nil,
+					};
+					noisy_cnt -= 1;
+					continue;
+				};
+				defer self.thread.pos.undoMove();
+
+				const tt_fetch = transposition.Table.global.fetch(self.thread.pos.ssTop().key);
+				const tt_entry = tt_fetch[0].?.*;
+				const tt_hit = tt_fetch[1];
+				if (tt_hit and tt_entry.shouldTrust(evaluation.score.lose, evaluation.score.win)) {
+					sm.score = tt_entry.score;
+				}
+			}
+
+			const desc = struct {
+				pub fn inner(_: void, a: ScoredMove, b: ScoredMove) bool {
+					return a.score > b.score;
+				}
+			}.inner;
+			std.sort.insertion(ScoredMove, self.list.arr[0 .. self.noisy_cnt], {}, desc);
+			self.noisy_cnt = noisy_cnt;
 		}
 
 		while (self.stage == .good_noisy) {
@@ -602,6 +627,36 @@ pub const Picker = struct {
 			self.stage = self.stage.inc();
 			if (!self.noisy) {
 				self.quiet_cnt = self.list.gen(self.thread.pos, false);
+
+				var quiet_cnt: @TypeOf(self.quiet_cnt) = self.quiet_cnt;
+				for (self.list.arr[0 .. self.quiet_cnt]) |*sm| {
+					const move = sm.move;
+					self.thread.pos.doMove(move) catch {
+						sm.* = .{
+							.move  = Move.zero,
+							.score = evaluation.score.nil,
+						};
+						quiet_cnt -= 1;
+						continue;
+					};
+					defer self.thread.pos.undoMove();
+
+					const tt_fetch = transposition.Table.global.fetch(self.thread.pos.ssTop().key);
+					const tt_entry = tt_fetch[0].?.*;
+					const tt_hit = tt_fetch[1];
+					if (tt_hit
+					  and tt_entry.shouldTrust(evaluation.score.lose, evaluation.score.win)) {
+						sm.score = tt_entry.score;
+					}
+				}
+
+				const desc = struct {
+					pub fn inner(_: void, a: ScoredMove, b: ScoredMove) bool {
+						return a.score > b.score;
+					}
+				}.inner;
+				std.sort.insertion(ScoredMove, self.list.arr[0 .. self.quiet_cnt], {}, desc);
+				self.quiet_cnt = quiet_cnt;
 			}
 		}
 
