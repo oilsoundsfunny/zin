@@ -106,20 +106,20 @@ pub fn build(bld: *std.Build) !void {
 	const bitboard_test = bld.addTest(.{
 		.root_module = bitboard,
 		.name = "bitboard",
-		.use_llvm = ndebug,
-		.use_lld = ndebug,
+		.use_llvm = optimize != .Debug,
+		.use_lld = optimize != .Debug,
 	});
 	const engine_test = bld.addTest(.{
 		.root_module = engine,
 		.name = "engine",
-		.use_llvm = ndebug,
-		.use_lld = ndebug,
+		.use_llvm = optimize != .Debug,
+		.use_lld = optimize != .Debug,
 	});
 	const misc_test = bld.addTest(.{
 		.root_module = misc,
 		.name = "misc",
-		.use_llvm = ndebug,
-		.use_lld = ndebug,
+		.use_llvm = optimize != .Debug,
+		.use_lld = optimize != .Debug,
 	});
 
 	bitboard_test.want_lto = ndebug;
