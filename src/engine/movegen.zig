@@ -3,7 +3,7 @@ const misc = @import("misc");
 const std = @import("std");
 
 const Position = @import("Position.zig");
-const Thread = @import("Thread.zig");
+const smp = @import("smp.zig");
 const evaluation = @import("evaluation.zig");
 const transposition = @import("transposition.zig");
 
@@ -486,7 +486,7 @@ pub const RootMove = struct {
 
 pub const Picker = struct {
 	list:	ScoredMove.List,
-	thread:	*Thread,
+	thread:	*smp.Info,
 
 	noisy:	bool,
 	stage:	Stage,
@@ -532,7 +532,7 @@ pub const Picker = struct {
 		return null;
 	}
 
-	pub fn init(thread: *Thread, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
+	pub fn init(thread: *smp.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
 		return .{
 			.list = std.mem.zeroes(ScoredMove.List),
 			.thread = thread,
@@ -710,7 +710,7 @@ test {
 	  Move.gen(.nil, .nil, .f3, .f6),
 	};
 
-	const thread = try misc.heap.allocator.create(Thread);
+	const thread = try misc.heap.allocator.create(smp.Info);
 	try thread.pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
 	defer misc.heap.allocator.destroy(thread);
 

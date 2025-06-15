@@ -579,9 +579,6 @@ pub fn scorePosition(pos: Position) isize {
 }
 
 test {
-	_ = Taper;
-	_ = Ft;
-
 	var pos = std.mem.zeroes(Position);
 
 	for (EvalTest.suite[1 ..][0 .. 1]) |ref| {

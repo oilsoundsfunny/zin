@@ -62,7 +62,7 @@ pub const Table = struct {
 		if (self.tbl == null) {
 			self.tbl = try misc.heap.allocator.alignedAlloc(Cluster, .@"64", len);
 		} else {
-			self.tbl = try misc.heap.allocator.realloc(self.tbl.?, mb << 20);
+			self.tbl = try misc.heap.allocator.realloc(self.tbl.?, len);
 		}
 	}
 
