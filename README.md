@@ -2,10 +2,15 @@
 
 ## building
 
-1. install zig master e.g. via zvm
+1. install zig master e.g. via zvm:
+
+```
+$ zvm install master
+```
+
 2. build:
 
 ```
-$ zig build
+$ zig build --prefix ~
 ```
 
