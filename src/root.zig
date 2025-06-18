@@ -10,7 +10,6 @@ pub const std_options = std.Options {
 };
 
 pub fn main() !void {
-	try engine.uci.printEngine();
 	_ = try engine.uci.parseCommand("setoption name Hash value 64");
 	_ = try engine.uci.parseCommand("setoption name Threads value 1");
 	_ = try engine.uci.parseCommand("position startpos");
@@ -18,6 +17,13 @@ pub fn main() !void {
 	try misc.time.init();
 	defer misc.heap.arena.deinit();
 
-	const input_thread = try std.Thread.spawn(.{}, engine.uci.readInput, .{});
+	const time_thread = try std.Thread.spawn(
+	  .{.allocator = misc.heap.allocator}, engine.timeman.loop, .{});
+	defer std.Thread.join(time_thread);
+
+	const input_thread = try std.Thread.spawn(
+	  .{.allocator = misc.heap.allocator}, engine.uci.readInput, .{});
 	defer std.Thread.join(input_thread);
+
+	try engine.uci.printEngine();
 }

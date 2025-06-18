@@ -4,7 +4,7 @@ const std = @import("std");
 
 const Position = @import("Position.zig");
 const search = @import("search.zig");
-const smp = @import("smp.zig");
+const timeman = @import("timeman.zig");
 const transposition = @import("transposition.zig");
 
 const Command = enum {
@@ -23,39 +23,40 @@ pub const Error = error {
 	UnknownCommand,
 };
 
-var input_info = std.mem.zeroes(smp.Info);
-
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !void {
-	const stm = input_info.pos.stm;
+	const main_info = try search.Info.ofMain();
+	const stm = main_info.pos.stm;
 
-	input_info.max_depth = null;
-	input_info.movetime = null;
-	input_info.increment = null;
-	input_info.time = null;
-	input_info.starttime = null;
-	input_info.stoptime = null;
+	timeman.depth = null;
+	timeman.movetime = null;
+	timeman.increment = null;
+	timeman.time = null;
+	timeman.start = null;
+	timeman.stop = null;
 
 	while (tokens.next()) |token| {
 		if (std.mem.eql(u8, token, "max_depth")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			input_info.max_depth = try std.fmt.parseUnsigned(u8, aux_token, 10);
+			timeman.depth = try std.fmt.parseUnsigned(u8, aux_token, 10);
 		} else if (std.mem.eql(u8, token, "movetime")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			input_info.movetime = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			timeman.movetime = try std.fmt.parseUnsigned(u64, aux_token, 10);
 		} else if (stm == .white and std.mem.eql(u8, token, "winc")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			input_info.increment = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			timeman.increment = try std.fmt.parseUnsigned(u64, aux_token, 10);
 		} else if (stm == .white and std.mem.eql(u8, token, "wtime")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			input_info.time = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			timeman.time = try std.fmt.parseUnsigned(u64, aux_token, 10);
 		} else if (stm == .black and std.mem.eql(u8, token, "binc")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			input_info.increment = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			timeman.increment = try std.fmt.parseUnsigned(u64, aux_token, 10);
 		} else if (stm == .black and std.mem.eql(u8, token, "btime")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			input_info.time = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			timeman.time = try std.fmt.parseUnsigned(u64, aux_token, 10);
 		} else return error.UnknownCommand;
 	}
+
+	try search.manager.spawn();
 }
 
 fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !void {
@@ -91,25 +92,27 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 		const value = std.fmt.parseUnsigned(usize, fourth_token, 10)
 			catch return error.UnknownCommand;
 
-		try smp.init(.{
-			.allocator = misc.heap.allocator,
-			.n_jobs = value,
-		});
+		if (search.Info.global) |old| {
+			search.Info.global = try misc.heap.allocator.realloc(old, value);
+		} else {
+			search.Info.global = try misc.heap.allocator.alignedAlloc(search.Info, .@"64", value);
+		}
 	} else return error.UnknownCommand;
 }
 
 fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 	const first = tokens.next() orelse return error.UnknownCommand;
+	const main_info = try search.Info.ofMain();
 
 	if (std.mem.eql(u8, first, "fen")) {
-		try input_info.pos.parseFenTokens(tokens);
+		try main_info.pos.parseFenTokens(tokens);
 	} else if (std.mem.eql(u8, first, "kiwipete")) {
-		try input_info.pos.parseFen(
+		try main_info.pos.parseFen(
 		  \\r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R
 		  \\ w KQkq - 0 1
 		);
 	} else if (std.mem.eql(u8, first, "startpos")) {
-		try input_info.pos.parseFen(
+		try main_info.pos.parseFen(
 		  \\rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
 		  \\ w KQkq - 0 1
 		);
@@ -137,17 +140,9 @@ pub fn parseCommand(comm: []const u8) !Command {
 			return error.UnknownCommand;
 		}
 
-		try input_info.pos.printSelf();
+		const main_info = try search.Info.ofMain();
+		try main_info.pos.printSelf();
 		return .printpos;
-	} else if (std.mem.eql(u8, first_token, @tagName(.printthreads))) {
-		if (tokens.peek() != null) {
-			return error.UnknownCommand;
-		}
-
-		const stdout = std.io.getStdOut();
-		try stdout.writer().print("info string Threads: {*}[0 .. {d}]\n",
-		  .{smp.pool.threads, smp.pool.threads.len});
-		return .printthreads;
 	} else if (std.mem.eql(u8, first_token, @tagName(.position))) {
 		try parsePosition(&tokens);
 		return .position;

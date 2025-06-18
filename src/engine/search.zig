@@ -5,41 +5,174 @@ const std = @import("std");
 const Position = @import("Position.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
-const smp = @import("smp.zig");
+const timeman = @import("timeman.zig");
 const transposition = @import("transposition.zig");
+const uci = @import("uci.zig");
 
-fn qs(info: *smp.Info, alpha: isize, beta: isize) isize {
+pub const Info = struct {
+	pos:	Position,
+	depth:	u8,
+	rms:	[]movegen.RootMove,
+
+	bfhist:	HistArray(Hist, 1),
+	capthist:	HistArray(Hist, 2),
+	conthist:	HistArray(Hist, 2),
+
+	pub const Hist = i16;
+
+	pub const Error = error {
+		Uninitialized,
+	};
+
+	pub var global: ?[]Info = null;
+
+	fn HistArray(comptime T: type, comptime n: comptime_int) type {
+		return switch (n) {
+			1 => std.EnumArray(misc.types.Piece, std.EnumArray(misc.types.Square, T)),
+			2 => HistArray(HistArray(T, 1), 1),
+			else => @compileError("unexpected comptime integer"
+			  ++ std.fmt.comptimePrint("{d}", .{n})),
+		};
+	}
+
+	pub fn ofMain() Error!*Info {
+		const all = try ofThreads();
+		return &all[0];
+	}
+	pub fn ofHelpers() Error![]Info {
+		const all = try ofThreads();
+		return all[1 ..];
+	}
+	pub fn ofThreads() Error![]Info {
+		const all = global orelse return error.Uninitialized;
+		return all[0 ..];
+	}
+};
+
+pub const manager = struct {
+	pub var native: ?std.Thread.Handle = null;
+
+	fn func() !void {
+		const infos = Info.global orelse return error.Uninitialized;
+		const stdout = std.io.getStdOut();
+		var root_moves = try movegen.RootMove.Array.fromInfo(&infos[0]);
+
+		const div = root_moves.constSlice().len / infos.len;
+		const mod = root_moves.constSlice().len % infos.len;
+		var start: usize = 0;
+		for (infos[0 ..], 0 ..) |*info, i| {
+			info.rms = root_moves.slice()[start ..][0 .. if (i < mod) div + 1 else div];
+			start += info.rms.len;
+		}
+		for (infos[1 ..]) |*info| {
+			info.pos = infos[0].pos;
+		}
+
+		var pool: std.Thread.Pool = undefined;
+		var wg = std.Thread.WaitGroup {};
+		try pool.init(.{
+			.allocator = misc.heap.allocator,
+			.n_jobs = infos.len,
+			.track_ids = false,
+		});
+		defer pool.deinit();
+
+		const overhead = timeman.overhead orelse 10;
+		if (timeman.movetime) |movetime| {
+			const read = misc.time.read(.ms);
+			timeman.start = read;
+			timeman.stop = read + movetime - overhead;
+		}
+		if (timeman.increment != null and timeman.time != null) {
+			const inc = timeman.increment.?;
+			const time = timeman.time.?;
+			const read = misc.time.read(.ms);
+
+			timeman.start = read;
+			timeman.stop = read + time / 20 + inc / 2 - overhead;
+		}
+
+		const min_depth = 1;
+		const max_depth = timeman.depth orelse 240;
+		for (min_depth .. max_depth) |d| {
+			const depth: u8 = @truncate(d);
+
+			wg.reset();
+			for (infos, 0 ..) |*info, i| {
+				info.depth = depth + @intFromBool(i % 2 == 0);
+				pool.spawnWg(&wg, threaded, .{info, i});
+			}
+			pool.waitAndWork(&wg);
+
+			root_moves.sort();
+			const pv = root_moves.constSlice()[0];
+
+			try stdout.writer().print("info depth {d}", .{depth});
+			try stdout.writer().print(" cp {d}", .{evaluation.score.centipawns(pv.score)});
+			try stdout.writer().print(" pv {s}", .{pv.line[0].print()});
+			try stdout.writer().print("\n", .{});
+
+			if (timeman.stop) |stoptime| {
+				const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
+				if (current_time >= stoptime) {
+					break;
+				}
+			}
+		}
+
+		const pv = root_moves.constSlice()[0];
+		try stdout.writer().print("bestmove {s}\n", .{pv.line[0].print()});
+	}
+
+	pub fn spawn() !void {
+		const handle = try std.Thread.spawn(.{.allocator = misc.heap.allocator}, func, .{});
+		std.Thread.detach(handle);
+	}
+};
+
+fn qs(info: *Info, alpha: isize, beta: isize) isize {
 	const b = beta;
 	var a = alpha;
 	var pos = &info.pos;
+	const draw: evaluation.score.Int = evaluation.score.draw;
+	const lose: evaluation.score.Int = evaluation.score.lose
+	  + @as(evaluation.score.Int, @intCast(pos.ss_ply));
 
 	if (pos.is3peat() or pos.ssTop().rule50 >= 100) {
-		return evaluation.score.draw;
+		return draw;
 	}
 
 	var tt_flag = transposition.Entry.Flag.alpha;
 	const tt_fetch = transposition.Table.global.fetch(pos.ssTop().key);
 	const tte = tt_fetch[0];
-	const tt_hit = tt_fetch[1];
+	const hit = tt_fetch[1];
 
-	if (tt_hit and tte.?.shouldTrust(alpha, beta)) {
+	if (hit and tte.?.shouldTrust(alpha, beta)) {
 		return tte.?.score;
 	}
-	const eval = evaluation.scorePosition(pos.*);
+	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 
-	const ttm = if (tt_hit) tte.?.move else movegen.Move.zero;
+	const ttm = if (hit) tte.?.move else movegen.Move.zero;
 	var best = movegen.ScoredMove {
 		.move  = ttm,
-		.score = evaluation.score.nil,
+		.score = lose,
 	};
 	var mp = movegen.Picker.init(info,
 	  ttm, movegen.Move.zero, movegen.Move.zero, pos.checkMask() == .all);
 	var mp_idx: usize = 0;
 
 	while (mp.next()) |move| : (mp_idx += 1) {
-		var s: isize = evaluation.score.nil;
+		pos.doMove(move) catch unreachable;
+		defer pos.undoMove();
 
-		pos.doMove(move) catch continue;
+		if (timeman.stop) |stoptime| {
+			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
+			if (current_time >= stoptime and best.score > lose) {
+				break;
+			}
+		}
+
+		var s: isize = evaluation.score.nil;
 		if (mp_idx == 0) {
 			s = -qs(info, -b, -a);
 		} else {
@@ -48,7 +181,6 @@ fn qs(info: *smp.Info, alpha: isize, beta: isize) isize {
 				s = -qs(info, -b, -a);
 			}
 		}
-		defer pos.undoMove();
 
 		if (s > best.score) {
 			best.score = @intCast(s);
@@ -63,9 +195,8 @@ fn qs(info: *smp.Info, alpha: isize, beta: isize) isize {
 		}
 	}
 
-	if (best.score == evaluation.score.nil) {
-		const lose: isize = evaluation.score.lose;
-		return if (pos.checkMask() == .all) eval else lose + @as(isize, @intCast(pos.ss_ply));
+	if (best.score == lose) {
+		return if (pos.checkMask() == .all) eval else lose;
 	} else {
 		if (tte != null) {
 			tte.?.* = .{
@@ -83,7 +214,7 @@ fn qs(info: *smp.Info, alpha: isize, beta: isize) isize {
 	}
 }
 
-fn ab(info: *smp.Info, alpha: isize, beta: isize, depth: u8) isize {
+fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	if (depth == 0) {
 		return qs(info, alpha, beta);
 	}
@@ -92,33 +223,49 @@ fn ab(info: *smp.Info, alpha: isize, beta: isize, depth: u8) isize {
 	const b = beta;
 	var a = alpha;
 	var pos = &info.pos;
+	const draw: evaluation.score.Int = evaluation.score.draw;
+	const lose: evaluation.score.Int = evaluation.score.lose
+	  + @as(evaluation.score.Int, @intCast(pos.ss_ply));
 
 	if (pos.is3peat() or pos.ssTop().rule50 >= 100) {
-		return evaluation.score.draw;
+		return draw;
 	}
 
 	var tt_flag = transposition.Entry.Flag.alpha;
 	const tt_fetch = transposition.Table.global.fetch(pos.ssTop().key);
 	const tte = tt_fetch[0];
-	const tt_hit = tt_fetch[1];
+	const hit = tt_fetch[1];
 
-	if (tt_hit and tte.?.depth >= depth and tte.?.shouldTrust(alpha, beta)) {
+	if (hit and tte.?.depth >= depth and tte.?.shouldTrust(alpha, beta)) {
 		return tte.?.score;
 	}
-	const eval = if (tt_hit) tte.?.eval else evaluation.scorePosition(pos.*);
+
+	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 
 	const rfp_margin = depth * 128;
 	if (pos.checkMask() == .all and beta - alpha == 1 and eval >= beta + rfp_margin) {
 		return eval;
 	}
 
-	const ttm = if (tt_hit) tte.?.move else movegen.Move.zero;
-	var best = movegen.ScoredMove {.move = ttm, .score = evaluation.score.nil};
+	const ttm = if (hit) tte.?.move else movegen.Move.zero;
+	var best = movegen.ScoredMove {
+		.move  = ttm,
+		.score = lose,
+	};
 	var mp = movegen.Picker.init(info, ttm, movegen.Move.zero, movegen.Move.zero, false);
 	var mp_idx: usize = 0;
 
 	while (mp.next()) |move| : (mp_idx += 1) {
-		pos.doMove(move) catch continue;
+		pos.doMove(move) catch unreachable;
+		defer pos.undoMove();
+
+		if (timeman.stop) |stoptime| {
+			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
+			if (current_time >= stoptime and best.score > lose) {
+				break;
+			}
+		}
+
 		var s: isize = evaluation.score.nil;
 		if (mp_idx == 0) {
 			s = -ab(info, -b, -a, d - 1);
@@ -128,7 +275,6 @@ fn ab(info: *smp.Info, alpha: isize, beta: isize, depth: u8) isize {
 				s = -ab(info, -b, -a, d - 1);
 			}
 		}
-		defer pos.undoMove();
 
 		if (s > best.score) {
 			best.score = @intCast(s);
@@ -144,10 +290,8 @@ fn ab(info: *smp.Info, alpha: isize, beta: isize, depth: u8) isize {
 		}
 	}
 
-	if (best.score == evaluation.score.nil) {
-		const draw: isize = evaluation.score.draw;
-		const lose: isize = evaluation.score.lose;
-		return if (pos.checkMask() == .all) draw else lose + @as(isize, @intCast(pos.ss_ply));
+	if (best.score == evaluation.score.lose) {
+		return if (pos.checkMask() == .all) draw else lose;
 	} else {
 		if (tte != null) {
 			tte.?.* = .{
@@ -162,5 +306,74 @@ fn ab(info: *smp.Info, alpha: isize, beta: isize, depth: u8) isize {
 		}
 
 		return best.score;
+	}
+}
+
+pub fn threaded(info: *Info, idx: usize) void {
+	_ = idx;
+
+	const lose = evaluation.score.lose;
+	const b = evaluation.score.win;
+	const d = info.depth;
+	var a: isize = evaluation.score.lose;
+
+	const tt_fetch = transposition.Table.global.fetch(info.pos.ssTop().key);
+	const tte = tt_fetch[0];
+	const hit = tt_fetch[1];
+	if (timeman.stop) |_| {
+		return;
+	}
+
+	const eval = if (hit) tte.?.eval else evaluation.scorePosition(info.pos);
+	var best = movegen.ScoredMove {
+		.move  = if (hit) tte.?.move else movegen.Move.zero,
+		.score = lose,
+	};
+	var flag = transposition.Entry.Flag.alpha;
+
+	for (info.rms[0 ..], 0 ..) |*rm, i| {
+		const move = rm.line[0];
+		info.pos.doMove(move) catch unreachable;
+		defer info.pos.undoMove();
+
+		if (timeman.stop) |stoptime| {
+			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
+			if (current_time >= stoptime and best.score > lose) {
+				break;
+			}
+		}
+
+		var s: isize = evaluation.score.nil;
+		if (i == 0) {
+			s = -ab(info, -b, -a, d - 1);
+		} else {
+			s = -ab(info, -a - 1, -a, d - 1);
+			if (s >= a + 1) {
+				s = -ab(info, -b, -a, d - 1);
+			}
+		}
+
+		if (s > best.score) {
+			best.score = @intCast(s);
+			if (s > a) {
+				a = s;
+				best.move = move;
+				flag = .pv;
+			}
+		}
+	}
+
+	if (best.score != lose) {
+		if (tte != null) {
+			tte.?.* = .{
+				.age = @truncate(transposition.Table.global.age),
+				.key = @truncate(info.pos.ssTop().key),
+				.depth = info.depth,
+				.flag = flag,
+				.eval = @intCast(eval),
+				.move = best.move,
+				.score = @intCast(best.score),
+			};
+		}
 	}
 }

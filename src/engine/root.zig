@@ -3,7 +3,7 @@ pub const Zobrist = @import("Zobrist.zig");
 pub const evaluation = @import("evaluation.zig");
 pub const movegen = @import("movegen.zig");
 pub const search = @import("search.zig");
-pub const smp = @import("smp.zig");
+pub const timeman = @import("timeman.zig");
 pub const transposition = @import("transposition.zig");
 pub const uci = @import("uci.zig");
 

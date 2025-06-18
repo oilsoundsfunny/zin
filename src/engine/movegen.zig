@@ -3,8 +3,8 @@ const misc = @import("misc");
 const std = @import("std");
 
 const Position = @import("Position.zig");
-const smp = @import("smp.zig");
 const evaluation = @import("evaluation.zig");
+const search = @import("search.zig");
 const transposition = @import("transposition.zig");
 
 const Perft = struct {
@@ -223,7 +223,7 @@ pub const ScoredMove = packed struct(u32) {
 			}, 2);
 			self.arr[self.cnt] = .{
 				.move  = Move.gen(.castle, .nil, s, d),
-				.score = evaluation.score.nil,
+				.score = evaluation.score.lose,
 			};
 			self.cnt += 1;
 			return self.cnt - cnt;
@@ -245,7 +245,7 @@ pub const ScoredMove = packed struct(u32) {
 				const s = d.shift(stm.forward().add(.east).flip(), 1);
 				self.arr[self.cnt] = .{
 					.move  = Move.gen(.en_passant, .nil, s, d),
-					.score = evaluation.score.nil,
+					.score = evaluation.score.lose,
 				};
 			}
 
@@ -258,7 +258,7 @@ pub const ScoredMove = packed struct(u32) {
 				const s = d.shift(stm.forward().add(.west).flip(), 1);
 				self.arr[self.cnt] = .{
 					.move  = Move.gen(.en_passant, .nil, s, d),
-					.score = evaluation.score.nil,
+					.score = evaluation.score.lose,
 				};
 			}
 
@@ -286,7 +286,7 @@ pub const ScoredMove = packed struct(u32) {
 					const s = d.shift(stm.forward().add(.east).flip(), 1);
 					self.arr[self.cnt] = .{
 						.move  = Move.gen(.promote, ptype, s, d),
-						.score = evaluation.score.nil,
+						.score = evaluation.score.lose,
 					};
 				}
 
@@ -299,7 +299,7 @@ pub const ScoredMove = packed struct(u32) {
 					const s = d.shift(stm.forward().add(.west).flip(), 1);
 					self.arr[self.cnt] = .{
 						.move  = Move.gen(.promote, ptype, s, d),
-						.score = evaluation.score.nil,
+						.score = evaluation.score.lose,
 					};
 				}
 			} else {
@@ -312,7 +312,7 @@ pub const ScoredMove = packed struct(u32) {
 					const s = d.shift(stm.forward().flip(), 1);
 					self.arr[self.cnt] = .{
 						.move  = Move.gen(.promote, ptype, s, d),
-						.score = evaluation.score.nil,
+						.score = evaluation.score.lose,
 					};
 				}
 
@@ -325,7 +325,7 @@ pub const ScoredMove = packed struct(u32) {
 					const s = d.shift(stm.forward().flip(), 2);
 					self.arr[self.cnt] = .{
 						.move  = Move.gen(.promote, ptype, s, d),
-						.score = evaluation.score.nil,
+						.score = evaluation.score.lose,
 					};
 				}
 			}
@@ -352,7 +352,7 @@ pub const ScoredMove = packed struct(u32) {
 					const s = d.shift(stm.forward().add(.east).flip(), 1);
 					self.arr[self.cnt] = .{
 						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.nil,
+						.score = evaluation.score.lose,
 					};
 				}
 
@@ -365,7 +365,7 @@ pub const ScoredMove = packed struct(u32) {
 					const s = d.shift(stm.forward().add(.west).flip(), 1);
 					self.arr[self.cnt] = .{
 						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.nil,
+						.score = evaluation.score.lose,
 					};
 				}
 			} else {
@@ -378,7 +378,7 @@ pub const ScoredMove = packed struct(u32) {
 					const s = d.shift(stm.forward().flip(), 1);
 					self.arr[self.cnt] = .{
 						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.nil,
+						.score = evaluation.score.lose,
 					};
 				}
 
@@ -417,7 +417,7 @@ pub const ScoredMove = packed struct(u32) {
 					const d = dst.lowSquare();
 					self.arr[self.cnt] = .{
 						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.nil,
+						.score = evaluation.score.lose,
 					};
 					self.cnt += 1;
 				}
@@ -456,6 +456,10 @@ pub const ScoredMove = packed struct(u32) {
 			return cnt;
 		}
 	};
+
+	pub fn desc(_: void, a: ScoredMove, b: ScoredMove) bool {
+		return a.score > b.score;
+	}
 };
 test {
 	const pos = try std.testing.allocator.create(Position);
@@ -476,17 +480,75 @@ pub const RootMove = struct {
 	len:	usize,
 	line:	[256 - 16]Move,
 
-	pub const List = std.BoundedArray(RootMove, 256);
+	pub const Array = struct {
+		array:	std.BoundedArray(RootMove, 256),
 
-	pub const Slice = struct {
-		slice:	[]RootMove,
-		idx:	usize,
+		pub fn append(self: *RootMove.Array, rm: RootMove) !void {
+			try self.array.append(rm);
+		}
+		pub fn init(len: usize) !Array {
+			return .{
+				.array = try std.BoundedArray(RootMove, 256).init(len),
+			};
+		}
+
+		pub fn constSlice(self: *const RootMove.Array) []const RootMove {
+			return self.array.constSlice();
+		}
+		pub fn slice(self: *RootMove.Array) []RootMove {
+			return self.array.slice();
+		}
+
+		pub fn sort(self: *Array) void {
+			sortSlice(self.slice());
+		}
+
+		pub fn fromInfo(info: *search.Info) !Array {
+			var array = try Array.init(0);
+			var list = std.mem.zeroes(ScoredMove.List);
+			_ = list.gen(info.pos, true);
+			_ = list.gen(info.pos, false);
+			for (list.arr[0 .. list.cnt]) |*sm| {
+				info.pos.doMove(sm.move) catch {
+					sm.* = .{
+						.move  = Move.zero,
+						.score = evaluation.score.nil,
+					};
+					continue;
+				};
+				defer info.pos.undoMove();
+
+				const tt_fetch = transposition.Table.global.fetch(info.pos.ssTop().key);
+				const tte = tt_fetch[0];
+				const hit = tt_fetch[1];
+				if (hit) {
+					sm.score = tte.?.score;
+				}
+
+				var rm = std.mem.zeroes(RootMove);
+				rm.len = 1;
+				rm.line[0] = sm.move;
+				rm.score = sm.score;
+				try array.append(rm);
+			}
+			sortSlice(array.slice());
+
+			return array;
+		}
 	};
+
+	pub fn desc(_: void, a: RootMove, b: RootMove) bool {
+		return a.score > b.score;
+	}
+
+	pub fn sortSlice(rms: []RootMove) void {
+		std.sort.insertion(RootMove, rms, {}, desc);
+	}
 };
 
 pub const Picker = struct {
 	list:	ScoredMove.List,
-	thread:	*smp.Info,
+	thread:	*search.Info,
 
 	noisy:	bool,
 	stage:	Stage,
@@ -518,21 +580,21 @@ pub const Picker = struct {
 		}
 	};
 
-	fn pick(self: *Picker) ?Move {
+	fn pick(self: *Picker) ?ScoredMove {
 		while (self.list.idx < self.list.cnt) {
-			const move = self.list.arr[self.list.idx].move;
+			const sm = self.list.arr[self.list.idx];
 			self.list.idx += 1;
 
-			if (!move.eql(self.ttm)
-			  and !move.eql(self.killer0)
-			  and !move.eql(self.killer1)) {
-				return move;
+			if (!sm.move.eql(self.ttm)
+			  and !sm.move.eql(self.killer0)
+			  and !sm.move.eql(self.killer1)) {
+				return sm;
 			}
 		}
 		return null;
 	}
 
-	pub fn init(thread: *smp.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
+	pub fn init(thread: *search.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
 		return .{
 			.list = std.mem.zeroes(ScoredMove.List),
 			.thread = thread,
@@ -574,36 +636,28 @@ pub const Picker = struct {
 				defer self.thread.pos.undoMove();
 
 				const tt_fetch = transposition.Table.global.fetch(self.thread.pos.ssTop().key);
-				const tt_entry = tt_fetch[0].?.*;
-				const tt_hit = tt_fetch[1];
-				if (tt_hit and tt_entry.shouldTrust(evaluation.score.lose, evaluation.score.win)) {
-					sm.score = tt_entry.score;
+				const tte = tt_fetch[0] orelse continue;
+				const hit = tt_fetch[1];
+				if (hit) {
+					sm.score = tte.score;
 				}
 			}
 
-			const desc = struct {
-				pub fn inner(_: void, a: ScoredMove, b: ScoredMove) bool {
-					return a.score > b.score;
-				}
-			}.inner;
-			std.sort.insertion(ScoredMove, self.list.arr[0 .. self.noisy_cnt], {}, desc);
+			std.sort.insertion(ScoredMove, self.list.arr[0 .. self.noisy_cnt], {}, ScoredMove.desc);
 			self.noisy_cnt = noisy_cnt;
 		}
 
 		while (self.stage == .good_noisy) {
-			const move = self.pick() orelse {
+			const sm = self.pick() orelse {
 				self.stage = self.stage.inc();
 				self.list.cnt = self.bad_noisy_cnt;
 				self.list.idx = self.bad_noisy_cnt;
 				break;
 			};
 			if (false) {
-				self.list.arr[self.bad_noisy_cnt] = .{
-					.move  = move,
-					.score = evaluation.score.nil,
-				};
+				self.list.arr[self.bad_noisy_cnt] = sm;
 				self.bad_noisy_cnt += 1;
-			} else return move;
+			} else return sm.move;
 		}
 
 		if (self.stage == .killer0) {
@@ -642,53 +696,45 @@ pub const Picker = struct {
 					defer self.thread.pos.undoMove();
 
 					const tt_fetch = transposition.Table.global.fetch(self.thread.pos.ssTop().key);
-					const tt_entry = tt_fetch[0].?.*;
-					const tt_hit = tt_fetch[1];
-					if (tt_hit
-					  and tt_entry.shouldTrust(evaluation.score.lose, evaluation.score.win)) {
-						sm.score = tt_entry.score;
+					const tte = tt_fetch[0] orelse continue;
+					const hit = tt_fetch[1];
+					if (hit) {
+						sm.score = tte.score;
 					}
 				}
 
-				const desc = struct {
-					pub fn inner(_: void, a: ScoredMove, b: ScoredMove) bool {
-						return a.score > b.score;
-					}
-				}.inner;
-				std.sort.insertion(ScoredMove, self.list.arr[0 .. self.quiet_cnt], {}, desc);
+				std.sort.insertion(ScoredMove, self.list.arr[0 .. self.quiet_cnt],
+				  {}, ScoredMove.desc);
 				self.quiet_cnt = quiet_cnt;
 			}
 		}
 
 		while (self.stage == .good_quiet) {
-			const move = self.pick() orelse {
+			const sm = self.pick() orelse {
 				self.stage = self.stage.inc();
 				self.list.cnt = self.bad_noisy_cnt;
 				self.list.idx = 0;
 				break;
 			};
 			if (false) {
-				self.list.arr[self.bad_noisy_cnt + self.bad_quiet_cnt] = .{
-					.move  = move,
-					.score = evaluation.score.nil,
-				};
+				self.list.arr[self.bad_noisy_cnt + self.bad_quiet_cnt] = sm;
 				self.bad_quiet_cnt += 1;
-			} else return move;
+			} else return sm.move;
 		}
 
 		while (self.stage == .bad_noisy) {
-			const move = self.pick() orelse {
+			const sm = self.pick() orelse {
 				self.stage = self.stage.inc();
 				self.list.cnt = self.bad_noisy_cnt + self.bad_quiet_cnt;
 				self.list.idx = self.bad_noisy_cnt;
 				break;
 			};
-			return move;
+			return sm.move;
 		}
 
 		while (self.stage == .bad_quiet) {
-			const move = self.pick() orelse break;
-			return move;
+			const sm = self.pick() orelse break;
+			return sm.move;
 		}
 
 		return null;
@@ -710,7 +756,7 @@ test {
 	  Move.gen(.nil, .nil, .f3, .f6),
 	};
 
-	const thread = try misc.heap.allocator.create(smp.Info);
+	const thread = try misc.heap.allocator.create(search.Info);
 	try thread.pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
 	defer misc.heap.allocator.destroy(thread);
 
