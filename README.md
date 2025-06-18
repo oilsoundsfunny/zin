@@ -11,6 +11,6 @@ $ zvm install master
 2. build:
 
 ```
-$ zig build --prefix ~
+$ zig build --release=off
 ```
 
