@@ -548,7 +548,7 @@ pub const RootMove = struct {
 
 pub const Picker = struct {
 	list:	ScoredMove.List,
-	thread:	*search.Info,
+	info:	*search.Info,
 
 	noisy:	bool,
 	stage:	Stage,
@@ -594,10 +594,10 @@ pub const Picker = struct {
 		return null;
 	}
 
-	pub fn init(thread: *search.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
+	pub fn init(info: *search.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
 		return .{
 			.list = std.mem.zeroes(ScoredMove.List),
-			.thread = thread,
+			.info = info,
 			.noisy = noisy,
 			.stage = if (ttm.isZero()) .gen_noisy else .ttm,
 			.ttm = ttm,
@@ -620,31 +620,18 @@ pub const Picker = struct {
 
 		if (self.stage == .gen_noisy) {
 			self.stage = self.stage.inc();
-			self.noisy_cnt = self.list.gen(self.thread.pos, true);
+			self.noisy_cnt = self.list.gen(self.info.pos, true);
 
-			var noisy_cnt: @TypeOf(self.noisy_cnt) = self.noisy_cnt;
 			for (self.list.arr[0 .. self.noisy_cnt]) |*sm| {
-				const move = sm.move;
-				self.thread.pos.doMove(move) catch {
-					sm.* = .{
-						.move  = Move.zero,
-						.score = evaluation.score.nil,
-					};
-					noisy_cnt -= 1;
-					continue;
-				};
-				defer self.thread.pos.undoMove();
-
-				const tt_fetch = transposition.Table.global.fetch(self.thread.pos.ssTop().key);
+				const key = self.info.pos.keyAfterMove(sm.move);
+				const tt_fetch = transposition.Table.global.fetch(key);
 				const tte = tt_fetch[0] orelse continue;
 				const hit = tt_fetch[1];
 				if (hit) {
 					sm.score = tte.score;
 				}
 			}
-
 			std.sort.insertion(ScoredMove, self.list.arr[0 .. self.noisy_cnt], {}, ScoredMove.desc);
-			self.noisy_cnt = noisy_cnt;
 		}
 
 		while (self.stage == .good_noisy) {
@@ -680,32 +667,19 @@ pub const Picker = struct {
 		if (self.stage == .gen_quiet) {
 			self.stage = self.stage.inc();
 			if (!self.noisy) {
-				self.quiet_cnt = self.list.gen(self.thread.pos, false);
+				self.quiet_cnt = self.list.gen(self.info.pos, false);
 
-				var quiet_cnt: @TypeOf(self.quiet_cnt) = self.quiet_cnt;
 				for (self.list.arr[0 .. self.quiet_cnt]) |*sm| {
-					const move = sm.move;
-					self.thread.pos.doMove(move) catch {
-						sm.* = .{
-							.move  = Move.zero,
-							.score = evaluation.score.nil,
-						};
-						quiet_cnt -= 1;
-						continue;
-					};
-					defer self.thread.pos.undoMove();
-
-					const tt_fetch = transposition.Table.global.fetch(self.thread.pos.ssTop().key);
+					const key = self.info.pos.keyAfterMove(sm.move);
+					const tt_fetch = transposition.Table.global.fetch(key);
 					const tte = tt_fetch[0] orelse continue;
 					const hit = tt_fetch[1];
 					if (hit) {
 						sm.score = tte.score;
 					}
 				}
-
 				std.sort.insertion(ScoredMove, self.list.arr[0 .. self.quiet_cnt],
 				  {}, ScoredMove.desc);
-				self.quiet_cnt = quiet_cnt;
 			}
 		}
 
@@ -756,11 +730,11 @@ test {
 	  Move.gen(.nil, .nil, .f3, .f6),
 	};
 
-	const thread = try misc.heap.allocator.create(search.Info);
-	try thread.pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
-	defer misc.heap.allocator.destroy(thread);
+	const info = try misc.heap.allocator.create(search.Info);
+	try info.pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+	defer misc.heap.allocator.destroy(info);
 
-	var noisy_mp = Picker.init(thread, Move.zero, Move.zero, Move.zero, true);
+	var noisy_mp = Picker.init(info, Move.zero, Move.zero, Move.zero, true);
 	for (seq[0 ..]) |move| {
 		try std.testing.expectEqual(move, noisy_mp.next());
 	}

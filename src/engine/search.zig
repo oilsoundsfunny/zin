@@ -79,17 +79,17 @@ pub const manager = struct {
 
 		const overhead = timeman.overhead orelse 10;
 		if (timeman.movetime) |movetime| {
-			const read = misc.time.read(.ms);
-			timeman.start = read;
-			timeman.stop = read + movetime - overhead;
+			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
+			timeman.start = current_time;
+			timeman.stop = current_time + movetime - overhead;
 		}
 		if (timeman.increment != null and timeman.time != null) {
 			const inc = timeman.increment.?;
 			const time = timeman.time.?;
-			const read = misc.time.read(.ms);
+			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
 
-			timeman.start = read;
-			timeman.stop = read + time / 20 + inc / 2 - overhead;
+			timeman.start = current_time;
+			timeman.stop = current_time + time / 20 + inc / 2 - overhead;
 		}
 
 		const min_depth = 1;
@@ -112,11 +112,8 @@ pub const manager = struct {
 			try stdout.writer().print(" pv {s}", .{pv.line[0].print()});
 			try stdout.writer().print("\n", .{});
 
-			if (timeman.stop) |stoptime| {
-				const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
-				if (current_time >= stoptime) {
-					break;
-				}
+			if (timeman.hardStop()) {
+				break;
 			}
 		}
 
@@ -142,12 +139,14 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 		return draw;
 	}
 
-	var tt_flag = transposition.Entry.Flag.alpha;
+	var flag = transposition.Entry.Flag.alpha;
 	const tt_fetch = transposition.Table.global.fetch(pos.ssTop().key);
 	const tte = tt_fetch[0];
 	const hit = tt_fetch[1];
 
 	if (hit and tte.?.shouldTrust(alpha, beta)) {
+		return tte.?.score;
+	} else if (hit and timeman.hardStop()) {
 		return tte.?.score;
 	}
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
@@ -162,15 +161,12 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 	var mp_idx: usize = 0;
 
 	while (mp.next()) |move| : (mp_idx += 1) {
-		pos.doMove(move) catch unreachable;
-		defer pos.undoMove();
-
-		if (timeman.stop) |stoptime| {
-			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
-			if (current_time >= stoptime and best.score > lose) {
-				break;
-			}
+		if (timeman.hardStop()) {
+			break;
 		}
+
+		pos.doMove(move) catch continue;
+		defer pos.undoMove();
 
 		var s: isize = evaluation.score.nil;
 		if (mp_idx == 0) {
@@ -185,11 +181,12 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 		if (s > best.score) {
 			best.score = @intCast(s);
 			if (s > a) {
+				flag = if (pos.checkMask() == .all) .pv else .alpha;
 				a = s;
 				best.move = move;
 			}
 			if (s >= b) {
-				tt_flag = .beta;
+				flag = .beta;
 				break;
 			}
 		}
@@ -202,7 +199,7 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 			tte.?.* = .{
 				.age = @truncate(transposition.Table.global.age),
 				.key = @truncate(pos.ssTop().key),
-				.flag = tt_flag,
+				.flag = flag,
 				.eval = @intCast(eval),
 				.move = best.move,
 				.score = best.score,
@@ -219,9 +216,9 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		return qs(info, alpha, beta);
 	}
 
-	const d = depth;
 	const b = beta;
 	var a = alpha;
+	var d = depth;
 	var pos = &info.pos;
 	const draw: evaluation.score.Int = evaluation.score.draw;
 	const lose: evaluation.score.Int = evaluation.score.lose
@@ -231,18 +228,37 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		return draw;
 	}
 
-	var tt_flag = transposition.Entry.Flag.alpha;
+	var flag = transposition.Entry.Flag.alpha;
 	const tt_fetch = transposition.Table.global.fetch(pos.ssTop().key);
 	const tte = tt_fetch[0];
 	const hit = tt_fetch[1];
 
 	if (hit and tte.?.depth >= depth and tte.?.shouldTrust(alpha, beta)) {
 		return tte.?.score;
+	} else if (hit and timeman.hardStop()) {
+		return tte.?.score;
 	}
 
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
+	if (pos.checkMask() == .all
+	  and !pos.ssTop().move.eql(movegen.Move.zero)
+	  and beta - alpha == 1 and eval >= beta) {
+		pos.doNullMove() catch unreachable;
+		defer pos.undoNullMove();
 
-	const rfp_margin = depth * 128;
+		const nr: u8 = if (d > 6) 4 else 3;
+		const nd: u8 = d -| nr -| 1;
+		const ns = -ab(info, -b, 1 - b, nd);
+
+		if (ns >= beta) {
+			d -|= 4;
+			if (d == 0) {
+				return qs(info, a, b);
+			}
+		}
+	}
+
+	const rfp_margin = @as(isize, depth) * 128;
 	if (pos.checkMask() == .all and beta - alpha == 1 and eval >= beta + rfp_margin) {
 		return eval;
 	}
@@ -256,15 +272,12 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	var mp_idx: usize = 0;
 
 	while (mp.next()) |move| : (mp_idx += 1) {
-		pos.doMove(move) catch unreachable;
-		defer pos.undoMove();
-
-		if (timeman.stop) |stoptime| {
-			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
-			if (current_time >= stoptime and best.score > lose) {
-				break;
-			}
+		if (timeman.hardStop()) {
+			break;
 		}
+
+		pos.doMove(move) catch continue;
+		defer pos.undoMove();
 
 		var s: isize = evaluation.score.nil;
 		if (mp_idx == 0) {
@@ -279,32 +292,31 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		if (s > best.score) {
 			best.score = @intCast(s);
 			if (s > a) {
-				tt_flag = .pv;
+				flag = .pv;
 				a = s;
 				best.move = move;
 			}
 			if (s >= b) {
-				tt_flag = .beta;
+				flag = .beta;
 				break;
 			}
 		}
 	}
 
-	if (best.score == evaluation.score.lose) {
+	if (best.score == lose) {
 		return if (pos.checkMask() == .all) draw else lose;
 	} else {
 		if (tte != null) {
 			tte.?.* = .{
 				.age = @truncate(transposition.Table.global.age),
 				.key = @truncate(pos.ssTop().key),
-				.flag = tt_flag,
+				.flag = flag,
 				.eval = @intCast(eval),
 				.move = best.move,
 				.score = best.score,
 				.depth = @intCast(depth),
 			};
 		}
-
 		return best.score;
 	}
 }
@@ -320,7 +332,7 @@ pub fn threaded(info: *Info, idx: usize) void {
 	const tt_fetch = transposition.Table.global.fetch(info.pos.ssTop().key);
 	const tte = tt_fetch[0];
 	const hit = tt_fetch[1];
-	if (timeman.stop) |_| {
+	if (timeman.hardStop()) {
 		return;
 	}
 
@@ -329,19 +341,15 @@ pub fn threaded(info: *Info, idx: usize) void {
 		.move  = if (hit) tte.?.move else movegen.Move.zero,
 		.score = lose,
 	};
-	var flag = transposition.Entry.Flag.alpha;
 
 	for (info.rms[0 ..], 0 ..) |*rm, i| {
+		if (timeman.hardStop()) {
+			break;
+		}
+
 		const move = rm.line[0];
 		info.pos.doMove(move) catch unreachable;
 		defer info.pos.undoMove();
-
-		if (timeman.stop) |stoptime| {
-			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
-			if (current_time >= stoptime and best.score > lose) {
-				break;
-			}
-		}
 
 		var s: isize = evaluation.score.nil;
 		if (i == 0) {
@@ -352,13 +360,13 @@ pub fn threaded(info: *Info, idx: usize) void {
 				s = -ab(info, -b, -a, d - 1);
 			}
 		}
+		rm.score = s;
 
 		if (s > best.score) {
 			best.score = @intCast(s);
 			if (s > a) {
 				a = s;
 				best.move = move;
-				flag = .pv;
 			}
 		}
 	}
@@ -369,7 +377,7 @@ pub fn threaded(info: *Info, idx: usize) void {
 				.age = @truncate(transposition.Table.global.age),
 				.key = @truncate(info.pos.ssTop().key),
 				.depth = info.depth,
-				.flag = flag,
+				.flag = .pv,
 				.eval = @intCast(eval),
 				.move = best.move,
 				.score = @intCast(best.score),

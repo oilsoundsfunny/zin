@@ -35,7 +35,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 	timeman.stop = null;
 
 	while (tokens.next()) |token| {
-		if (std.mem.eql(u8, token, "max_depth")) {
+		if (std.mem.eql(u8, token, "depth")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
 			timeman.depth = try std.fmt.parseUnsigned(u8, aux_token, 10);
 		} else if (std.mem.eql(u8, token, "movetime")) {
@@ -189,4 +189,6 @@ pub fn readInput() !void {
 			break;
 		}
 	}
+
+	@atomicStore(bool, &timeman.is_running, false, .monotonic);
 }

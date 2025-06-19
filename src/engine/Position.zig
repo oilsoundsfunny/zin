@@ -174,7 +174,7 @@ fn casAfterMove(self: Self, move: movegen.Move) misc.types.Castle {
 	return cas;
 }
 
-fn keyAfterMove(self: Self, move: movegen.Move) Zobrist.Int {
+pub fn keyAfterMove(self: Self, move: movegen.Move) Zobrist.Int {
 	const stm = self.stm;
 	const dst = move.dst;
 	const src = move.src;
@@ -491,6 +491,28 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	}
 }
 
+pub fn doNullMove(self: *Self) MoveError!void {
+	if (self.checkMask() != .all) {
+		return error.InvalidMove;
+	}
+
+	const ss = self.ssTop();
+	self.ss_ply += 1;
+	self.stm = self.stm.flip();
+	self.game_len += if (self.stm == .white) 1 else 0;
+
+	self.ssTopPtr()[0] = ss;
+	self.ssTopPtr()[0].rule50 = 0;
+	self.ssTopPtr()[0].en_pas = null;
+
+	self.ssTopPtr()[0].key ^= Zobrist.default.stm.get(.white);
+	self.ssTopPtr()[0].key ^= if (ss.en_pas) |s| Zobrist.default.en_pas.get(s.file()) else 0;
+
+	self.ssTopPtr()[0].move = movegen.Move.zero;
+	self.ssTopPtr()[0].dst_piece = .nil;
+	self.ssTopPtr()[0].src_piece = .nil;
+}
+
 pub fn undoMove(self: *Self) void {
 	self.stm = self.stm.flip();
 	self.game_len -= if (self.stm == .black) 1 else 0;
@@ -544,6 +566,12 @@ pub fn undoMove(self: *Self) void {
 	self.setSquare(dst, dst_piece);
 	self.setSquare(src, src_piece);
 
+	self.ss_ply -= 1;
+}
+
+pub fn undoNullMove(self: *Self) void {
+	self.game_len -= if (self.stm == .white) 1 else 0;
+	self.stm = self.stm.flip();
 	self.ss_ply -= 1;
 }
 
