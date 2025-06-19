@@ -2,6 +2,7 @@ const misc = @import("misc");
 const std = @import("std");
 
 pub var is_running: bool = true;
+pub var is_searching: bool = false;
 
 pub var depth: ?u8 = null;
 pub var increment: ?u64 = null;
@@ -9,7 +10,7 @@ pub var movetime: ?u64 = null;
 pub var overhead: ?u64 = null;
 pub var time: ?u64 = null;
 
-pub var start: ?u64 = null;
+pub var start: u64 = 0;
 pub var stop: ?u64 = null;
 pub var current: u64 = 0;
 
@@ -21,6 +22,10 @@ pub fn loop() void {
 }
 
 pub fn hardStop() bool {
+	if (!is_searching) {
+		return true;
+	}
+
 	const stop_time = stop orelse return false;
 	const current_time = @atomicLoad(u64, &current, .monotonic);
 	return current_time >= stop_time;

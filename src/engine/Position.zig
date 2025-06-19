@@ -408,8 +408,10 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 		self.game_len = 1;
 	}
 
-	if (tokens.peek() != null) {
-		return error.InvalidFen;
+	if (tokens.peek()) |token| {
+		if (!std.mem.eql(u8, token, "moves")) {
+			return error.InvalidFen;
+		}
 	}
 
 	self.ssTopPtr()[0].chk = self.genChk();

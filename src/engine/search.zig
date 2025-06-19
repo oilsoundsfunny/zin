@@ -53,6 +53,9 @@ pub const manager = struct {
 	pub var native: ?std.Thread.Handle = null;
 
 	fn func() !void {
+		@atomicStore(bool, &timeman.is_searching, true, .monotonic);
+		defer @atomicStore(bool, &timeman.is_searching, false, .monotonic);
+
 		const infos = Info.global orelse return error.Uninitialized;
 		const stdout = std.io.getStdOut();
 		var root_moves = try movegen.RootMove.Array.fromInfo(&infos[0]);
@@ -78,18 +81,15 @@ pub const manager = struct {
 		defer pool.deinit();
 
 		const overhead = timeman.overhead orelse 10;
+		timeman.start = @atomicLoad(u64, &timeman.current, .monotonic);
 		if (timeman.movetime) |movetime| {
-			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
-			timeman.start = current_time;
-			timeman.stop = current_time + movetime - overhead;
+			timeman.stop = timeman.start + movetime - overhead;
 		}
 		if (timeman.increment != null and timeman.time != null) {
 			const inc = timeman.increment.?;
 			const time = timeman.time.?;
-			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
 
-			timeman.start = current_time;
-			timeman.stop = current_time + time / 20 + inc / 2 - overhead;
+			timeman.stop = timeman.start + time / 20 + inc / 2 - overhead;
 		}
 
 		const min_depth = 1;
@@ -107,8 +107,12 @@ pub const manager = struct {
 			root_moves.sort();
 			const pv = root_moves.constSlice()[0];
 
-			try stdout.writer().print("info depth {d}", .{depth});
-			try stdout.writer().print(" cp {d}", .{evaluation.score.centipawns(pv.score)});
+			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
+
+			try stdout.writer().print("info", .{});
+			try stdout.writer().print(" score cp {d}", .{evaluation.score.centipawns(pv.score)});
+			try stdout.writer().print(" depth {d}", .{depth});
+			try stdout.writer().print(" time {d}", .{current_time - timeman.start});
 			try stdout.writer().print(" pv {s}", .{pv.line[0].print()});
 			try stdout.writer().print("\n", .{});
 
@@ -216,9 +220,9 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		return qs(info, alpha, beta);
 	}
 
+	const d = depth;
 	const b = beta;
 	var a = alpha;
-	var d = depth;
 	var pos = &info.pos;
 	const draw: evaluation.score.Int = evaluation.score.draw;
 	const lose: evaluation.score.Int = evaluation.score.lose
@@ -240,24 +244,6 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	}
 
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
-	if (pos.checkMask() == .all
-	  and !pos.ssTop().move.eql(movegen.Move.zero)
-	  and beta - alpha == 1 and eval >= beta) {
-		pos.doNullMove() catch unreachable;
-		defer pos.undoNullMove();
-
-		const nr: u8 = if (d > 6) 4 else 3;
-		const nd: u8 = d -| nr -| 1;
-		const ns = -ab(info, -b, 1 - b, nd);
-
-		if (ns >= beta) {
-			d -|= 4;
-			if (d == 0) {
-				return qs(info, a, b);
-			}
-		}
-	}
-
 	const rfp_margin = @as(isize, depth) * 128;
 	if (pos.checkMask() == .all and beta - alpha == 1 and eval >= beta + rfp_margin) {
 		return eval;
