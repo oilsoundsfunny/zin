@@ -280,12 +280,7 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	} else if (hit and timeman.hardStop()) {
 		return tte.?.score;
 	}
-
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
-	const rfp_margin = @as(isize, depth) * 128;
-	if (pos.checkMask() == .all and !is_pv and eval >= beta + rfp_margin) {
-		return eval;
-	}
 
 	const ttm = if (hit) tte.?.move else movegen.Move.zero;
 	var best = movegen.Move.Scored {

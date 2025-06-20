@@ -525,13 +525,8 @@ pub fn doNullMove(self: *Self) MoveError!void {
 
 	const ss = self.ssTop();
 	self.ss.append(.{
-		.castle = self.ssTop().rule50,
-		.chk = .all,
-		.en_pas = null,
+		.castle = self.ssTop().castle,
 		.key = self.ssTop().key,
-		.move = movegen.Move.zero,
-		.src_piece = .nil,
-		.dst_piece = .nil,
 	});
 	self.stm = self.stm.flip();
 	self.game_len += if (self.stm == .white) 1 else 0;
