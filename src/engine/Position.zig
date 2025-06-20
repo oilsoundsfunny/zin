@@ -52,13 +52,14 @@ pub const Stack = struct {
 	rule50:	u8 = 0,
 
 	pub const Array = struct {
-		buffer:	std.BoundedArray(Stack, 192),
+		buffer:	std.BoundedArray(Stack, 512),
 
 		pub const default = blk: {
-			var ret = std.mem.zeroes(Array);
-			ret.buffer.len = 1;
-			ret.buffer.buffer[0] = .{};
-			break :blk ret;
+			var arr: Array = undefined;
+			arr.buffer = @TypeOf(arr.buffer).init(0) catch unreachable;
+			arr.buffer.appendNTimes(.{}, arr.buffer.buffer[0 ..].len) catch unreachable;
+			arr.buffer = @TypeOf(arr.buffer).init(1) catch unreachable;
+			break :blk arr;
 		};
 
 		pub fn append(self: *Array, stack: Stack) void {

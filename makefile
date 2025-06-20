@@ -34,9 +34,9 @@ selfplay:
 	fastchess \
 		-engine cmd=$(bin) name="$(name)1" \
 		-engine cmd=$(bin) name="$(name)2" \
-		-each tc=5+0.05 option.Hash=128 option.Threads=2 \
+		-each tc=1+0.01 option.Hash=128 option.Threads=2 \
 		-openings file=books/noob_5moves.epd format=epd order=random \
-		-rounds 1 \
+		-rounds 10 \
 		-log file=fastchess-$(time).log \
 		compress=false level=trace engine=true
 
