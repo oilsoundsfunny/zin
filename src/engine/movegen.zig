@@ -483,6 +483,9 @@ pub const RootMove = struct {
 		pub fn slice(self: *List) []RootMove {
 			return self.array.slice();
 		}
+		pub fn pv(self: List) RootMove {
+			return self.constSlice()[0];
+		}
 
 		pub fn sort(self: *List) void {
 			sortSlice(self.slice());
