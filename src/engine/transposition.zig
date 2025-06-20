@@ -86,8 +86,8 @@ pub const Table = struct {
 			try pool.init(.{
 				.allocator = misc.heap.allocator,
 				.n_jobs = infos.len,
-				.track_ids = false,
 			});
+			defer pool.deinit();
 			for (infos, 0 ..) |_, i| {
 				const slice = tbl[start ..][0 .. if (i < mod) div + 1 else div];
 				start += slice.len;

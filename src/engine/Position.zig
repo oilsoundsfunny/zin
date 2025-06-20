@@ -62,10 +62,10 @@ pub const Stack = struct {
 		};
 
 		pub fn append(self: *Array, stack: Stack) void {
-			self.buffer.append(stack) catch @panic("do much move engine many bad");
+			self.buffer.append(stack) catch unreachable;
 		}
 		pub fn pop(self: *Array) Stack {
-			return self.buffer.pop() orelse @panic("undo much move engine many bad");
+			return self.buffer.pop() orelse unreachable;
 		}
 	};
 };

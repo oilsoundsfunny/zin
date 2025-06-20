@@ -41,20 +41,20 @@ const Perft = struct {
 			return 1;
 		}
 
-		var list = std.mem.zeroes(ScoredMove.List);
+		var list = std.mem.zeroes(Move.List);
 		var sum:  u64 = 0;
 		var this: u64 = 0;
 
-		_ = list.gen(pos.*, true);
-		_ = list.gen(pos.*, false);
-		for (list.constSlice()) |sm| {
-			pos.doMove(sm.move) catch continue;
+		_ = list.genNoisy(pos.*);
+		_ = list.genQuiet(pos.*);
+		for (list.constSlice()) |move| {
+			pos.doMove(move) catch continue;
 			this = div_recursive(pos, depth, rc + 1);
 			pos.undoMove();
 
 			if (rc == 0) {
 				std.log.defaultLog(.debug, .div_recursive,
-				  "{s}:\t{d}", .{sm.move.print()[0 ..], this});
+				  "{s}:\t{d}", .{move.print()[0 ..], this});
 			}
 
 			sum += this;
@@ -68,6 +68,48 @@ const Perft = struct {
 		return ret;
 	}
 };
+
+const ScoredMove = packed struct(u32) {
+	move:	Move,
+	score:	evaluation.score.Int,
+
+	pub const List = struct {
+		array:	std.BoundedArray(ScoredMove, 256 - 2 * @sizeOf(usize) / @sizeOf(ScoredMove))
+		  = std.BoundedArray(ScoredMove, 256 - 2 * @sizeOf(usize) / @sizeOf(ScoredMove)).init(0)
+		  catch unreachable,
+		index:	usize = 0,
+
+		pub const Int = usize;
+
+		pub fn append(self: *List, sm: ScoredMove) void {
+			self.array.append(sm) catch unreachable;
+		}
+		pub fn resize(self: *List, len: usize) void {
+			self.array.resize(len) catch unreachable;
+		}
+
+		pub fn constSlice(self: *const List) []const ScoredMove {
+			return self.array.constSlice();
+		}
+		pub fn slice(self: *List) []ScoredMove {
+			return self.array.slice();
+		}
+
+		pub fn sort(self: *List) void {
+			sortSlice(self.slice());
+		}
+	};
+
+	pub fn desc(_: void, a: ScoredMove, b: ScoredMove) bool {
+		return a.score > b.score;
+	}
+	pub fn sortSlice(slice: []ScoredMove) void {
+		std.sort.insertion(ScoredMove, slice, {}, desc);
+	}
+};
+test {
+	try std.testing.expectEqual(@sizeOf(ScoredMove) * 256, @sizeOf(ScoredMove.List));
+}
 
 pub const Move = packed struct(u16) {
 	flag:	Flag,
@@ -83,6 +125,245 @@ pub const Move = packed struct(u16) {
 
 		pub const Int = @typeInfo(Flag).@"enum".tag_type;
 	};
+
+	pub const List = struct {
+		array:	std.BoundedArray(Move, 256 - @sizeOf(usize) / @sizeOf(Move))
+		  = std.BoundedArray(Move, 256 - @sizeOf(usize) / @sizeOf(Move)).init(0)
+		  catch unreachable,
+
+		pub const Int = usize;
+
+		fn genCastle(self: *List, pos: Position, comptime side: misc.types.Ptype) void {
+			const occ = pos.allOcc();
+			const stm = pos.stm;
+
+			const cas = switch (side) {
+				.king  => if (stm == .white) misc.types.Castle.wk else misc.types.Castle.bk,
+				.queen => if (stm == .white) misc.types.Castle.wq else misc.types.Castle.bq,
+				else => @compileError("unexpected tag " ++ @tagName(side)),
+			};
+			if (pos.checkMask() != .all
+			  or pos.ssTop().castle.bitAnd(cas) == .nil) {
+				return;
+			}
+
+			const their_pieces = std.EnumArray(misc.types.Ptype, misc.types.BitBoard).init(.{
+				.nil = .nil,
+				.pawn   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .pawn)),
+				.knight = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .knight)),
+				.bishop = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .bishop)),
+				.rook   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .rook)),
+				.queen  = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .queen)),
+				.king   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .king)),
+				.all = .nil,
+			});
+			var atk_mask = (switch (side) {
+				.king  => misc.types.BitBoard.fromSlice(misc.types.File, &.{.file_f, .file_g}),
+				.queen => misc.types.BitBoard.fromSlice(misc.types.File, &.{.file_c, .file_d}),
+				else => unreachable,
+			}).bitAnd(stm.homeRank().bb());
+			while (atk_mask != .nil) : (atk_mask.popLow()) {
+				const s = atk_mask.lowSquare();
+				const a = bitboard.pAtk(s.bb(), stm).bitAnd(their_pieces.get(.pawn))
+				  .bitOr(bitboard.nAtk(s).bitAnd(their_pieces.get(.knight)))
+				  .bitOr(bitboard.kAtk(s).bitAnd(their_pieces.get(.king)))
+				  .bitOr(bitboard.bAtk(s, occ).bitAnd(their_pieces.get(.bishop)))
+				  .bitOr(bitboard.rAtk(s, occ).bitAnd(their_pieces.get(.rook)))
+				  .bitOr(bitboard.qAtk(s, occ).bitAnd(their_pieces.get(.queen)));
+				if (a != .nil) {
+					return;
+				}
+			}
+
+			const occ_mask = (switch (side) {
+				.king  => misc.types.BitBoard.fromSlice(misc.types.File,
+				  &.{.file_f, .file_g}),
+				.queen => misc.types.BitBoard.fromSlice(misc.types.File,
+				  &.{.file_b, .file_c, .file_d}),
+				else => unreachable,
+			}).bitAnd(stm.homeRank().bb());
+			if (occ.bitAnd(occ_mask) != .nil) {
+				return;
+			}
+
+			const s = misc.types.Square.fromCoord(stm.homeRank(), .file_e);
+			const d = s.shift(switch (side) {
+				.king  => .east,
+				.queen => .west,
+				else => unreachable,
+			}, 2);
+			self.append(Move.gen(.castle, .nil, s, d));
+		}
+
+		fn genEnPassant(self: *List, pos: Position) void {
+			const en_pas = pos.ssTop().en_pas orelse return;
+			const stm = pos.stm;
+			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
+			const dst = en_pas.bb();
+
+			var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
+			while (east_atk != .nil) : (east_atk.popLow()) {
+				const d = east_atk.lowSquare();
+				const s = d.shift(stm.forward().add(.east).flip(), 1);
+				self.append(Move.gen(.en_passant, .nil, s, d));
+			}
+
+			var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
+			while (west_atk != .nil) : (west_atk.popLow()) {
+				const d = west_atk.lowSquare();
+				const s = d.shift(stm.forward().add(.west).flip(), 1);
+				self.append(Move.gen(.en_passant, .nil, s, d));
+			}
+		}
+
+		fn genPromotion(self: *List, pos: Position,
+		  comptime ptype: misc.types.Ptype,
+		  comptime noisy: bool) void {
+			const occ = pos.allOcc();
+			const stm = pos.stm;
+			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
+			const dst = pos.checkMask()
+			  .bitAnd(stm.promotionRank().bb())
+			  .bitAnd(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
+
+			if (noisy) {
+				var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
+				while (east_atk != .nil) : (east_atk.popLow()) {
+					const d = east_atk.lowSquare();
+					const s = d.shift(stm.forward().add(.east).flip(), 1);
+					self.append(Move.gen(.promote, ptype, s, d));
+				}
+
+				var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
+				while (west_atk != .nil) : (west_atk.popLow()) {
+					const d = west_atk.lowSquare();
+					const s = d.shift(stm.forward().add(.west).flip(), 1);
+					self.append(Move.gen(.promote, ptype, s, d));
+				}
+			} else {
+				var push = bitboard.pPush1(src, occ, stm).bitAnd(dst);
+				while (push != .nil) : (push.popLow()) {
+					const d = push.lowSquare();
+					const s = d.shift(stm.forward().flip(), 1);
+					self.append(Move.gen(.promote, ptype, s, d));
+				}
+
+				push = bitboard.pPush2(src, occ, stm).bitAnd(dst);
+				while (push != .nil) : (push.popLow()) {
+					const d = push.lowSquare();
+					const s = d.shift(stm.forward().flip(), 2);
+					self.append(Move.gen(.promote, ptype, s, d));
+				}
+			}
+		}
+
+		fn genPawnMoves(self: *List, pos: Position, comptime noisy: bool) void {
+			const occ = pos.allOcc();
+			const stm = pos.stm;
+			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
+			const dst = pos.checkMask()
+			  .bitAnd(stm.promotionRank().bb().flip())
+			  .bitAnd(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
+
+			if (noisy) {
+				var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
+				while (east_atk != .nil) : (east_atk.popLow()) {
+					const d = east_atk.lowSquare();
+					const s = d.shift(stm.forward().add(.east).flip(), 1);
+					self.append(Move.gen(.nil, .nil, s, d));
+				}
+
+				var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
+				while (west_atk != .nil) : (west_atk.popLow()) {
+					const d = west_atk.lowSquare();
+					const s = d.shift(stm.forward().add(.west).flip(), 1);
+					self.append(Move.gen(.nil, .nil, s, d));
+				}
+			} else {
+				var push = bitboard.pPush1(src, occ, stm).bitAnd(dst);
+				while (push != .nil) : (push.popLow()) {
+					const d = push.lowSquare();
+					const s = d.shift(stm.forward().flip(), 1);
+					self.append(Move.gen(.nil, .nil, s, d));
+				}
+
+				push = bitboard.pPush2(src, occ, stm).bitAnd(dst);
+				while (push != .nil) : (push.popLow()) {
+					const d = push.lowSquare();
+					const s = d.shift(stm.forward().flip(), 2);
+					self.append(Move.gen(.nil, .nil, s, d));
+				}
+			}
+		}
+
+		fn genPieceMoves(self: *List, pos: Position,
+		  comptime ptype: misc.types.Ptype,
+		  comptime noisy: bool) void {
+			const occ = pos.allOcc();
+			const stm = pos.stm;
+			const target = misc.types.BitBoard.all
+			  .bitAnd(if (ptype != .king) pos.checkMask() else .all)
+			  .bitAnd(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
+
+			var src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, ptype));
+			while (src != .nil) : (src.popLow()) {
+				const s = src.lowSquare();
+				var dst = bitboard.ptAtk(ptype, s, occ).bitAnd(target);
+				while (dst != .nil) : (dst.popLow()) {
+					const d = dst.lowSquare();
+					self.append(Move.gen(.nil, .nil, s, d));
+				}
+			}
+		}
+
+		pub fn genNoisy(self: *List, pos: Position) Int {
+			const len = self.array.len;
+			self.genPromotion(pos, .queen,  true);
+			self.genPromotion(pos, .rook,   true);
+			self.genPromotion(pos, .bishop, true);
+			self.genPromotion(pos, .knight, true);
+			self.genPromotion(pos, .queen,  false);
+			self.genPromotion(pos, .knight, false);
+			self.genEnPassant(pos);
+			self.genPawnMoves(pos, true);
+			self.genPieceMoves(pos, .knight, true);
+			self.genPieceMoves(pos, .bishop, true);
+			self.genPieceMoves(pos, .rook,   true);
+			self.genPieceMoves(pos, .queen,  true);
+			self.genPieceMoves(pos, .king,   true);
+			return self.array.len - len;
+		}
+		pub fn genQuiet(self: *List, pos: Position) Int {
+			const len = self.array.len;
+			self.genPromotion(pos, .rook,   false);
+			self.genPromotion(pos, .bishop, false);
+			self.genPawnMoves(pos, false);
+			self.genCastle(pos, .king);
+			self.genCastle(pos, .queen);
+			self.genPieceMoves(pos, .knight, false);
+			self.genPieceMoves(pos, .bishop, false);
+			self.genPieceMoves(pos, .rook,   false);
+			self.genPieceMoves(pos, .queen,  false);
+			self.genPieceMoves(pos, .king,   false);
+			return self.array.len - len;
+		}
+
+		pub fn append(self: *List, move: Move) void {
+			self.array.append(move) catch unreachable;
+		}
+		pub fn resize(self: *List, len: usize) void {
+			self.array.resize(len) catch unreachable;
+		}
+
+		pub fn slice(self: *List) []Move {
+			return self.array.slice();
+		}
+		pub fn constSlice(self: *const List) []const Move {
+			return self.array.constSlice();
+		}
+	};
+
+	pub const Scored = ScoredMove;
 
 	pub const zero = std.mem.zeroes(Move);
 
@@ -148,305 +429,8 @@ pub const Move = packed struct(u16) {
 		return buf;
 	}
 };
-
-pub const ScoredMove = packed struct(u32) {
-	move:	Move,
-	score:	evaluation.score.Int,
-
-	pub const List = struct {
-		array:	std.BoundedArray(ScoredMove, 256 - 2 * @sizeOf(usize) / @sizeOf(ScoredMove)),
-		index:	usize,
-
-		pub const Int = usize;
-
-		fn genCastle(self: *List, pos: Position, comptime side: misc.types.Ptype) Int {
-			const len = self.constSlice().len;
-			const occ = pos.allOcc();
-			const stm = pos.stm;
-
-			const cas = switch (side) {
-				.king  => if (stm == .white) misc.types.Castle.wk else misc.types.Castle.bk,
-				.queen => if (stm == .white) misc.types.Castle.wq else misc.types.Castle.bq,
-				else => @compileError("unexpected tag " ++ @tagName(side)),
-			};
-			if (pos.checkMask() != .all
-			  or pos.ssTop().castle.bitAnd(cas) == .nil) {
-				return self.constSlice().len - len;
-			}
-
-			const their_pieces = std.EnumArray(misc.types.Ptype, misc.types.BitBoard).init(.{
-				.nil = .nil,
-				.pawn   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .pawn)),
-				.knight = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .knight)),
-				.bishop = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .bishop)),
-				.rook   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .rook)),
-				.queen  = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .queen)),
-				.king   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .king)),
-				.all = .nil,
-			});
-			var atk_mask = (switch (side) {
-				.king  => misc.types.BitBoard.fromSlice(misc.types.File, &.{.file_f, .file_g}),
-				.queen => misc.types.BitBoard.fromSlice(misc.types.File, &.{.file_c, .file_d}),
-				else => unreachable,
-			}).bitAnd(stm.homeRank().bb());
-			while (atk_mask != .nil) : (atk_mask.popLow()) {
-				const s = atk_mask.lowSquare();
-				const a = bitboard.pAtk(s.bb(), stm).bitAnd(their_pieces.get(.pawn))
-				  .bitOr(bitboard.nAtk(s).bitAnd(their_pieces.get(.knight)))
-				  .bitOr(bitboard.kAtk(s).bitAnd(their_pieces.get(.king)))
-				  .bitOr(bitboard.bAtk(s, occ).bitAnd(their_pieces.get(.bishop)))
-				  .bitOr(bitboard.rAtk(s, occ).bitAnd(their_pieces.get(.rook)))
-				  .bitOr(bitboard.qAtk(s, occ).bitAnd(their_pieces.get(.queen)));
-				if (a != .nil) {
-					return self.constSlice().len - len;
-				}
-			}
-
-			const occ_mask = (switch (side) {
-				.king  => misc.types.BitBoard.fromSlice(misc.types.File,
-				  &.{.file_f, .file_g}),
-				.queen => misc.types.BitBoard.fromSlice(misc.types.File,
-				  &.{.file_b, .file_c, .file_d}),
-				else => unreachable,
-			}).bitAnd(stm.homeRank().bb());
-			if (occ.bitAnd(occ_mask) != .nil) {
-				return self.constSlice().len - len;
-			}
-
-			const s = misc.types.Square.fromCoord(stm.homeRank(), .file_e);
-			const d = s.shift(switch (side) {
-				.king  => .east,
-				.queen => .west,
-				else => unreachable,
-			}, 2);
-			self.append(.{
-				.move  = Move.gen(.castle, .nil, s, d),
-				.score = evaluation.score.lose,
-			});
-			return self.constSlice().len - len;
-		}
-
-		fn genEnPassant(self: *List, pos: Position) Int {
-			const en_pas = pos.ssTop().en_pas orelse return 0;
-			const len = self.constSlice().len;
-			const stm = pos.stm;
-			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
-			const dst = en_pas.bb();
-
-			var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
-			while (east_atk != .nil) : (east_atk.popLow()) {
-				const d = east_atk.lowSquare();
-				const s = d.shift(stm.forward().add(.east).flip(), 1);
-				self.append(.{
-					.move  = Move.gen(.en_passant, .nil, s, d),
-					.score = evaluation.score.lose,
-				});
-			}
-
-			var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
-			while (west_atk != .nil) : (west_atk.popLow()) {
-				const d = west_atk.lowSquare();
-				const s = d.shift(stm.forward().add(.west).flip(), 1);
-				self.append(.{
-					.move  = Move.gen(.en_passant, .nil, s, d),
-					.score = evaluation.score.lose,
-				});
-			}
-
-			return self.constSlice().len - len;
-		}
-
-		fn genPromotion(self: *List, pos: Position,
-		  comptime ptype: misc.types.Ptype,
-		  comptime noisy: bool) Int {
-			const len = self.constSlice().len;
-			const occ = pos.allOcc();
-			const stm = pos.stm;
-			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
-			const dst = pos.checkMask()
-			  .bitAnd(stm.promotionRank().bb())
-			  .bitAnd(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
-
-			if (noisy) {
-				var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
-				while (east_atk != .nil) : (east_atk.popLow()) {
-					const d = east_atk.lowSquare();
-					const s = d.shift(stm.forward().add(.east).flip(), 1);
-					self.append(.{
-						.move  = Move.gen(.promote, ptype, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-
-				var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
-				while (west_atk != .nil) : (west_atk.popLow()) {
-					const d = west_atk.lowSquare();
-					const s = d.shift(stm.forward().add(.west).flip(), 1);
-					self.append(.{
-						.move  = Move.gen(.promote, ptype, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-			} else {
-				var push = bitboard.pPush1(src, occ, stm).bitAnd(dst);
-				while (push != .nil) : (push.popLow()) {
-					const d = push.lowSquare();
-					const s = d.shift(stm.forward().flip(), 1);
-					self.append(.{
-						.move  = Move.gen(.promote, ptype, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-
-				push = bitboard.pPush2(src, occ, stm).bitAnd(dst);
-				while (push != .nil) : (push.popLow()) {
-					const d = push.lowSquare();
-					const s = d.shift(stm.forward().flip(), 2);
-					self.append(.{
-						.move  = Move.gen(.promote, ptype, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-			}
-
-			return self.constSlice().len - len;
-		}
-
-		fn genPawnMoves(self: *List, pos: Position, comptime noisy: bool) Int {
-			const len = self.constSlice().len;
-			const occ = pos.allOcc();
-			const stm = pos.stm;
-			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
-			const dst = pos.checkMask()
-			  .bitAnd(stm.promotionRank().bb().flip())
-			  .bitAnd(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
-
-			if (noisy) {
-				var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
-				while (east_atk != .nil) : (east_atk.popLow()) {
-					const d = east_atk.lowSquare();
-					const s = d.shift(stm.forward().add(.east).flip(), 1);
-					self.append(.{
-						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-
-				var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
-				while (west_atk != .nil) : (west_atk.popLow()) {
-					const d = west_atk.lowSquare();
-					const s = d.shift(stm.forward().add(.west).flip(), 1);
-					self.append(.{
-						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-			} else {
-				var push = bitboard.pPush1(src, occ, stm).bitAnd(dst);
-				while (push != .nil) : (push.popLow()) {
-					const d = push.lowSquare();
-					const s = d.shift(stm.forward().flip(), 1);
-					self.append(.{
-						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-
-				push = bitboard.pPush2(src, occ, stm).bitAnd(dst);
-				while (push != .nil) : (push.popLow()) {
-					const d = push.lowSquare();
-					const s = d.shift(stm.forward().flip(), 2);
-					self.append(.{
-						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-			}
-
-			return self.constSlice().len - len;
-		}
-
-		fn genPieceMoves(self: *List, pos: Position,
-		  comptime ptype: misc.types.Ptype,
-		  comptime noisy: bool) Int {
-			const len = self.constSlice().len;
-			const occ = pos.allOcc();
-			const stm = pos.stm;
-			const target = misc.types.BitBoard.all
-			  .bitAnd(if (ptype != .king) pos.checkMask() else .all)
-			  .bitAnd(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
-
-			var src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, ptype));
-			while (src != .nil) : (src.popLow()) {
-				const s = src.lowSquare();
-				var dst = bitboard.ptAtk(ptype, s, occ).bitAnd(target);
-				while (dst != .nil) : (dst.popLow()) {
-					const d = dst.lowSquare();
-					self.append(.{
-						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.lose,
-					});
-				}
-			}
-			return self.constSlice().len - len;
-		}
-
-		pub fn append(self: *List, sm: ScoredMove) void {
-			self.array.append(sm) catch @panic("hit the movegen lottery");
-		}
-		pub fn resize(self: *List, len: usize) void {
-			self.array.resize(len) catch @panic("hit the movegen lottery");
-		}
-
-		pub fn constSlice(self: *const List) []const ScoredMove {
-			return self.array.constSlice();
-		}
-		pub fn slice(self: *List) []ScoredMove {
-			return self.array.slice();
-		}
-
-		pub fn gen(self: *List, pos: Position, comptime noisy: bool) Int {
-			var len: Int = 0;
-			if (noisy) {
-				len += self.genPromotion(pos, .queen,  true);
-				len += self.genPromotion(pos, .rook,   true);
-				len += self.genPromotion(pos, .bishop, true);
-				len += self.genPromotion(pos, .knight, true);
-				len += self.genPromotion(pos, .queen,  false);
-				len += self.genPromotion(pos, .knight, false);
-				len += self.genEnPassant(pos);
-				len += self.genPawnMoves(pos, true);
-				len += self.genPieceMoves(pos, .knight, true);
-				len += self.genPieceMoves(pos, .bishop, true);
-				len += self.genPieceMoves(pos, .rook,   true);
-				len += self.genPieceMoves(pos, .queen,  true);
-				len += self.genPieceMoves(pos, .king,   true);
-			} else {
-				len += self.genPromotion(pos, .rook,   false);
-				len += self.genPromotion(pos, .bishop, false);
-				len += self.genPawnMoves(pos, false);
-				len += self.genCastle(pos, .king);
-				len += self.genCastle(pos, .queen);
-				len += self.genPieceMoves(pos, .knight, false);
-				len += self.genPieceMoves(pos, .bishop, false);
-				len += self.genPieceMoves(pos, .rook,   false);
-				len += self.genPieceMoves(pos, .queen,  false);
-				len += self.genPieceMoves(pos, .king,   false);
-			}
-			return len;
-		}
-
-		pub fn sort(self: *List) void {
-			std.sort.insertion(ScoredMove, self.slice(), {}, desc);
-		}
-	};
-
-	pub fn desc(_: void, a: ScoredMove, b: ScoredMove) bool {
-		return a.score > b.score;
-	}
-};
 test {
-	try std.testing.expectEqual(@sizeOf(ScoredMove) * 256, @sizeOf(ScoredMove.List));
+	try std.testing.expectEqual(@sizeOf(Move) * 256, @sizeOf(Move.List));
 }
 test {
 	const pos = try std.testing.allocator.create(Position);
@@ -469,7 +453,7 @@ pub const RootMove = struct {
 		array:	std.BoundedArray(RootMove, 256),
 
 		pub fn append(self: *List, rm: RootMove) void {
-			self.array.append(rm) catch @panic("hit the movegen lottery");
+			self.array.append(rm) catch unreachable;
 		}
 		pub fn init(len: usize) !List {
 			return .{
@@ -493,34 +477,30 @@ pub const RootMove = struct {
 
 		pub fn fromInfo(info: *search.Info) List {
 			var array = List.init(0) catch unreachable;
-			var list = std.mem.zeroes(ScoredMove.List);
-			_ = list.gen(info.pos, true);
-			_ = list.gen(info.pos, false);
-			for (list.slice()) |*sm| {
-				info.pos.doMove(sm.move) catch {
-					sm.* = .{
-						.move  = Move.zero,
-						.score = evaluation.score.nil,
-					};
-					continue;
-				};
+			var list = std.mem.zeroes(Move.List);
+			_ = list.genNoisy(info.pos);
+			_ = list.genQuiet(info.pos);
+			for (list.constSlice()) |move| {
+				info.pos.doMove(move) catch continue;
 				defer info.pos.undoMove();
 
 				const tt_fetch = transposition.Table.global.fetch(info.pos.ssTop().key);
 				const tte = tt_fetch[0];
 				const hit = tt_fetch[1];
+
+				var score: evaluation.score.Int = evaluation.score.lose;
 				if (hit) {
-					sm.score = tte.?.score;
+					score = tte.?.score;
 				}
 
 				var rm: RootMove = undefined;
 				rm.line = @TypeOf(rm.line).init(0) catch unreachable;
-				rm.line.append(sm.move) catch unreachable;
-				rm.score = sm.score;
+				rm.line.append(move) catch unreachable;
+				rm.score = score;
 				array.append(rm);
 			}
-			sortSlice(array.slice());
 
+			array.sort();
 			return array;
 		}
 	};
@@ -537,7 +517,7 @@ test {
 }
 
 pub const Picker = struct {
-	list:	ScoredMove.List,
+	list:	Move.Scored.List,
 	info:	*search.Info,
 
 	noisy:	bool,
@@ -570,7 +550,7 @@ pub const Picker = struct {
 		}
 	};
 
-	fn pick(self: *Picker) ?ScoredMove {
+	fn pick(self: *Picker) ?Move.Scored {
 		while (self.list.index < self.list.constSlice().len) {
 			const sm = self.list.constSlice()[self.list.index];
 			self.list.index += 1;
@@ -586,7 +566,7 @@ pub const Picker = struct {
 
 	pub fn init(info: *search.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
 		return .{
-			.list = std.mem.zeroes(ScoredMove.List),
+			.list = std.mem.zeroes(Move.Scored.List),
 			.info = info,
 			.noisy = noisy,
 			.stage = if (ttm.isZero()) .gen_noisy else .ttm,
@@ -609,17 +589,30 @@ pub const Picker = struct {
 		}
 
 		if (self.stage == .gen_noisy) {
-			self.stage = self.stage.inc();
-			self.noisy_cnt = self.list.gen(self.info.pos, true);
+			var list = Move.List {};
 
-			for (self.list.slice()) |*sm| {
-				const key = self.info.pos.keyAfterMove(sm.move);
+			self.stage = self.stage.inc();
+			self.list = .{
+				.array = @TypeOf(self.list.array).init(0) catch unreachable,
+				.index = 0,
+			};
+			self.noisy_cnt = list.genNoisy(self.info.pos);
+
+			for (list.constSlice()) |move| {
+				const key = self.info.pos.keyAfterMove(move);
 				const tt_fetch = transposition.Table.global.fetch(key);
-				const tte = tt_fetch[0] orelse continue;
+				const tte = tt_fetch[0];
 				const hit = tt_fetch[1];
+
+				var score: evaluation.score.Int = evaluation.score.lose;
 				if (hit) {
-					sm.score = tte.score;
+					score = tte.?.score;
 				}
+
+				self.list.append(.{
+					.move  = move,
+					.score = score,
+				});
 			}
 			self.list.sort();
 		}
@@ -657,16 +650,23 @@ pub const Picker = struct {
 		if (self.stage == .gen_quiet) {
 			self.stage = self.stage.inc();
 			if (!self.noisy) {
-				self.quiet_cnt = self.list.gen(self.info.pos, false);
-
-				for (self.list.slice()) |*sm| {
-					const key = self.info.pos.keyAfterMove(sm.move);
+				var list = Move.List {};
+				self.quiet_cnt = list.genQuiet(self.info.pos);
+				for (list.constSlice()) |move| {
+					const key = self.info.pos.keyAfterMove(move);
 					const tt_fetch = transposition.Table.global.fetch(key);
-					const tte = tt_fetch[0] orelse continue;
+					const tte = tt_fetch[0];
 					const hit = tt_fetch[1];
+
+					var score: evaluation.score.Int = evaluation.score.lose;
 					if (hit) {
-						sm.score = tte.score;
+						score = tte.?.score;
 					}
+
+					self.list.append(.{
+						.move  = move,
+						.score = score,
+					});
 				}
 				self.list.sort();
 			}

@@ -8,7 +8,10 @@ const search = @import("search.zig");
 const timeman = @import("timeman.zig");
 const transposition = @import("transposition.zig");
 
+const stdin  = std.io.getStdIn();
 const stdout = std.io.getStdOut();
+
+var buffered_inp = std.io.bufferedReader(stdin.reader());
 var buffered_out = std.io.bufferedWriter(stdout.writer());
 
 const Command = enum {
@@ -154,13 +157,13 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 		}
 
 		move_loop: while (tokens.next()) |move_token| {
-			var list = std.mem.zeroes(movegen.ScoredMove.List);
-			_ = list.gen(pos, true);
-			_ = list.gen(pos, false);
-			for (list.constSlice()) |sm| {
-				const move = sm.move;
+			var list = std.mem.zeroes(movegen.Move.List);
+			_ = list.genNoisy(pos);
+			_ = list.genQuiet(pos);
+			for (list.constSlice()) |move| {
+				const str = move.print();
 				const len: usize = if (move.promotion() != .nil) 5 else 4;
-				if (std.ascii.eqlIgnoreCase(move_token, move.print()[0 .. len])) {
+				if (std.ascii.eqlIgnoreCase(move_token, str[0 .. len])) {
 					pos.doMove(move) catch return error.UnknownPosition;
 					continue :move_loop;
 				}
@@ -253,24 +256,23 @@ pub fn parseCommand(comm: []const u8) !Command {
 }
 
 pub fn printEngine() !void {
-	try stdout.lock(.exclusive);
-	try stdout.writer().print("{s} {d}.{d}.{d} by {s}\n", .{
+	try buffered_out.writer().print("{s} {d}.{d}.{d} by {s}\n", .{
 	  config.name, config.version.major, config.version.minor, config.version.patch, config.author,
 	});
-	stdout.unlock();
+	try buffered_out.flush();
 }
 
 pub fn readInput() !void {
-	const stdin = std.io.getStdIn();
-	var buffer = std.mem.zeroes([16384]u8);
+	var buffer: [4096]u8 = undefined;
 
 	defer @atomicStore(bool, &timeman.is_running, false, .monotonic);
 	while (true) {
-		const read = (try stdin.reader().readUntilDelimiterOrEof(buffer[0 ..], '\n'))
+		buffer = std.mem.zeroes([4096]u8);
+		const read = (try buffered_inp.reader().readUntilDelimiterOrEof(buffer[0 ..], '\n'))
 			orelse continue;
 		const command = parseCommand(read) catch |err| sw: switch (err) {
 			error.UnknownCommand, error.UnknownPosition => {
-				try stdout.writer().print("Unknown command {s}\n", .{read});
+				try buffered_out.writer().print("Unknown command {s}\n", .{read});
 				break :sw .none;
 			},
 			else => return err,

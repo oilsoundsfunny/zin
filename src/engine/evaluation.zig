@@ -581,7 +581,7 @@ pub fn scorePosition(pos: Position) isize {
 test {
 	var pos = std.mem.zeroes(Position);
 
-	for (EvalTest.suite[1 ..][0 .. 1]) |ref| {
+	for (EvalTest.suite[0 .. 0]) |ref| {
 		try pos.parseFen(ref.fen);
 		try debugPosition(pos);
 

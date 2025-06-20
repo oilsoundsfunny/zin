@@ -18,14 +18,6 @@ pub var time = std.EnumArray(misc.types.Color, ?u64).init(.{
 
 pub var start: u64 = 0;
 pub var stop: ?u64 = null;
-pub var current: u64 = 0;
-
-pub fn loop() void {
-	while (@atomicLoad(bool, &is_running, .monotonic)) {
-		const read = misc.time.read(.ms);
-		@atomicStore(u64, &current, read, .monotonic);
-	}
-}
 
 pub fn hardStop() bool {
 	if (!is_searching) {
@@ -33,6 +25,6 @@ pub fn hardStop() bool {
 	}
 
 	const stop_time = stop orelse return false;
-	const current_time = @atomicLoad(u64, &current, .monotonic);
+	const current_time = misc.time.read(.ms);
 	return current_time >= stop_time;
 }

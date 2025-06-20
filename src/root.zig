@@ -19,10 +19,6 @@ pub fn main() !void {
 	try misc.time.init();
 	defer misc.heap.arena.deinit();
 
-	const time_thread = try std.Thread.spawn(
-	  .{.allocator = misc.heap.allocator}, engine.timeman.loop, .{});
-	defer std.Thread.join(time_thread);
-
 	const input_thread = try std.Thread.spawn(
 	  .{.allocator = misc.heap.allocator}, engine.uci.readInput, .{});
 	defer std.Thread.join(input_thread);

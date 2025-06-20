@@ -35,6 +35,10 @@ pub const Info = struct {
 		};
 	}
 
+	pub fn isMain(self: *Info) bool {
+		const main_info = ofMain() catch unreachable;
+		return self == main_info;
+	}
 	pub fn ofMain() Error!*Info {
 		const all = try ofThreads();
 		return &all[0];
@@ -60,6 +64,22 @@ pub const manager = struct {
 		const stdout = std.io.getStdOut();
 		var buffered = std.io.bufferedWriter(stdout.writer());
 
+		const overhead = timeman.overhead orelse 10;
+		const stm = infos[0].pos.stm;
+		timeman.start = misc.time.read(.ms);
+		if (timeman.movetime) |movetime| {
+			timeman.stop = timeman.start + movetime - overhead;
+		}
+		if (timeman.increment.get(stm) != null and timeman.time.get(stm) != null) {
+			const inc = timeman.increment.get(stm).?;
+			const time = timeman.time.get(stm).?;
+
+			timeman.stop = timeman.start + time / 20 + inc / 2 - overhead;
+		}
+
+		const min_depth = 2;
+		const max_depth = timeman.depth orelse 240;
+
 		var root_moves = movegen.RootMove.List.fromInfo(&infos[0]);
 		for (root_moves.slice()) |*rm| {
 			const move = rm.line.constSlice()[0];
@@ -69,7 +89,9 @@ pub const manager = struct {
 			rm.score = -qs(&infos[0], -evaluation.score.win, -evaluation.score.lose);
 		}
 		root_moves.sort();
-		try print(root_moves, 1);
+
+		try print(buffered.writer(), 1, root_moves);
+		try buffered.flush();
 
 		const div = root_moves.constSlice().len / infos.len;
 		const mod = root_moves.constSlice().len % infos.len;
@@ -91,21 +113,6 @@ pub const manager = struct {
 		});
 		defer pool.deinit();
 
-		const overhead = timeman.overhead orelse 10;
-		const stm = infos[0].pos.stm;
-		timeman.start = @atomicLoad(u64, &timeman.current, .monotonic);
-		if (timeman.movetime) |movetime| {
-			timeman.stop = timeman.start + movetime - overhead;
-		}
-		if (timeman.increment.get(stm) != null and timeman.time.get(stm) != null) {
-			const inc = timeman.increment.get(stm).?;
-			const time = timeman.time.get(stm).?;
-
-			timeman.stop = timeman.start + time / 20 + inc / 2 - overhead;
-		}
-
-		const min_depth = 2;
-		const max_depth = timeman.depth orelse 240;
 		for (min_depth .. max_depth) |d| {
 			const depth: u8 = @truncate(d);
 
@@ -115,9 +122,10 @@ pub const manager = struct {
 				pool.spawnWg(&wg, threaded, .{info});
 			}
 			pool.waitAndWork(&wg);
-
 			root_moves.sort();
-			try print(root_moves, depth);
+
+			try print(buffered.writer(), depth, root_moves);
+			try buffered.flush();
 
 			if (timeman.hardStop()) {
 				break;
@@ -125,9 +133,6 @@ pub const manager = struct {
 		}
 
 		{
-			try stdout.lock(.exclusive);
-			defer stdout.unlock();
-
 			const pv = root_moves.pv();
 			const move = pv.line.constSlice()[0];
 			const len: usize = if (move.promotion() == .nil) 4 else 5;
@@ -138,26 +143,21 @@ pub const manager = struct {
 		}
 	}
 
-	fn print(root_moves: movegen.RootMove.List, depth: u8) !void {
-		const stdout = std.io.getStdOut();
-		var buffered = std.io.bufferedWriter(stdout.writer());
-
-		try stdout.lock(.exclusive);
-		defer stdout.unlock();
-
+	fn print(writer: anytype, depth: u8, root_moves: movegen.RootMove.List) !void {
 		const pv = root_moves.pv();
 		const cp = evaluation.score.centipawns(pv.score);
-		try buffered.writer().print("info", .{});
-		try buffered.writer().print(" score cp {d}", .{cp});
-		try buffered.writer().print(" depth {d}", .{depth});
-		try buffered.writer().print(" pv", .{});
+		const current = misc.time.read(.ms);
+		try writer.print("info", .{});
+		try writer.print(" depth {d}", .{depth});
+		try writer.print(" score cp {d}", .{cp});
+		try writer.print(" time {d}", .{current - timeman.start});
+		try writer.print(" pv", .{});
 		for (pv.line.constSlice()) |move| {
 			const len: usize = if (move.promotion() == .nil) 4 else 5; 
 			const str = move.print();
-			try buffered.writer().print(" {s}", .{str[0 .. len]});
+			try writer.print(" {s}", .{str[0 .. len]});
 		}
-		try buffered.writer().print("\n", .{});
-		try buffered.flush();
+		try writer.print("\n", .{});
 	}
 
 	pub fn spawn() !void {
@@ -192,7 +192,7 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 
 	const ttm = if (hit) tte.?.move else movegen.Move.zero;
-	var best = movegen.ScoredMove {
+	var best = movegen.Move.Scored {
 		.move  = ttm,
 		.score = lose,
 	};
@@ -212,11 +212,11 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 			s = -qs(info, -b, -a);
 		} else if (is_pv) {
 			s = -qs(info, -a - 1, -a);
-			if (is_pv and s >= a + 1) {
+			if (s > a and s < b) {
 				s = -qs(info, -b, -a);
 			}
 		} else {
-			s = -qs(info, -b, -a);
+			s = -qs(info, -a - 1, -a);
 		}
 
 		if (s > best.score) {
@@ -288,7 +288,7 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	}
 
 	const ttm = if (hit) tte.?.move else movegen.Move.zero;
-	var best = movegen.ScoredMove {
+	var best = movegen.Move.Scored {
 		.move  = ttm,
 		.score = lose,
 	};
@@ -307,11 +307,11 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 			s = -ab(info, -b, -a, d - 1);
 		} else if (is_pv) {
 			s = -ab(info, -a - 1, -a, d - 1);
-			if (is_pv and s >= a + 1) {
+			if (s > a and s < b) {
 				s = -ab(info, -b, -a, d - 1);
 			}
 		} else {
-			s = -ab(info, -b, -a, d - 1);
+			s = -ab(info, -a - 1, -a, d - 1);
 		}
 
 		if (s > best.score) {
@@ -360,7 +360,7 @@ pub fn threaded(info: *Info) void {
 	}
 
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(info.pos);
-	var best = movegen.ScoredMove {
+	var best = movegen.Move.Scored {
 		.move  = if (hit) tte.?.move else movegen.Move.zero,
 		.score = lose,
 	};
