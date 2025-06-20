@@ -112,22 +112,18 @@ pub const manager = struct {
 				pool.spawnWg(&wg, threaded, .{info});
 			}
 			pool.waitAndWork(&wg);
-
 			root_moves.sort();
+
 			const pv = root_moves.constSlice()[0];
 			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
-
-			var buffer = std.io.bufferedWriter(stdout.writer());
-			try buffer.writer().print("info", .{});
-			try buffer.writer().print(" score cp {d}", .{evaluation.score.centipawns(pv.score)});
-			try buffer.writer().print(" depth {d}", .{depth});
-			try buffer.writer().print(" time {d}", .{current_time - timeman.start});
-			try buffer.writer().print(" pv {s}",.{pv.line.constSlice()[0].print()
-			  [0 .. if (pv.line.constSlice()[0].promotion() == .nil) 4 else 5]});
-			try buffer.writer().print("\n", .{});
-
 			try stdout.lock(.exclusive);
-			try buffer.flush();
+			try stdout.writer().print("info", .{});
+			try stdout.writer().print(" score cp {d}", .{evaluation.score.centipawns(pv.score)});
+			try stdout.writer().print(" depth {d}", .{depth});
+			try stdout.writer().print(" time {d}", .{current_time - timeman.start});
+			try stdout.writer().print(" pv {s}",.{pv.line.constSlice()[0].print()
+			  [0 .. if (pv.line.constSlice()[0].promotion() == .nil) 4 else 5]});
+			try stdout.writer().print("\n", .{});
 			stdout.unlock();
 
 			if (timeman.hardStop()) {
@@ -136,12 +132,9 @@ pub const manager = struct {
 		}
 
 		const pv = root_moves.constSlice()[0];
-		var buffer = std.io.bufferedWriter(stdout.writer());
-		try buffer.writer().print("bestmove {s}\n", .{pv.line.constSlice()[0].print()
-		  [0 .. if (pv.line.constSlice()[0].promotion() == .nil) 4 else 5]});
-
 		try stdout.lock(.exclusive);
-		try buffer.flush();
+		try stdout.writer().print("bestmove {s}\n", .{pv.line.constSlice()[0].print()
+		  [0 .. if (pv.line.constSlice()[0].promotion() == .nil) 4 else 5]});
 		stdout.unlock();
 	}
 

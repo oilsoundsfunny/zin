@@ -8,13 +8,16 @@ const movegen = @import("movegen.zig");
 
 const Self = @This();
 
-mailbox:	std.EnumArray(misc.types.Square, misc.types.Piece),
-piece_occ:	std.EnumArray(misc.types.Piece,  misc.types.BitBoard),
-stm:	misc.types.Color,
+mailbox:	std.EnumArray(misc.types.Square, misc.types.Piece)
+	= std.EnumArray(misc.types.Square, misc.types.Piece).initFill(.nil),
 
-game_len:	usize,
-ss_ply:		usize,
-ss:	[128]Stack,
+piece_occ:	std.EnumArray(misc.types.Piece,  misc.types.BitBoard)
+	= std.EnumArray(misc.types.Piece,  misc.types.BitBoard).initFill(.nil),
+
+stm:	misc.types.Color = .white,
+
+game_len:	usize = 1,
+ss:	Stack.Array = Stack.Array.default,
 
 pub const FenError = error {
 	InvalidPiece,
@@ -38,15 +41,33 @@ pub const MoveError = error {
 };
 
 pub const Stack = struct {
-	move:	movegen.Move,
-	src_piece:	misc.types.Piece,
-	dst_piece:	misc.types.Piece,
+	move:	movegen.Move = movegen.Move.zero,
+	src_piece:	misc.types.Piece = .nil,
+	dst_piece:	misc.types.Piece = .nil,
 
-	castle:	misc.types.Castle,
-	chk:	misc.types.BitBoard,
-	en_pas:	?misc.types.Square,
-	key:	Zobrist.Int,
-	rule50:	u8,
+	castle:	misc.types.Castle = .nil,
+	chk:	misc.types.BitBoard = .all,
+	en_pas:	?misc.types.Square = null,
+	key:	Zobrist.Int = 0,
+	rule50:	u8 = 0,
+
+	pub const Array = struct {
+		buffer:	std.BoundedArray(Stack, 192),
+
+		pub const default = blk: {
+			var ret = std.mem.zeroes(Array);
+			ret.buffer.len = 1;
+			ret.buffer.buffer[0] = .{};
+			break :blk ret;
+		};
+
+		pub fn append(self: *Array, stack: Stack) void {
+			self.buffer.append(stack) catch @panic("do much move engine many bad");
+		}
+		pub fn pop(self: *Array) Stack {
+			return self.buffer.pop() orelse @panic("undo much move engine many bad");
+		}
+	};
 };
 
 fn colorOccPtr(self: *Self, c: misc.types.Color) *misc.types.BitBoard {
@@ -255,13 +276,16 @@ pub fn allOcc(self: Self) misc.types.BitBoard {
 }
 
 pub fn ssTopPtr(self: *Self) [*]Stack {
-	return self.ss[self.ss_ply ..].ptr;
+	return self.ss.buffer.slice()[self.ssPly() ..].ptr;
 }
 pub fn ssTopPtrConst(self: *const Self) [*]const Stack {
-	return self.ss[self.ss_ply ..].ptr;
+	return self.ss.buffer.constSlice()[self.ssPly() ..].ptr;
 }
 pub fn ssTop(self: Self) Stack {
 	return self.ssTopPtrConst()[0];
+}
+pub fn ssPly(self: Self) usize {
+	return self.ss.buffer.len - 1;
 }
 
 pub fn getSquare(self: Self, s: misc.types.Square) misc.types.Piece {
@@ -298,10 +322,10 @@ pub fn checkMask(self: Self) misc.types.BitBoard {
 
 pub fn is3peat(self: Self) bool {
 	var peat: usize = 0;
-	for (0 .. self.ss_ply) |i| {
-		peat += if (self.ss[i].key == self.ssTop().key) 1 else 0;
+	for (0 .. self.ss.buffer.len) |i| {
+		peat += if (self.ss.buffer.constSlice()[i].key == self.ssTop().key) 1 else 0;
 	}
-	return peat >= 2;
+	return peat >= 3;
 }
 
 pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
@@ -311,7 +335,7 @@ pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
 
 pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
 	const backup = self.*;
-	self.* = std.mem.zeroes(Self);
+	self.* = Self {};
 	errdefer self.* = backup;
 
 	const psq_token = tokens.next() orelse return error.InvalidFen;
@@ -429,7 +453,18 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	const next_key = self.keyAfterMove(move);
 	const ply_clock = self.ssTop().rule50;
 
-	self.ss_ply += 1;
+	self.ss.append(.{
+		.castle = next_cas,
+		.en_pas = if (src_piece.ptype() != .pawn or dst.shift(stm.forward().flip(), 2) != src) null
+			else dst.shift(stm.forward().flip(), 1),
+		.key = next_key,
+		.rule50 = if (src_piece.ptype() == .pawn or dst_piece.ptype() != .nil) 0 else ply_clock + 1,
+
+		.move = move,
+		.src_piece = src_piece,
+		.dst_piece = dst_piece,
+	});
+
 	self.popSquare(src, src_piece);
 	self.popSquare(dst, dst_piece);
 	if (move.flag == .nil) {
@@ -473,19 +508,8 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	const is_legal = self.genChk() == .all;
 
 	self.stm = self.stm.flip();
-	self.ssTopPtr()[0].castle = next_cas;
 	self.ssTopPtr()[0].chk = self.genChk();
-	self.ssTopPtr()[0].en_pas
-	  = if (src_piece.ptype() == .pawn and dst.shift(stm.forward().flip(), 2) == src)
-		dst.shift(stm.forward().flip(), 1) else null;
-	self.ssTopPtr()[0].key = next_key;
-	self.ssTopPtr()[0].rule50 = if (src_piece.ptype() != .pawn and dst_piece.ptype() == .nil) 0
-		else ply_clock + 1;
 	self.game_len += if (self.stm == .white) 1 else 0;
-
-	self.ssTopPtr()[0].move = move;
-	self.ssTopPtr()[0].dst_piece = dst_piece;
-	self.ssTopPtr()[0].src_piece = src_piece;
 
 	if (!is_legal) {
 		self.undoMove();
@@ -499,29 +523,30 @@ pub fn doNullMove(self: *Self) MoveError!void {
 	}
 
 	const ss = self.ssTop();
-	self.ss_ply += 1;
+	self.ss.append(.{
+		.castle = self.ssTop().rule50,
+		.chk = .all,
+		.en_pas = null,
+		.key = self.ssTop().key,
+		.move = movegen.Move.zero,
+		.src_piece = .nil,
+		.dst_piece = .nil,
+	});
 	self.stm = self.stm.flip();
 	self.game_len += if (self.stm == .white) 1 else 0;
 
-	self.ssTopPtr()[0] = ss;
-	self.ssTopPtr()[0].rule50 = 0;
-	self.ssTopPtr()[0].en_pas = null;
-
 	self.ssTopPtr()[0].key ^= Zobrist.default.stm.get(.white);
 	self.ssTopPtr()[0].key ^= if (ss.en_pas) |s| Zobrist.default.en_pas.get(s.file()) else 0;
-
-	self.ssTopPtr()[0].move = movegen.Move.zero;
-	self.ssTopPtr()[0].dst_piece = .nil;
-	self.ssTopPtr()[0].src_piece = .nil;
 }
 
 pub fn undoMove(self: *Self) void {
 	self.stm = self.stm.flip();
 	self.game_len -= if (self.stm == .black) 1 else 0;
 
-	const move = self.ssTop().move;
-	const dst_piece = self.ssTop().dst_piece;
-	const src_piece = self.ssTop().src_piece;
+	const stack = self.ss.pop();
+	const move = stack.move;
+	const dst_piece = stack.dst_piece;
+	const src_piece = stack.src_piece;
 	const dst = move.dst;
 	const src = move.src;
 	const stm = self.stm;
@@ -567,20 +592,17 @@ pub fn undoMove(self: *Self) void {
 	} else unreachable;
 	self.setSquare(dst, dst_piece);
 	self.setSquare(src, src_piece);
-
-	self.ss_ply -= 1;
 }
 
 pub fn undoNullMove(self: *Self) void {
 	self.game_len -= if (self.stm == .white) 1 else 0;
 	self.stm = self.stm.flip();
-	self.ss_ply -= 1;
+	_ = self.ss.pop();
 }
 
 pub fn printSelf(self: Self) !void {
 	const in_test = builtin.is_test;
 	const output = if (in_test) std.io.getStdErr() else std.io.getStdOut();
-	// const tty_config = std.io.tty.detectConfig(output);
 
 	const coord_format = if (in_test) "\t{c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}"
 		else "\t{c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}  {c}\n";
@@ -629,7 +651,7 @@ pub fn printSelf(self: Self) !void {
 }
 
 test {
-	var pos = std.mem.zeroes(Self);
+	var pos = Self {};
 
 	try pos.parseFen("8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1");
 	try std.testing.expectEqual(misc.types.Piece.w_pawn, pos.getSquare(.g2));

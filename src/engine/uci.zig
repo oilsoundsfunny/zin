@@ -188,11 +188,8 @@ pub fn parseCommand(comm: []const u8) !Command {
 		}
 
 		const stdout = std.io.getStdOut();
-		var buffer = std.io.bufferedWriter(stdout.writer());
-		try buffer.writer().print("readyok\n", .{});
-
 		try stdout.lock(.exclusive);
-		try buffer.flush();
+		try stdout.writer().print("readyok\n", .{});
 		stdout.unlock();
 
 		return .isready;

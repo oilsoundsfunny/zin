@@ -170,7 +170,7 @@ pub const ScoredMove = packed struct(u32) {
 				else => @compileError("unexpected tag " ++ @tagName(side)),
 			};
 			if (pos.checkMask() != .all
-			  or pos.ss[pos.ss_ply].castle.bitAnd(cas) == .nil) {
+			  or pos.ssTop().castle.bitAnd(cas) == .nil) {
 				return self.constSlice().len - len;
 			}
 
@@ -227,7 +227,7 @@ pub const ScoredMove = packed struct(u32) {
 		}
 
 		fn genEnPassant(self: *List, pos: Position) Int {
-			const en_pas = pos.ss[pos.ss_ply].en_pas orelse return 0;
+			const en_pas = pos.ssTop().en_pas orelse return 0;
 			const len = self.constSlice().len;
 			const stm = pos.stm;
 			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
