@@ -5,6 +5,7 @@ const std = @import("std");
 const Zobrist = @import("Zobrist.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
+const search = @import("search.zig");
 
 pub const Entry = packed struct(u80) {
 	key:	u16,
@@ -51,6 +52,12 @@ pub const Table = struct {
 		.age = 0,
 	};
 
+	fn threadedClear(slice: []Cluster) void {
+		for (slice) |*p| {
+			p.* = std.mem.zeroes(@TypeOf(p.*));
+		}
+	}
+
 	fn index(self: Table, key: Zobrist.Int) !usize {
 		const c = if (self.tbl != null) self.tbl.?.len else return error.OutOfMemory;
 		const m = std.math.mulWide(Zobrist.Int, c, key);
@@ -66,11 +73,28 @@ pub const Table = struct {
 		}
 	}
 
-	pub fn clear(self: *Table) void {
-		if (self.tbl != null) {
-			for (self.tbl.?) |*p| {
-				p.* = std.mem.zeroes(@TypeOf(p.*));
+	pub fn clear(self: *Table) !void {
+		if (self.tbl) |tbl| {
+			const infos = try search.Info.ofThreads();
+			const div = tbl.len / infos.len;
+			const mod = tbl.len % infos.len;
+			var start: usize = 0;
+
+			var pool: std.Thread.Pool = undefined;
+			var wg = std.Thread.WaitGroup {};
+
+			try pool.init(.{
+				.allocator = misc.heap.allocator,
+				.n_jobs = infos.len,
+				.track_ids = false,
+			});
+			for (infos, 0 ..) |_, i| {
+				const slice = tbl[start ..][0 .. if (i < mod) div + 1 else div];
+				start += slice.len;
+
+				pool.spawnWg(&wg, threadedClear, .{slice});
 			}
+			pool.waitAndWork(&wg);
 		}
 	}
 
@@ -105,9 +129,3 @@ pub const Table = struct {
 		return .{replace, false};
 	}
 };
-
-test {
-	_ = Entry;
-	_ = Cluster;
-	_ = Table;
-}
