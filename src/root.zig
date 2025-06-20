@@ -10,6 +10,8 @@ pub const std_options = std.Options {
 };
 
 pub fn main() !void {
+	try bitboard.init();
+
 	_ = try engine.uci.parseCommand("setoption name Hash value 64");
 	_ = try engine.uci.parseCommand("setoption name Threads value 1");
 	_ = try engine.uci.parseCommand("position startpos");

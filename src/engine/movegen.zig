@@ -47,7 +47,7 @@ const Perft = struct {
 
 		_ = list.gen(pos.*, true);
 		_ = list.gen(pos.*, false);
-		for (list.arr[0 .. list.cnt]) |sm| {
+		for (list.constSlice()) |sm| {
 			pos.doMove(sm.move) catch continue;
 			this = div_recursive(pos, depth, rc + 1);
 			pos.undoMove();
@@ -154,15 +154,13 @@ pub const ScoredMove = packed struct(u32) {
 	score:	evaluation.score.Int,
 
 	pub const List = struct {
-		cnt:	Int,
-		idx:	Int,
-		arr:	[256 - 2]ScoredMove,
+		array:	std.BoundedArray(ScoredMove, 256 - 2 * @sizeOf(usize) / @sizeOf(ScoredMove)),
+		index:	usize,
 
-		pub const Int = @typeInfo(ScoredMove).@"struct".backing_integer
-			orelse @compileError("expected " ++ @typeName(ScoredMove) ++ " to be packed");
+		pub const Int = usize;
 
 		fn genCastle(self: *List, pos: Position, comptime side: misc.types.Ptype) Int {
-			const cnt = self.cnt;
+			const len = self.constSlice().len;
 			const occ = pos.allOcc();
 			const stm = pos.stm;
 
@@ -173,7 +171,7 @@ pub const ScoredMove = packed struct(u32) {
 			};
 			if (pos.checkMask() != .all
 			  or pos.ss[pos.ss_ply].castle.bitAnd(cas) == .nil) {
-				return self.cnt - cnt;
+				return self.constSlice().len - len;
 			}
 
 			const their_pieces = std.EnumArray(misc.types.Ptype, misc.types.BitBoard).init(.{
@@ -200,7 +198,7 @@ pub const ScoredMove = packed struct(u32) {
 				  .bitOr(bitboard.rAtk(s, occ).bitAnd(their_pieces.get(.rook)))
 				  .bitOr(bitboard.qAtk(s, occ).bitAnd(their_pieces.get(.queen)));
 				if (a != .nil) {
-					return self.cnt - cnt;
+					return self.constSlice().len - len;
 				}
 			}
 
@@ -212,7 +210,7 @@ pub const ScoredMove = packed struct(u32) {
 				else => unreachable,
 			}).bitAnd(stm.homeRank().bb());
 			if (occ.bitAnd(occ_mask) != .nil) {
-				return self.cnt - cnt;
+				return self.constSlice().len - len;
 			}
 
 			const s = misc.types.Square.fromCoord(stm.homeRank(), .file_e);
@@ -221,54 +219,47 @@ pub const ScoredMove = packed struct(u32) {
 				.queen => .west,
 				else => unreachable,
 			}, 2);
-			self.arr[self.cnt] = .{
+			self.append(.{
 				.move  = Move.gen(.castle, .nil, s, d),
 				.score = evaluation.score.lose,
-			};
-			self.cnt += 1;
-			return self.cnt - cnt;
+			});
+			return self.constSlice().len - len;
 		}
 
 		fn genEnPassant(self: *List, pos: Position) Int {
 			const en_pas = pos.ss[pos.ss_ply].en_pas orelse return 0;
-			const cnt = self.cnt;
+			const len = self.constSlice().len;
 			const stm = pos.stm;
 			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
 			const dst = en_pas.bb();
 
 			var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
-			while (east_atk != .nil) : ({
-				east_atk.popLow();
-				self.cnt += 1;
-			}) {
+			while (east_atk != .nil) : (east_atk.popLow()) {
 				const d = east_atk.lowSquare();
 				const s = d.shift(stm.forward().add(.east).flip(), 1);
-				self.arr[self.cnt] = .{
+				self.append(.{
 					.move  = Move.gen(.en_passant, .nil, s, d),
 					.score = evaluation.score.lose,
-				};
+				});
 			}
 
 			var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
-			while (west_atk != .nil) : ({
-				west_atk.popLow();
-				self.cnt += 1;
-			}) {
+			while (west_atk != .nil) : (west_atk.popLow()) {
 				const d = west_atk.lowSquare();
 				const s = d.shift(stm.forward().add(.west).flip(), 1);
-				self.arr[self.cnt] = .{
+				self.append(.{
 					.move  = Move.gen(.en_passant, .nil, s, d),
 					.score = evaluation.score.lose,
-				};
+				});
 			}
 
-			return self.cnt - cnt;
+			return self.constSlice().len - len;
 		}
 
 		fn genPromotion(self: *List, pos: Position,
 		  comptime ptype: misc.types.Ptype,
 		  comptime noisy: bool) Int {
-			const cnt = self.cnt;
+			const len = self.constSlice().len;
 			const occ = pos.allOcc();
 			const stm = pos.stm;
 			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
@@ -278,63 +269,51 @@ pub const ScoredMove = packed struct(u32) {
 
 			if (noisy) {
 				var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
-				while (east_atk != .nil) : ({
-					east_atk.popLow();
-					self.cnt += 1;
-				}) {
+				while (east_atk != .nil) : (east_atk.popLow()) {
 					const d = east_atk.lowSquare();
 					const s = d.shift(stm.forward().add(.east).flip(), 1);
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.promote, ptype, s, d),
 						.score = evaluation.score.lose,
-					};
+					});
 				}
 
 				var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
-				while (west_atk != .nil) : ({
-					west_atk.popLow();
-					self.cnt += 1;
-				}) {
+				while (west_atk != .nil) : (west_atk.popLow()) {
 					const d = west_atk.lowSquare();
 					const s = d.shift(stm.forward().add(.west).flip(), 1);
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.promote, ptype, s, d),
 						.score = evaluation.score.lose,
-					};
+					});
 				}
 			} else {
 				var push = bitboard.pPush1(src, occ, stm).bitAnd(dst);
-				while (push != .nil) : ({
-					push.popLow();
-					self.cnt += 1;
-				}) {
+				while (push != .nil) : (push.popLow()) {
 					const d = push.lowSquare();
 					const s = d.shift(stm.forward().flip(), 1);
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.promote, ptype, s, d),
 						.score = evaluation.score.lose,
-					};
+					});
 				}
 
 				push = bitboard.pPush2(src, occ, stm).bitAnd(dst);
-				while (push != .nil) : ({
-					push.popLow();
-					self.cnt += 1;
-				}) {
+				while (push != .nil) : (push.popLow()) {
 					const d = push.lowSquare();
 					const s = d.shift(stm.forward().flip(), 2);
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.promote, ptype, s, d),
 						.score = evaluation.score.lose,
-					};
+					});
 				}
 			}
 
-			return self.cnt - cnt;
+			return self.constSlice().len - len;
 		}
 
 		fn genPawnMoves(self: *List, pos: Position, comptime noisy: bool) Int {
-			const cnt = self.cnt;
+			const len = self.constSlice().len;
 			const occ = pos.allOcc();
 			const stm = pos.stm;
 			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
@@ -344,65 +323,53 @@ pub const ScoredMove = packed struct(u32) {
 
 			if (noisy) {
 				var east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
-				while (east_atk != .nil) : ({
-					east_atk.popLow();
-					self.cnt += 1;
-				}) {
+				while (east_atk != .nil) : (east_atk.popLow()) {
 					const d = east_atk.lowSquare();
 					const s = d.shift(stm.forward().add(.east).flip(), 1);
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.nil, .nil, s, d),
 						.score = evaluation.score.lose,
-					};
+					});
 				}
 
 				var west_atk = bitboard.pAtkWest(src, stm).bitAnd(dst);
-				while (west_atk != .nil) : ({
-					west_atk.popLow();
-					self.cnt += 1;
-				}) {
+				while (west_atk != .nil) : (west_atk.popLow()) {
 					const d = west_atk.lowSquare();
 					const s = d.shift(stm.forward().add(.west).flip(), 1);
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.nil, .nil, s, d),
 						.score = evaluation.score.lose,
-					};
+					});
 				}
 			} else {
 				var push = bitboard.pPush1(src, occ, stm).bitAnd(dst);
-				while (push != .nil) : ({
-					push.popLow();
-					self.cnt += 1;
-				}) {
+				while (push != .nil) : (push.popLow()) {
 					const d = push.lowSquare();
 					const s = d.shift(stm.forward().flip(), 1);
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.nil, .nil, s, d),
 						.score = evaluation.score.lose,
-					};
+					});
 				}
 
 				push = bitboard.pPush2(src, occ, stm).bitAnd(dst);
-				while (push != .nil) : ({
-					push.popLow();
-					self.cnt += 1;
-				}) {
+				while (push != .nil) : (push.popLow()) {
 					const d = push.lowSquare();
 					const s = d.shift(stm.forward().flip(), 2);
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.nil, .nil, s, d),
-						.score = evaluation.score.nil,
-					};
+						.score = evaluation.score.lose,
+					});
 				}
 			}
 
-			return self.cnt - cnt;
+			return self.constSlice().len - len;
 		}
 
-		pub fn genPieceMoves(self: *List, pos: Position,
+		fn genPieceMoves(self: *List, pos: Position,
 		  comptime ptype: misc.types.Ptype,
 		  comptime noisy: bool) Int {
-			const cnt = self.cnt;
+			const len = self.constSlice().len;
 			const occ = pos.allOcc();
 			const stm = pos.stm;
 			const target = misc.types.BitBoard.all
@@ -415,45 +382,62 @@ pub const ScoredMove = packed struct(u32) {
 				var dst = bitboard.ptAtk(ptype, s, occ).bitAnd(target);
 				while (dst != .nil) : (dst.popLow()) {
 					const d = dst.lowSquare();
-					self.arr[self.cnt] = .{
+					self.append(.{
 						.move  = Move.gen(.nil, .nil, s, d),
 						.score = evaluation.score.lose,
-					};
-					self.cnt += 1;
+					});
 				}
 			}
-			return self.cnt - cnt;
+			return self.constSlice().len - len;
+		}
+
+		pub fn append(self: *List, sm: ScoredMove) void {
+			self.array.append(sm) catch @panic("hit the movegen lottery");
+		}
+		pub fn resize(self: *List, len: usize) void {
+			self.array.resize(len) catch @panic("hit the movegen lottery");
+		}
+
+		pub fn constSlice(self: *const List) []const ScoredMove {
+			return self.array.constSlice();
+		}
+		pub fn slice(self: *List) []ScoredMove {
+			return self.array.slice();
 		}
 
 		pub fn gen(self: *List, pos: Position, comptime noisy: bool) Int {
-			var cnt: Int = 0;
+			var len: Int = 0;
 			if (noisy) {
-				cnt += self.genPromotion(pos, .queen,  true);
-				cnt += self.genPromotion(pos, .rook,   true);
-				cnt += self.genPromotion(pos, .bishop, true);
-				cnt += self.genPromotion(pos, .knight, true);
-				cnt += self.genPromotion(pos, .queen,  false);
-				cnt += self.genPromotion(pos, .knight, false);
-				cnt += self.genEnPassant(pos);
-				cnt += self.genPawnMoves(pos, true);
-				cnt += self.genPieceMoves(pos, .knight, true);
-				cnt += self.genPieceMoves(pos, .bishop, true);
-				cnt += self.genPieceMoves(pos, .rook,   true);
-				cnt += self.genPieceMoves(pos, .queen,  true);
-				cnt += self.genPieceMoves(pos, .king,   true);
+				len += self.genPromotion(pos, .queen,  true);
+				len += self.genPromotion(pos, .rook,   true);
+				len += self.genPromotion(pos, .bishop, true);
+				len += self.genPromotion(pos, .knight, true);
+				len += self.genPromotion(pos, .queen,  false);
+				len += self.genPromotion(pos, .knight, false);
+				len += self.genEnPassant(pos);
+				len += self.genPawnMoves(pos, true);
+				len += self.genPieceMoves(pos, .knight, true);
+				len += self.genPieceMoves(pos, .bishop, true);
+				len += self.genPieceMoves(pos, .rook,   true);
+				len += self.genPieceMoves(pos, .queen,  true);
+				len += self.genPieceMoves(pos, .king,   true);
 			} else {
-				cnt += self.genPromotion(pos, .rook,   false);
-				cnt += self.genPromotion(pos, .bishop, false);
-				cnt += self.genPawnMoves(pos, false);
-				cnt += self.genCastle(pos, .king);
-				cnt += self.genCastle(pos, .queen);
-				cnt += self.genPieceMoves(pos, .knight, false);
-				cnt += self.genPieceMoves(pos, .bishop, false);
-				cnt += self.genPieceMoves(pos, .rook,   false);
-				cnt += self.genPieceMoves(pos, .queen,  false);
-				cnt += self.genPieceMoves(pos, .king,   false);
+				len += self.genPromotion(pos, .rook,   false);
+				len += self.genPromotion(pos, .bishop, false);
+				len += self.genPawnMoves(pos, false);
+				len += self.genCastle(pos, .king);
+				len += self.genCastle(pos, .queen);
+				len += self.genPieceMoves(pos, .knight, false);
+				len += self.genPieceMoves(pos, .bishop, false);
+				len += self.genPieceMoves(pos, .rook,   false);
+				len += self.genPieceMoves(pos, .queen,  false);
+				len += self.genPieceMoves(pos, .king,   false);
 			}
-			return cnt;
+			return len;
+		}
+
+		pub fn sort(self: *List) void {
+			std.sort.insertion(ScoredMove, self.slice(), {}, desc);
 		}
 	};
 
@@ -462,13 +446,15 @@ pub const ScoredMove = packed struct(u32) {
 	}
 };
 test {
+	try std.testing.expectEqual(@sizeOf(ScoredMove) * 256, @sizeOf(ScoredMove.List));
+}
+test {
 	const pos = try std.testing.allocator.create(Position);
 	defer std.testing.allocator.destroy(pos);
 
-	const suite_len = Perft.suite[0 ..].len;
-	for (Perft.suite[suite_len .. suite_len]) |ref| {
+	for (Perft.suite[0 .. 0]) |ref| {
 		try pos.parseFen(ref.fen);
-		for (ref.result[0 ..], 1 ..) |expected, depth| {
+		for (ref.result[0 .. 4], 1 ..) |expected, depth| {
 			const actual = Perft.div(pos, depth);
 			try std.testing.expectEqual(expected, actual);
 		}
@@ -476,39 +462,38 @@ test {
 }
 
 pub const RootMove = struct {
+	line:	std.BoundedArray(Move, 256 - 2 * @sizeOf(usize) / @sizeOf(Move)),
 	score:	isize,
-	len:	usize,
-	line:	[256 - 16]Move,
 
-	pub const Array = struct {
+	pub const List = struct {
 		array:	std.BoundedArray(RootMove, 256),
 
-		pub fn append(self: *RootMove.Array, rm: RootMove) !void {
-			try self.array.append(rm);
+		pub fn append(self: *List, rm: RootMove) void {
+			self.array.append(rm) catch @panic("hit the movegen lottery");
 		}
-		pub fn init(len: usize) !Array {
+		pub fn init(len: usize) !List {
 			return .{
 				.array = try std.BoundedArray(RootMove, 256).init(len),
 			};
 		}
 
-		pub fn constSlice(self: *const RootMove.Array) []const RootMove {
+		pub fn constSlice(self: *const List) []const RootMove {
 			return self.array.constSlice();
 		}
-		pub fn slice(self: *RootMove.Array) []RootMove {
+		pub fn slice(self: *List) []RootMove {
 			return self.array.slice();
 		}
 
-		pub fn sort(self: *Array) void {
+		pub fn sort(self: *List) void {
 			sortSlice(self.slice());
 		}
 
-		pub fn fromInfo(info: *search.Info) !Array {
-			var array = try Array.init(0);
+		pub fn fromInfo(info: *search.Info) List {
+			var array = List.init(0) catch unreachable;
 			var list = std.mem.zeroes(ScoredMove.List);
 			_ = list.gen(info.pos, true);
 			_ = list.gen(info.pos, false);
-			for (list.arr[0 .. list.cnt]) |*sm| {
+			for (list.slice()) |*sm| {
 				info.pos.doMove(sm.move) catch {
 					sm.* = .{
 						.move  = Move.zero,
@@ -525,11 +510,11 @@ pub const RootMove = struct {
 					sm.score = tte.?.score;
 				}
 
-				var rm = std.mem.zeroes(RootMove);
-				rm.len = 1;
-				rm.line[0] = sm.move;
+				var rm: RootMove = undefined;
+				rm.line = @TypeOf(rm.line).init(0) catch unreachable;
+				rm.line.append(sm.move) catch unreachable;
 				rm.score = sm.score;
-				try array.append(rm);
+				array.append(rm);
 			}
 			sortSlice(array.slice());
 
@@ -540,11 +525,13 @@ pub const RootMove = struct {
 	pub fn desc(_: void, a: RootMove, b: RootMove) bool {
 		return a.score > b.score;
 	}
-
 	pub fn sortSlice(rms: []RootMove) void {
 		std.sort.insertion(RootMove, rms, {}, desc);
 	}
 };
+test {
+	try std.testing.expectEqual(@sizeOf(RootMove) * 256 + @sizeOf(usize), @sizeOf(RootMove.List));
+}
 
 pub const Picker = struct {
 	list:	ScoredMove.List,
@@ -557,10 +544,10 @@ pub const Picker = struct {
 	killer0:	Move,
 	killer1:	Move,
 
-	noisy_cnt:	ScoredMove.List.Int,
-	quiet_cnt:	ScoredMove.List.Int,
-	bad_noisy_cnt:	ScoredMove.List.Int,
-	bad_quiet_cnt:	ScoredMove.List.Int,
+	noisy_cnt:	usize,
+	quiet_cnt:	usize,
+	bad_noisy_cnt:	usize,
+	bad_quiet_cnt:	usize,
 
 	pub const Stage = enum(u8) {
 		ttm,
@@ -581,9 +568,9 @@ pub const Picker = struct {
 	};
 
 	fn pick(self: *Picker) ?ScoredMove {
-		while (self.list.idx < self.list.cnt) {
-			const sm = self.list.arr[self.list.idx];
-			self.list.idx += 1;
+		while (self.list.index < self.list.constSlice().len) {
+			const sm = self.list.constSlice()[self.list.index];
+			self.list.index += 1;
 
 			if (!sm.move.eql(self.ttm)
 			  and !sm.move.eql(self.killer0)
@@ -622,7 +609,7 @@ pub const Picker = struct {
 			self.stage = self.stage.inc();
 			self.noisy_cnt = self.list.gen(self.info.pos, true);
 
-			for (self.list.arr[0 .. self.noisy_cnt]) |*sm| {
+			for (self.list.slice()) |*sm| {
 				const key = self.info.pos.keyAfterMove(sm.move);
 				const tt_fetch = transposition.Table.global.fetch(key);
 				const tte = tt_fetch[0] orelse continue;
@@ -631,18 +618,18 @@ pub const Picker = struct {
 					sm.score = tte.score;
 				}
 			}
-			std.sort.insertion(ScoredMove, self.list.arr[0 .. self.noisy_cnt], {}, ScoredMove.desc);
+			self.list.sort();
 		}
 
 		while (self.stage == .good_noisy) {
 			const sm = self.pick() orelse {
 				self.stage = self.stage.inc();
-				self.list.cnt = self.bad_noisy_cnt;
-				self.list.idx = self.bad_noisy_cnt;
+				self.list.resize(self.bad_noisy_cnt);
+				self.list.index = self.bad_noisy_cnt;
 				break;
 			};
 			if (false) {
-				self.list.arr[self.bad_noisy_cnt] = sm;
+				self.list.slice()[self.bad_noisy_cnt] = sm;
 				self.bad_noisy_cnt += 1;
 			} else return sm.move;
 		}
@@ -669,7 +656,7 @@ pub const Picker = struct {
 			if (!self.noisy) {
 				self.quiet_cnt = self.list.gen(self.info.pos, false);
 
-				for (self.list.arr[0 .. self.quiet_cnt]) |*sm| {
+				for (self.list.slice()) |*sm| {
 					const key = self.info.pos.keyAfterMove(sm.move);
 					const tt_fetch = transposition.Table.global.fetch(key);
 					const tte = tt_fetch[0] orelse continue;
@@ -678,20 +665,19 @@ pub const Picker = struct {
 						sm.score = tte.score;
 					}
 				}
-				std.sort.insertion(ScoredMove, self.list.arr[0 .. self.quiet_cnt],
-				  {}, ScoredMove.desc);
+				self.list.sort();
 			}
 		}
 
 		while (self.stage == .good_quiet) {
 			const sm = self.pick() orelse {
 				self.stage = self.stage.inc();
-				self.list.cnt = self.bad_noisy_cnt;
-				self.list.idx = 0;
+				self.list.resize(self.bad_noisy_cnt);
+				self.list.index = 0;
 				break;
 			};
 			if (false) {
-				self.list.arr[self.bad_noisy_cnt + self.bad_quiet_cnt] = sm;
+				self.list.slice()[self.bad_noisy_cnt + self.bad_quiet_cnt] = sm;
 				self.bad_quiet_cnt += 1;
 			} else return sm.move;
 		}
@@ -699,8 +685,8 @@ pub const Picker = struct {
 		while (self.stage == .bad_noisy) {
 			const sm = self.pick() orelse {
 				self.stage = self.stage.inc();
-				self.list.cnt = self.bad_noisy_cnt + self.bad_quiet_cnt;
-				self.list.idx = self.bad_noisy_cnt;
+				self.list.resize(self.bad_noisy_cnt + self.bad_quiet_cnt);
+				self.list.index = self.bad_noisy_cnt;
 				break;
 			};
 			return sm.move;

@@ -12,6 +12,7 @@ const Command = enum {
 	go,
 	isready,
 	none,
+	perft,
 	printhash,
 	printpos,
 	printthreads,
@@ -20,6 +21,7 @@ const Command = enum {
 	stop,
 	quit,
 	uci,
+	ucinewgame,
 };
 
 pub const Error = error {
@@ -44,18 +46,30 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 		} else if (std.ascii.eqlIgnoreCase(token, "movetime")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
 			timeman.movetime = try std.fmt.parseUnsigned(u64, aux_token, 10);
-		} else if (stm == .white and std.ascii.eqlIgnoreCase(token, "winc")) {
+		} else if (std.ascii.eqlIgnoreCase(token, "winc")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			timeman.increment = try std.fmt.parseUnsigned(u64, aux_token, 10);
-		} else if (stm == .white and std.ascii.eqlIgnoreCase(token, "wtime")) {
+			const value = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			if (stm == .white) {
+				timeman.increment = value;
+			}
+		} else if (std.ascii.eqlIgnoreCase(token, "wtime")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			timeman.time = try std.fmt.parseUnsigned(u64, aux_token, 10);
-		} else if (stm == .black and std.ascii.eqlIgnoreCase(token, "binc")) {
+			const value = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			if (stm == .white) {
+				timeman.time = value;
+			}
+		} else if (std.ascii.eqlIgnoreCase(token, "binc")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			timeman.increment = try std.fmt.parseUnsigned(u64, aux_token, 10);
-		} else if (stm == .black and std.ascii.eqlIgnoreCase(token, "btime")) {
+			const value = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			if (stm == .black) {
+				timeman.increment = value;
+			}
+		} else if (std.ascii.eqlIgnoreCase(token, "btime")) {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
-			timeman.time = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			const value = try std.fmt.parseUnsigned(u64, aux_token, 10);
+			if (stm == .black) {
+				timeman.time = value;
+			}
 		} else return error.UnknownCommand;
 	}
 
@@ -84,7 +98,25 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 		const fourth_token = tokens.next() orelse return error.UnknownCommand;
 		const value = std.fmt.parseUnsigned(usize, fourth_token, 10)
 			catch return error.UnknownCommand;
+
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
 		try transposition.Table.global.allocate(value);
+	} else if (std.ascii.eqlIgnoreCase(second_token, "Move")) {
+		const aux_token = tokens.next() orelse return error.UnknownCommand;
+		if (!std.ascii.eqlIgnoreCase(aux_token, "Overhead")) {
+			return error.UnknownCommand;
+		}
+
+		const value_token = tokens.next() orelse return error.UnknownCommand;
+		const value = std.fmt.parseUnsigned(usize, value_token, 10)
+			catch return error.UnknownCommand;
+
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+		timeman.overhead = value;
 	} else if (std.ascii.eqlIgnoreCase(second_token, "Threads")) {
 		const third_token = tokens.next() orelse return error.UnknownCommand;
 		if (!std.ascii.eqlIgnoreCase(third_token, "value")) {
@@ -130,7 +162,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 			var list = std.mem.zeroes(movegen.ScoredMove.List);
 			_ = list.gen(main_info.pos, true);
 			_ = list.gen(main_info.pos, false);
-			for (list.arr[0 .. list.cnt]) |sm| {
+			for (list.constSlice()) |sm| {
 				const move = sm.move;
 				const len: usize = if (move.promotion() != .nil) 5 else 4;
 				if (std.ascii.eqlIgnoreCase(move_token, move.print()[0 .. len])) {
@@ -147,18 +179,24 @@ pub fn parseCommand(comm: []const u8) !Command {
 	var tokens = std.mem.tokenizeAny(u8, comm, "\t\n\r ");
 	const first = tokens.next() orelse return error.UnknownCommand;
 
-	if (std.ascii.eqlIgnoreCase(first, @tagName(.go))) {
+	if (std.ascii.eqlIgnoreCase(first, "go")) {
 		try parseGo(&tokens);
 		return .go;
-	} else if (std.ascii.eqlIgnoreCase(first, @tagName(.isready))) {
+	} else if (std.ascii.eqlIgnoreCase(first, "isready")) {
 		if (tokens.peek() != null) {
 			return error.UnknownCommand;
 		}
 
 		const stdout = std.io.getStdOut();
-		try stdout.writer().print("readyok\n", .{});
+		var buffer = std.io.bufferedWriter(stdout.writer());
+		try buffer.writer().print("readyok\n", .{});
+
+		try stdout.lock(.exclusive);
+		try buffer.flush();
+		stdout.unlock();
+
 		return .isready;
-	} else if (std.ascii.eqlIgnoreCase(first, @tagName(.printhash))) {
+	} else if (std.ascii.eqlIgnoreCase(first, "printhash")) {
 		if (tokens.peek() != null) {
 			return error.UnknownCommand;
 		}
@@ -167,7 +205,7 @@ pub fn parseCommand(comm: []const u8) !Command {
 		try stdout.writer().print("info string Hash: {*}[0 .. {d}]\n",
 		  .{transposition.Table.global.tbl.?, transposition.Table.global.tbl.?.len});
 		return .printhash;
-	} else if (std.ascii.eqlIgnoreCase(first, @tagName(.printpos))) {
+	} else if (std.ascii.eqlIgnoreCase(first, "printpos")) {
 		if (tokens.peek() != null) {
 			return error.UnknownCommand;
 		}
@@ -175,25 +213,25 @@ pub fn parseCommand(comm: []const u8) !Command {
 		const main_info = try search.Info.ofMain();
 		try main_info.pos.printSelf();
 		return .printpos;
-	} else if (std.ascii.eqlIgnoreCase(first, @tagName(.position))) {
+	} else if (std.ascii.eqlIgnoreCase(first, "position")) {
 		try parsePosition(&tokens);
 		return .position;
-	} else if (std.ascii.eqlIgnoreCase(first, @tagName(.setoption))) {
+	} else if (std.ascii.eqlIgnoreCase(first, "setoption")) {
 		try parseOption(&tokens);
 		return .setoption;
-	} else if (std.ascii.eqlIgnoreCase(first, @tagName(.stop))) {
+	} else if (std.ascii.eqlIgnoreCase(first, "stop")) {
 		if (tokens.peek() != null) {
 			return error.UnknownCommand;
 		}
 
 		@atomicStore(bool, &timeman.is_searching, false, .monotonic);
 		return .stop;
-	} else if (std.ascii.eqlIgnoreCase(first, @tagName(.quit))) {
+	} else if (std.ascii.eqlIgnoreCase(first, "quit")) {
 		if (tokens.peek() != null) {
 			return error.UnknownCommand;
 		}
 		return .quit;
-	} else if (std.ascii.eqlIgnoreCase(first, @tagName(.uci))) {
+	} else if (std.ascii.eqlIgnoreCase(first, "uci")) {
 		if (tokens.peek() != null) {
 			return error.UnknownCommand;
 		}
@@ -207,6 +245,19 @@ pub fn parseCommand(comm: []const u8) !Command {
 		try stdout.writer().print("option name Threads type spin default 1 min 1 max 16\n", .{});
 		try stdout.writer().print("uciok\n", .{});
 		return .uci;
+	} else if (std.ascii.eqlIgnoreCase(first, "ucinewgame")) {
+		if (tokens.peek() != null) {
+			return error.UnknownCommand;
+		}
+
+		transposition.Table.global.clear();
+		const infos = try search.Info.ofThreads();
+		const pos = infos[0].pos;
+		for (infos) |*info| {
+			info.* = .{};
+			info.pos = pos;
+		}
+		return .ucinewgame;
 	}
 	return error.UnknownCommand;
 }

@@ -10,13 +10,13 @@ const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 
 pub const Info = struct {
-	pos:	Position,
-	depth:	u8,
-	rms:	[]movegen.RootMove,
+	pos:	Position = std.mem.zeroes(Position),
+	depth:	u8 = 0,
+	rms:	[]movegen.RootMove = undefined,
 
-	bfhist:	HistArray(Hist, 1),
-	capthist:	HistArray(Hist, 2),
-	conthist:	HistArray(Hist, 2),
+	bfhist:	HistArray(Hist, 1) = std.mem.zeroes(HistArray(Hist, 1)),
+	capthist:	HistArray(Hist, 2) = std.mem.zeroes(HistArray(Hist, 2)),
+	conthist:	HistArray(Hist, 2) = std.mem.zeroes(HistArray(Hist, 2)),
 
 	pub const Hist = i16;
 
@@ -58,7 +58,16 @@ pub const manager = struct {
 
 		const infos = Info.global orelse return error.Uninitialized;
 		const stdout = std.io.getStdOut();
-		var root_moves = try movegen.RootMove.Array.fromInfo(&infos[0]);
+
+		var root_moves = movegen.RootMove.List.fromInfo(&infos[0]);
+		for (root_moves.slice()) |*rm| {
+			const move = rm.line.constSlice()[0];
+			infos[0].pos.doMove(move) catch unreachable;
+			defer infos[0].pos.undoMove();
+
+			rm.score = -qs(&infos[0], -evaluation.score.win, -evaluation.score.lose);
+		}
+		root_moves.sort();
 
 		const div = root_moves.constSlice().len / infos.len;
 		const mod = root_moves.constSlice().len % infos.len;
@@ -100,21 +109,26 @@ pub const manager = struct {
 			wg.reset();
 			for (infos, 0 ..) |*info, i| {
 				info.depth = depth + @intFromBool(i % 2 == 0);
-				pool.spawnWg(&wg, threaded, .{info, i});
+				pool.spawnWg(&wg, threaded, .{info});
 			}
 			pool.waitAndWork(&wg);
 
 			root_moves.sort();
 			const pv = root_moves.constSlice()[0];
-
 			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
 
-			try stdout.writer().print("info", .{});
-			try stdout.writer().print(" score cp {d}", .{evaluation.score.centipawns(pv.score)});
-			try stdout.writer().print(" depth {d}", .{depth});
-			try stdout.writer().print(" time {d}", .{current_time - timeman.start});
-			try stdout.writer().print(" pv {s}", .{pv.line[0].print()});
-			try stdout.writer().print("\n", .{});
+			var buffer = std.io.bufferedWriter(stdout.writer());
+			try buffer.writer().print("info", .{});
+			try buffer.writer().print(" score cp {d}", .{evaluation.score.centipawns(pv.score)});
+			try buffer.writer().print(" depth {d}", .{depth});
+			try buffer.writer().print(" time {d}", .{current_time - timeman.start});
+			try buffer.writer().print(" pv {s}",.{pv.line.constSlice()[0].print()
+			  [0 .. if (pv.line.constSlice()[0].promotion() == .nil) 4 else 5]});
+			try buffer.writer().print("\n", .{});
+
+			try stdout.lock(.exclusive);
+			try buffer.flush();
+			stdout.unlock();
 
 			if (timeman.hardStop()) {
 				break;
@@ -122,7 +136,13 @@ pub const manager = struct {
 		}
 
 		const pv = root_moves.constSlice()[0];
-		try stdout.writer().print("bestmove {s}\n", .{pv.line[0].print()});
+		var buffer = std.io.bufferedWriter(stdout.writer());
+		try buffer.writer().print("bestmove {s}\n", .{pv.line.constSlice()[0].print()
+		  [0 .. if (pv.line.constSlice()[0].promotion() == .nil) 4 else 5]});
+
+		try stdout.lock(.exclusive);
+		try buffer.flush();
+		stdout.unlock();
 	}
 
 	pub fn spawn() !void {
@@ -132,6 +152,7 @@ pub const manager = struct {
 };
 
 fn qs(info: *Info, alpha: isize, beta: isize) isize {
+	const is_pv = beta - alpha > 1;
 	const b = beta;
 	var a = alpha;
 	var pos = &info.pos;
@@ -162,9 +183,8 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 	};
 	var mp = movegen.Picker.init(info,
 	  ttm, movegen.Move.zero, movegen.Move.zero, pos.checkMask() == .all);
-	var mp_idx: usize = 0;
 
-	while (mp.next()) |move| : (mp_idx += 1) {
+	while (mp.next()) |move| {
 		if (timeman.hardStop()) {
 			break;
 		}
@@ -173,13 +193,15 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 		defer pos.undoMove();
 
 		var s: isize = evaluation.score.nil;
-		if (mp_idx == 0) {
+		if (is_pv and best.score == lose) {
 			s = -qs(info, -b, -a);
-		} else {
+		} else if (is_pv) {
 			s = -qs(info, -a - 1, -a);
-			if (s >= a + 1) {
+			if (is_pv and s >= a + 1) {
 				s = -qs(info, -b, -a);
 			}
+		} else {
+			s = -qs(info, -b, -a);
 		}
 
 		if (s > best.score) {
@@ -220,6 +242,7 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		return qs(info, alpha, beta);
 	}
 
+	const is_pv = beta - alpha > 1;
 	const d = depth;
 	const b = beta;
 	var a = alpha;
@@ -245,7 +268,7 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 	const rfp_margin = @as(isize, depth) * 128;
-	if (pos.checkMask() == .all and beta - alpha == 1 and eval >= beta + rfp_margin) {
+	if (pos.checkMask() == .all and !is_pv and eval >= beta + rfp_margin) {
 		return eval;
 	}
 
@@ -255,9 +278,8 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		.score = lose,
 	};
 	var mp = movegen.Picker.init(info, ttm, movegen.Move.zero, movegen.Move.zero, false);
-	var mp_idx: usize = 0;
 
-	while (mp.next()) |move| : (mp_idx += 1) {
+	while (mp.next()) |move| {
 		if (timeman.hardStop()) {
 			break;
 		}
@@ -266,13 +288,15 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		defer pos.undoMove();
 
 		var s: isize = evaluation.score.nil;
-		if (mp_idx == 0) {
+		if (is_pv and best.score == lose) {
 			s = -ab(info, -b, -a, d - 1);
-		} else {
+		} else if (is_pv) {
 			s = -ab(info, -a - 1, -a, d - 1);
-			if (s >= a + 1) {
+			if (is_pv and s >= a + 1) {
 				s = -ab(info, -b, -a, d - 1);
 			}
+		} else {
+			s = -ab(info, -b, -a, d - 1);
 		}
 
 		if (s > best.score) {
@@ -307,9 +331,7 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	}
 }
 
-pub fn threaded(info: *Info, idx: usize) void {
-	_ = idx;
-
+pub fn threaded(info: *Info) void {
 	const lose = evaluation.score.lose;
 	const b = evaluation.score.win;
 	const d = info.depth;
@@ -333,7 +355,7 @@ pub fn threaded(info: *Info, idx: usize) void {
 			break;
 		}
 
-		const move = rm.line[0];
+		const move = rm.line.constSlice()[0];
 		info.pos.doMove(move) catch unreachable;
 		defer info.pos.undoMove();
 

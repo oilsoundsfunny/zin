@@ -42,7 +42,7 @@ pub fn build(bld: *std.Build) !void {
 	});
 
 	const bitboard = bld.createModule(.{
-		.root_source_file = bld.path("src/bitboard.zig"),
+		.root_source_file = bld.path("src/bitboard/root.zig"),
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
