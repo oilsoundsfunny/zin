@@ -58,6 +58,7 @@ pub const manager = struct {
 
 		const infos = Info.global orelse return error.Uninitialized;
 		const stdout = std.io.getStdOut();
+		var buffered = std.io.bufferedWriter(stdout.writer());
 
 		var root_moves = movegen.RootMove.List.fromInfo(&infos[0]);
 		for (root_moves.slice()) |*rm| {
@@ -68,6 +69,7 @@ pub const manager = struct {
 			rm.score = -qs(&infos[0], -evaluation.score.win, -evaluation.score.lose);
 		}
 		root_moves.sort();
+		try print(root_moves, 1);
 
 		const div = root_moves.constSlice().len / infos.len;
 		const mod = root_moves.constSlice().len % infos.len;
@@ -90,18 +92,19 @@ pub const manager = struct {
 		defer pool.deinit();
 
 		const overhead = timeman.overhead orelse 10;
+		const stm = infos[0].pos.stm;
 		timeman.start = @atomicLoad(u64, &timeman.current, .monotonic);
 		if (timeman.movetime) |movetime| {
 			timeman.stop = timeman.start + movetime - overhead;
 		}
-		if (timeman.increment != null and timeman.time != null) {
-			const inc = timeman.increment.?;
-			const time = timeman.time.?;
+		if (timeman.increment.get(stm) != null and timeman.time.get(stm) != null) {
+			const inc = timeman.increment.get(stm).?;
+			const time = timeman.time.get(stm).?;
 
 			timeman.stop = timeman.start + time / 20 + inc / 2 - overhead;
 		}
 
-		const min_depth = 1;
+		const min_depth = 2;
 		const max_depth = timeman.depth orelse 240;
 		for (min_depth .. max_depth) |d| {
 			const depth: u8 = @truncate(d);
@@ -112,30 +115,49 @@ pub const manager = struct {
 				pool.spawnWg(&wg, threaded, .{info});
 			}
 			pool.waitAndWork(&wg);
-			root_moves.sort();
 
-			const pv = root_moves.constSlice()[0];
-			const current_time = @atomicLoad(u64, &timeman.current, .monotonic);
-			try stdout.lock(.exclusive);
-			try stdout.writer().print("info", .{});
-			try stdout.writer().print(" score cp {d}", .{evaluation.score.centipawns(pv.score)});
-			try stdout.writer().print(" depth {d}", .{depth});
-			try stdout.writer().print(" time {d}", .{current_time - timeman.start});
-			try stdout.writer().print(" pv {s}",.{pv.line.constSlice()[0].print()
-			  [0 .. if (pv.line.constSlice()[0].promotion() == .nil) 4 else 5]});
-			try stdout.writer().print("\n", .{});
-			stdout.unlock();
+			root_moves.sort();
+			try print(root_moves, depth);
 
 			if (timeman.hardStop()) {
 				break;
 			}
 		}
 
-		const pv = root_moves.constSlice()[0];
+		{
+			try stdout.lock(.exclusive);
+			defer stdout.unlock();
+
+			const pv = root_moves.pv();
+			const move = pv.line.constSlice()[0];
+			const len: usize = if (move.promotion() == .nil) 4 else 5;
+			const str = move.print();
+
+			try buffered.writer().print("bestmove {s}\n", .{str[0 .. len]});
+			try buffered.flush();
+		}
+	}
+
+	fn print(root_moves: movegen.RootMove.List, depth: u8) !void {
+		const stdout = std.io.getStdOut();
+		var buffered = std.io.bufferedWriter(stdout.writer());
+
 		try stdout.lock(.exclusive);
-		try stdout.writer().print("bestmove {s}\n", .{pv.line.constSlice()[0].print()
-		  [0 .. if (pv.line.constSlice()[0].promotion() == .nil) 4 else 5]});
-		stdout.unlock();
+		defer stdout.unlock();
+
+		const pv = root_moves.pv();
+		const cp = evaluation.score.centipawns(pv.score);
+		try buffered.writer().print("info", .{});
+		try buffered.writer().print(" score cp {d}", .{cp});
+		try buffered.writer().print(" depth {d}", .{depth});
+		try buffered.writer().print(" pv", .{});
+		for (pv.line.constSlice()) |move| {
+			const len: usize = if (move.promotion() == .nil) 4 else 5; 
+			const str = move.print();
+			try buffered.writer().print(" {s}", .{str[0 .. len]});
+		}
+		try buffered.writer().print("\n", .{});
+		try buffered.flush();
 	}
 
 	pub fn spawn() !void {
@@ -151,7 +173,7 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 	var pos = &info.pos;
 	const draw: evaluation.score.Int = evaluation.score.draw;
 	const lose: evaluation.score.Int = evaluation.score.lose
-	  + @as(evaluation.score.Int, @intCast(pos.ss_ply));
+	  + @as(evaluation.score.Int, @intCast(pos.ssPly()));
 
 	if (pos.is3peat() or pos.ssTop().rule50 >= 100) {
 		return draw;
@@ -242,7 +264,7 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	var pos = &info.pos;
 	const draw: evaluation.score.Int = evaluation.score.draw;
 	const lose: evaluation.score.Int = evaluation.score.lose
-	  + @as(evaluation.score.Int, @intCast(pos.ss_ply));
+	  + @as(evaluation.score.Int, @intCast(pos.ssPly()));
 
 	if (pos.is3peat() or pos.ssTop().rule50 >= 100) {
 		return draw;
