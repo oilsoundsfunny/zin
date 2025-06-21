@@ -96,9 +96,9 @@ pub const Taper = struct {
 		.pawn   = score.pawn,
 		.knight = score.pawn * 23 / 8,
 		.bishop = score.pawn * 25 / 8,
-		.rook   = score.pawn * 5,
-		.queen  = score.pawn * 9,
-		.king   = score.draw,
+		.rook  = score.pawn * 5,
+		.queen = score.pawn * 9,
+		.king  = score.draw,
 		.all = score.draw,
 	});
 	const eg_pt_score = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
@@ -106,9 +106,9 @@ pub const Taper = struct {
 		.pawn   = score.pawn,
 		.knight = score.pawn * 22 / 8,
 		.bishop = score.pawn * 26 / 8,
-		.rook   = score.pawn * 5,
-		.queen  = score.pawn * 9,
-		.king   = score.draw,
+		.rook  = score.pawn * 5,
+		.queen = score.pawn * 9,
+		.king  = score.draw,
 		.all = score.draw,
 	});
 
@@ -117,26 +117,30 @@ pub const Taper = struct {
 		var tbl = std.EnumArray(misc.types.Ptype, [32]Taper).initFill(std.mem.zeroes([32]Taper));
 
 		const mobility_cnt = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
-			.nil = 0,
-			.pawn   = 0,
-			.knight = bitboard.nAtk(.d4).cntSquares() + 1,
-			.bishop = bitboard.bAtk(.d4, .nil).cntSquares() + 1,
-			.rook   = bitboard.rAtk(.d4, .nil).cntSquares() + 1,
-			.queen  = bitboard.qAtk(.d4, .nil).cntSquares() + 1,
-			.king   = 0,
-			.all = 0,
+			.nil  = 0,
+			.pawn = 0,
+			.knight = bitboard.nAtk(.d4).cntSquares(),
+			.bishop = bitboard.bAtk(.d4, .nil).cntSquares(),
+			.rook   = bitboard.rAtk(.d4, .nil).cntSquares(),
+			.queen  = bitboard.qAtk(.d4, .nil).cntSquares(),
+			.king = 0,
+			.all  = 0,
 		});
 		const ptypes = [_]misc.types.Ptype {.knight, .bishop, .rook, .queen};
 
 		for (ptypes) |pt| {
 			const cnt = mobility_cnt.get(pt);
-			for (0 .. cnt) |idx| {
+			for (0 .. cnt + 1) |idx| {
+				const mg: comptime_float = @floatFromInt(mg_pt_score.get(pt));
+				const eg: comptime_float = @floatFromInt(eg_pt_score.get(pt));
+
 				const c: comptime_float = @floatFromInt(cnt);
 				const i: comptime_float = @floatFromInt(idx);
-				const factor: comptime_float = (1.0 / 16.0) * @log2(i / c + 0.5);
+				const factor = (1.0 / 16.0) * @log2(i / c + 0.5);
+
 				tbl.getPtr(pt)[idx] = .{
-				  .mg = @intFromFloat(factor * @as(comptime_float, mg_pt_score.get(pt))),
-				  .eg = @intFromFloat(factor * @as(comptime_float, eg_pt_score.get(pt))),
+					.mg = @intFromFloat(factor * mg),
+					.eg = @intFromFloat(factor * eg),
 				};
 			}
 		}
@@ -278,11 +282,14 @@ pub const Taper = struct {
 			.all = std.mem.zeroes(std.EnumArray(misc.types.Square, comptime_int)),
 		});
 
-		var tbl = std.mem
-		  .zeroes(std.EnumArray(misc.types.Ptype, std.EnumArray(misc.types.Square, Taper)));
+		var tbl = std.EnumArray(misc.types.Ptype, std.EnumArray(misc.types.Square, Taper))
+		  .initUndefined();
+		tbl = std.mem.zeroes(@TypeOf(tbl));
 
-		for (misc.types.Piece.w_pieces) |p| {
-			const pt = p.ptype();
+		const ptypes = [_]misc.types.Ptype {
+			.pawn, .knight, .bishop, .rook, .queen, .king,
+		};
+		for (ptypes) |pt| {
 			for (misc.types.Square.values) |s| {
 				tbl.getPtr(pt).set(s, .{
 					.mg = mg_pt_score.get(pt) + score.fromCentipawns(mg_tbl.get(pt).get(s)),
@@ -535,7 +542,7 @@ pub fn debugPosition(pos: Position) !void {
 	std.log.defaultLog(.debug, .evaluation, "king:   {d}", .{by_ptype.get(.king).dither(phase)});
 	std.log.defaultLog(.debug, .evaluation, "phase:  {d}",
 	  .{@divTrunc(phase * 100, Taper.phase.max)});
-	std.log.defaultLog(.debug, .evaluation, "score:  {d}", .{ev});
+	std.log.defaultLog(.debug, .evaluation, "score:     {d}", .{ev});
 }
 
 pub fn scorePosition(pos: Position) isize {
@@ -597,5 +604,6 @@ test {
 		std.log.defaultLog(.debug, .evaluation, "{s}", .{ref.fen});
 		try pos.parseFen(ref.fen);
 		try debugPosition(pos);
+		std.log.defaultLog(.debug, .evaluation, "reference: {d}", .{score.fromCentipawns(ref.centipawns)});
 	}
 }

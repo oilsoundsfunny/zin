@@ -515,6 +515,29 @@ pub const BitBoard = enum(std.meta.Int(.unsigned, Square.num)) {
 		return r;
 	}
 };
+test {
+	const kiwi_white = BitBoard.fromSlice(Square, &.{
+		.a8,                .e8,           .h8,
+		.a7,      .c7, .d7, .e7, .f7, .g7,
+		.a6, .b6,           .e6, .f6, .g6,
+		               .d5, .e5,
+		     .b4,           .e4,
+		          .c3,           .f3,      .h3,
+		.a2, .b2, .c2, .d2, .e2, .f2, .g2, .h2,
+		.a1,                .e1,           .h1,
+	});
+	const kiwi_black = BitBoard.fromSlice(Square, &.{
+		.a1,                .e1,           .h1,
+		.a2,      .c2, .d2, .e2, .f2, .g2,
+		.a3, .b3,           .e3, .f3, .g3,
+		               .d4, .e4,
+		     .b5,           .e5,
+		          .c6,           .f6,      .h6,
+		.a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
+		.a8,                .e8,           .h8,
+	});
+	try std.testing.expectEqual(kiwi_black, kiwi_white.flipRank());
+}
 
 pub const Castle = enum(u4) {
 	nil = 0b0000,

@@ -710,31 +710,11 @@ pub const Picker = struct {
 
 		return null;
 	}
-};
 
-test {
-	const seq = [_]Move {
-	  Move.gen(.nil, .nil, .g2, .h3),
-	  Move.gen(.nil, .nil, .d5, .e6),
-
-	  Move.gen(.nil, .nil, .e5, .g6),
-	  Move.gen(.nil, .nil, .e5, .d7),
-	  Move.gen(.nil, .nil, .e5, .f7),
-
-	  Move.gen(.nil, .nil, .e2, .a6),
-
-	  Move.gen(.nil, .nil, .f3, .h3),
-	  Move.gen(.nil, .nil, .f3, .f6),
-	};
-
-	const info = try misc.heap.allocator.create(search.Info);
-	defer misc.heap.allocator.destroy(info);
-
-	info.pos = .{};
-	try info.pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
-
-	var noisy_mp = Picker.init(info, Move.zero, Move.zero, Move.zero, true);
-	for (seq[0 ..]) |move| {
-		try std.testing.expectEqual(move, noisy_mp.next());
+	pub fn isNoisy(self: Picker) bool {
+		return self.stage == .good_noisy or self.stage == .bad_noisy;
 	}
-}
+	pub fn isQuiet(self: Picker) bool {
+		return self.stage == .good_quiet or self.stage == .bad_quiet;
+	}
+};

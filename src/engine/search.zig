@@ -10,9 +10,12 @@ const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 
 pub const Info = struct {
-	pos:	Position = std.mem.zeroes(Position),
-	depth:	u8 = 0,
+	pos:	Position = .{},
+	depth:	u8 = undefined,
 	rms:	[]movegen.RootMove = undefined,
+
+	nodes:	u64 = 0,
+	tbhits:	u64 = 0,
 
 	bfhist:	HistArray(Hist, 1) = std.mem.zeroes(HistArray(Hist, 1)),
 	capthist:	HistArray(Hist, 2) = std.mem.zeroes(HistArray(Hist, 2)),
@@ -36,7 +39,7 @@ pub const Info = struct {
 	}
 
 	pub fn isMain(self: *Info) bool {
-		const main_info = ofMain() catch unreachable;
+		const main_info = ofMain() catch return false;
 		return self == main_info;
 	}
 	pub fn ofMain() Error!*Info {
@@ -280,7 +283,6 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	} else if (hit and timeman.hardStop()) {
 		return tte.?.score;
 	}
-
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 
 	const ttm = if (hit) tte.?.move else movegen.Move.zero;
