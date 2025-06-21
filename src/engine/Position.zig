@@ -11,8 +11,8 @@ const Self = @This();
 mailbox:	std.EnumArray(misc.types.Square, misc.types.Piece)
 	= std.EnumArray(misc.types.Square, misc.types.Piece).initFill(.nil),
 
-piece_occ:	std.EnumArray(misc.types.Piece,  misc.types.BitBoard)
-	= std.EnumArray(misc.types.Piece,  misc.types.BitBoard).initFill(.nil),
+piece_occ:	std.EnumArray(misc.types.Piece, misc.types.BitBoard)
+	= std.EnumArray(misc.types.Piece, misc.types.BitBoard).initFill(.nil),
 
 stm:	misc.types.Color = .white,
 
@@ -55,10 +55,10 @@ pub const Stack = struct {
 		buffer:	std.BoundedArray(Stack, 512),
 
 		pub const default = blk: {
-			var arr: Array = undefined;
-			arr.buffer = @TypeOf(arr.buffer).init(0) catch unreachable;
+			var arr = std.mem.zeroes(Array);
+			arr.buffer.resize(0) catch unreachable;
 			arr.buffer.appendNTimes(.{}, arr.buffer.buffer[0 ..].len) catch unreachable;
-			arr.buffer = @TypeOf(arr.buffer).init(1) catch unreachable;
+			arr.buffer.resize(1) catch unreachable;
 			break :blk arr;
 		};
 
@@ -336,7 +336,7 @@ pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
 
 pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
 	const backup = self.*;
-	self.* = Self {};
+	self.* = .{};
 	errdefer self.* = backup;
 
 	const psq_token = tokens.next() orelse return error.InvalidFen;

@@ -607,6 +607,14 @@ pub const Picker = struct {
 				var score: evaluation.score.Int = evaluation.score.lose;
 				if (hit) {
 					score = tte.?.score;
+				} else {
+					const src_ptype = self.info.pos.getSquare(move.src).ptype();
+					const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
+					const promotion = move.promotion();
+
+					score = @intCast(evaluation.Taper.pt_score.get(promotion)
+					  + evaluation.Taper.pt_score.get(src_ptype)
+					  + evaluation.Taper.pt_score.get(dst_ptype));
 				}
 
 				self.list.append(.{
@@ -720,8 +728,10 @@ test {
 	};
 
 	const info = try misc.heap.allocator.create(search.Info);
-	try info.pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
 	defer misc.heap.allocator.destroy(info);
+
+	info.pos = .{};
+	try info.pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
 
 	var noisy_mp = Picker.init(info, Move.zero, Move.zero, Move.zero, true);
 	for (seq[0 ..]) |move| {

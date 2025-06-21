@@ -280,6 +280,7 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	} else if (hit and timeman.hardStop()) {
 		return tte.?.score;
 	}
+
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 
 	const ttm = if (hit) tte.?.move else movegen.Move.zero;
@@ -369,12 +370,12 @@ pub fn threaded(info: *Info) void {
 		info.pos.doMove(move) catch unreachable;
 		defer info.pos.undoMove();
 
-		var s: isize = evaluation.score.nil;
+		var s: isize = rm.score;
 		if (i == 0) {
 			s = -ab(info, -b, -a, d - 1);
 		} else {
 			s = -ab(info, -a - 1, -a, d - 1);
-			if (s >= a + 1) {
+			if (s > a and s < b) {
 				s = -ab(info, -b, -a, d - 1);
 			}
 		}

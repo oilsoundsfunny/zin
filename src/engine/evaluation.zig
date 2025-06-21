@@ -293,6 +293,18 @@ pub const Taper = struct {
 		break :psqt_init tbl;
 	};
 
+	pub const pt_score = pt_score_init: {
+		var tbl = std.EnumArray(misc.types.Ptype, isize).initUndefined();
+		for (misc.types.Ptype.values) |pt| {
+			const t = Taper {
+				.mg = mg_pt_score.get(pt),
+				.eg = eg_pt_score.get(pt),
+			};
+			tbl.set(pt, t.dither(score.pawn / 2));
+		}
+		break :pt_score_init tbl;
+	};
+
 	pub fn dither(self: Taper, scale: isize) isize {
 		const clamped = std.math.clamp(scale, 0, phase.max);
 		return @divTrunc(self.mg * clamped + self.eg * (phase.max - clamped), phase.max);
@@ -579,36 +591,11 @@ pub fn scorePosition(pos: Position) isize {
 }
 
 test {
-	var pos = std.mem.zeroes(Position);
+	var pos = Position {};
 
-	for (EvalTest.suite[0 .. 0]) |ref| {
+	for (EvalTest.suite[0 ..]) |ref| {
+		std.log.defaultLog(.debug, .evaluation, "{s}", .{ref.fen});
 		try pos.parseFen(ref.fen);
 		try debugPosition(pos);
-
-		const mobility_area = std.EnumArray(misc.types.Color, misc.types.BitBoard).init(.{
-			.white = misc.types.BitBoard.fromSlice(misc.types.Square, &.{
-				.a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
-				.a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
-				     .b6,      .d6,      .f6,      .h6,
-				.a5,      .c5,      .e5,      .g5,
-				.a4, .b4, .c4, .d4, .e4, .f4, .g4, .h4,
-				.a3,      .c3, .d3, .e3, .f3, .g3, .h3,
-				.a2,      .c2, .d2, .e2, .f2,
-				.a1, .b1, .c1, .d1, .e1, .f1, .g1,
-			}),
-			.black = misc.types.BitBoard.fromSlice(misc.types.Square, &.{
-				.a1, .b1, .c1, .d1, .e1, .f1, .g1, .h1,
-				.a2, .b2, .c2, .d2, .e2, .f2, .g2, .h2,
-				     .b3,      .d3, .e3,
-				.a4, .b4, .c4, .d4, .e4, .f4, .g4, .h4,
-				.a5,      .c5, .d5, .e5, .f5, .g5, .h5,
-				     .b6,      .d6,      .f6,      .h6,
-				.a7,      .c7, .d7, .e7,      .g7,
-				.a8, .b8, .c8,      .e8, .f8,      .h8,
-			}),
-		});
-
-		const ft = Ft.init(pos);
-		try std.testing.expectEqual(mobility_area, ft.mobility_area);
 	}
 }
