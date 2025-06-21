@@ -646,6 +646,16 @@ pub fn printSelf(self: Self) !void {
 	}
 }
 
+pub fn isMoveNoisy(self: Self, move: movegen.Move) bool {
+	const dst_piece = self.getSquare(move.dst);
+	const promotion = move.promotion();
+
+	return dst_piece.ptype() != .nil or promotion == .queen or promotion == .knight;
+}
+pub fn isMoveQuiet(self: Self, move: movegen.Move) bool {
+	return !self.isMoveNoisy(move);
+}
+
 test {
 	var pos = Self {};
 
@@ -664,9 +674,4 @@ test {
 	key = genKey(pos);
 	try std.testing.expectEqual(chk, pos.ssTop().chk);
 	try std.testing.expectEqual(key, pos.ssTop().key);
-}
-
-test {
-	_ = Self;
-	_ = Stack;
 }

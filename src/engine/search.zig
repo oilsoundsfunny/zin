@@ -18,10 +18,14 @@ pub const Info = struct {
 	tbhits:	u64 = 0,
 
 	bfhist:	HistArray(Hist, 1) = std.mem.zeroes(HistArray(Hist, 1)),
+	cuthist:	HistArray(Hist, 1) = std.mem.zeroes(HistArray(Hist, 1)),
 	capthist:	HistArray(Hist, 2) = std.mem.zeroes(HistArray(Hist, 2)),
-	conthist:	HistArray(Hist, 2) = std.mem.zeroes(HistArray(Hist, 2)),
+	conthist:	[6]HistArray(Hist, 2) = std.mem.zeroes([6]HistArray(Hist, 2)),
+	countermove:	HistArray(movegen.Move, 1) = std.mem.zeroes(HistArray(movegen.Move, 1)),
 
 	pub const Hist = i16;
+	pub const hist_max = std.math.maxInt(Hist);
+	pub const hist_min = std.math.maxInt(Hist);
 
 	pub const Error = error {
 		Uninitialized,
@@ -36,6 +40,70 @@ pub const Info = struct {
 			else => @compileError("unexpected comptime integer"
 			  ++ std.fmt.comptimePrint("{d}", .{n})),
 		};
+	}
+
+	pub fn getCutHist(self: *Info, move: movegen.Move) isize {
+		const src = move.src;
+		const dst = move.dst;
+		const src_piece = self.pos.getSquare(src);
+
+		return self.cuthist.get(src_piece).get(dst);
+	}
+	pub fn bonusCutHist(self: *Info, move: movegen.Move, bonus: isize) void {
+		const src = move.src;
+		const dst = move.dst;
+		const src_piece = self.pos.getSquare(src);
+
+		const current: isize = self.cuthist.get(src_piece).get(dst);
+		const clamped: isize = std.math.clamp(bonus, hist_min, hist_max);
+		const abs: isize = @intCast(@abs(clamped));
+		const next = clamped - @divTrunc(current * abs, hist_max);
+
+		self.cuthist.getPtr(src_piece).set(dst, @intCast(next));
+	}
+	pub fn malusCutHist(self: *Info, move: movegen.Move, malus: isize) void {
+		// TODO: seperate function for malus
+		self.bonusCutHist(move, -malus);
+	}
+
+	pub fn addCounterMove(self: *Info, prev: movegen.Move, counter: movegen.Move) void {
+		const src = prev.src;
+		const dst = prev.dst;
+		const src_piece = self.pos.getSquare(src);
+
+		self.countermove.getPtr(src_piece).set(dst, counter);
+	}
+	pub fn getCounterMove(self: Info, prev: movegen.Move) movegen.Move {
+		const src = prev.src;
+		const dst = prev.dst;
+		const src_piece = self.pos.getSquare(src);
+
+		return self.countermove.get(src_piece).get(dst);
+	}
+
+	pub fn getCounterMoveHist(self: Info, move: movegen.Move) isize {
+		const prev = self.pos.ssTop().move;
+		const prev_dst = prev.dst;
+		const prev_src_piece = self.pos.ssTop().src_piece;
+
+		const src = move.src;
+		const dst = move.dst;
+		const src_piece = self.pos.getSquare(src);
+
+		return self.conthist[0].get(prev_src_piece).get(prev_dst).get(src_piece).get(dst);
+	}
+	pub fn bonusCounterMoveHist(self: *Info, move: movegen.Move) void {
+		const prev = self.pos.ssTop().move;
+		const prev_dst = prev.dst;
+		const prev_src_piece = self.pos.ssTop().src_piece;
+
+		const src = move.src;
+		const dst = move.dst;
+		const src_piece = self.pos.getSquare(src);
+
+		self.conthist[0]
+		  .getPtr(prev_src_piece).getPtr(prev_dst)
+		  .getPtr(src_piece).getPtr(dst).* += 1;
 	}
 
 	pub fn isMain(self: *Info) bool {
@@ -209,20 +277,23 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 			break;
 		}
 
-		pos.doMove(move) catch continue;
-		defer pos.undoMove();
+		const s = blk: {
+			pos.doMove(move) catch continue;
+			defer pos.undoMove();
 
-		var s: isize = evaluation.score.nil;
-		if (is_pv and best.score == lose) {
-			s = -qs(info, -b, -a);
-		} else if (is_pv) {
-			s = -qs(info, -a - 1, -a);
-			if (s > a and s < b) {
-				s = -qs(info, -b, -a);
+			var score: isize = best.score;
+			if (is_pv and best.score == lose) {
+				score = -qs(info, -b, -a);
+			} else if (is_pv) {
+				score = -qs(info, -a - 1, -a);
+				if (score > a and score < b) {
+					score = -qs(info, -b, -a);
+				}
+			} else {
+				score = -qs(info, -a - 1, -a);
 			}
-		} else {
-			s = -qs(info, -a - 1, -a);
-		}
+			break :blk score;
+		};
 
 		if (s > best.score) {
 			best.score = @intCast(s);
@@ -263,9 +334,9 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	}
 
 	const is_pv = beta - alpha > 1;
-	const d = depth;
 	const b = beta;
 	var a = alpha;
+	var d = depth;
 	var pos = &info.pos;
 	const draw: evaluation.score.Int = evaluation.score.draw;
 	const lose: evaluation.score.Int = evaluation.score.lose
@@ -287,13 +358,29 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	}
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 
-	const razoring_margin = @as(isize, depth)
-	  * evaluation.score.pawn
-	  + evaluation.Taper.pts.get(.bishop).avg();
-	if (!is_pv and eval + razoring_margin < alpha) {
+	const razoring_margin = @as(isize, depth) * 256 + 768;
+	if (!is_pv and eval < alpha - razoring_margin) {
 		const rs = qs(info, a - 1, a);
 		if (rs < alpha and rs > evaluation.score.mated) {
 			return rs;
+		}
+	}
+
+	if (!is_pv and pos.checkMask() == .all and !pos.ssTop().move.isZero() and eval >= b) {
+		const ns = blk: {
+			pos.doNullMove() catch unreachable;
+			defer pos.undoNullMove();
+
+			const nr: u8 = if (depth > 6) 4 else 3;
+			const nd: u8 = depth -| (nr + 1);
+			break :blk -ab(info, -b, 1 - b, nd);
+		};
+
+		if (ns >= b) {
+			d -|= 4;
+			if (d == 0) {
+				return qs(info, a, b);
+			}
 		}
 	}
 
@@ -309,20 +396,23 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 			break;
 		}
 
-		pos.doMove(move) catch continue;
-		defer pos.undoMove();
+		const s = blk: {
+			pos.doMove(move) catch continue;
+			defer pos.undoMove();
 
-		var s: isize = evaluation.score.nil;
-		if (is_pv and best.score == lose) {
-			s = -ab(info, -b, -a, d - 1);
-		} else if (is_pv) {
-			s = -ab(info, -a - 1, -a, d - 1);
-			if (s > a and s < b) {
-				s = -ab(info, -b, -a, d - 1);
+			var score: isize = best.score;
+			if (is_pv and best.score == lose) {
+				score = -ab(info, -b, -a, d - 1);
+			} else if (is_pv) {
+				score = -ab(info, -a - 1, -a, d - 1);
+				if (score > a and score < b) {
+					score = -ab(info, -b, -a, d - 1);
+				}
+			} else {
+				score = -ab(info, -a - 1, -a, d - 1);
 			}
-		} else {
-			s = -ab(info, -a - 1, -a, d - 1);
-		}
+			break :blk score;
+		};
 
 		if (s > best.score) {
 			best.score = @intCast(s);
@@ -332,6 +422,16 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 				best.move = move;
 			}
 			if (s >= b) {
+				if (pos.isMoveQuiet(move)) {
+					info.bonusCutHist(move, depth);
+					for (mp.list.constAllQuiets()) |prev| {
+						info.malusCutHist(prev.move, depth);
+					} 
+
+					info.addCounterMove(pos.ssTop().move, move);
+					info.bonusCounterMoveHist(move);
+				}
+
 				flag = .beta;
 				break;
 			}
@@ -418,18 +518,21 @@ pub fn threaded(info: *Info) void {
 		}
 
 		const move = rm.line.constSlice()[0];
-		info.pos.doMove(move) catch unreachable;
-		defer info.pos.undoMove();
+		const s = blk: {
+			info.pos.doMove(move) catch unreachable;
+			defer info.pos.undoMove();
 
-		var s = rm.score;
-		if (info.isMain() and i == 0) {
-			s = -ab(info, -b, -a, d - 1);
-		} else {
-			s = -ab(info, -a - 1, -a, d - 1);
-			if (s > a and s < b) {
-				s = -ab(info, -b, -a, d - 1);
+			var score = rm.score;
+			if (info.isMain() and i == 0) {
+				score = -ab(info, -b, -a, d - 1);
+			} else {
+				score = -ab(info, -a - 1, -a, d - 1);
+				if (score > a and score < b) {
+					score = -ab(info, -b, -a, d - 1);
+				}
 			}
-		}
+			break :blk score;
+		};
 
 		if (s > best.score) {
 			best.score = @intCast(s);

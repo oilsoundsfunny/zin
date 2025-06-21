@@ -517,20 +517,22 @@ test {
 }
 
 pub const Picker = struct {
-	list:	Move.Scored.List,
-	info:	*search.Info,
+	list:	Move.Scored.List = .{},
+	noisy_list:	Move.List = .{},
+	quiet_list:	Move.List = .{},
+	info:	*search.Info = undefined,
 
-	noisy:	bool,
-	stage:	Stage,
+	noisy:	bool = false,
+	stage:	Stage = .ttm,
 
-	ttm:	Move,
-	killer0:	Move,
-	killer1:	Move,
+	ttm:	Move = Move.zero,
+	killer0:	Move = Move.zero,
+	killer1:	Move = Move.zero,
 
-	noisy_cnt:	usize,
-	quiet_cnt:	usize,
-	bad_noisy_cnt:	usize,
-	bad_quiet_cnt:	usize,
+	noisy_cnt:	usize = 0,
+	quiet_cnt:	usize = 0,
+	bad_noisy_cnt:	usize = 0,
+	bad_quiet_cnt:	usize = 0,
 
 	pub const Stage = enum(u8) {
 		ttm,
@@ -566,17 +568,12 @@ pub const Picker = struct {
 
 	pub fn init(info: *search.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
 		return .{
-			.list = std.mem.zeroes(Move.Scored.List),
 			.info = info,
 			.noisy = noisy,
-			.stage = if (ttm.isZero()) .gen_noisy else .ttm,
+			.stage = if (!ttm.isZero()) .ttm else .gen_noisy,
 			.ttm = ttm,
 			.killer0 = killer0,
 			.killer1 = killer1,
-			.noisy_cnt = 0,
-			.quiet_cnt = 0,
-			.bad_noisy_cnt = 0,
-			.bad_quiet_cnt = 0,
 		};
 	}
 
@@ -589,33 +586,26 @@ pub const Picker = struct {
 		}
 
 		if (self.stage == .gen_noisy) {
-			var list = Move.List {};
-
 			self.stage = self.stage.inc();
-			self.list = .{
-				.array = @TypeOf(self.list.array).init(0) catch unreachable,
-				.index = 0,
-			};
-			self.noisy_cnt = list.genNoisy(self.info.pos);
+			self.list = .{};
+			self.noisy_cnt = self.noisy.list.genNoisy(self.info.pos);
 
-			for (list.constSlice()) |move| {
-				const key = self.info.pos.keyAfterMove(move);
-				const tt_fetch = transposition.Table.global.fetch(key);
-				const tte = tt_fetch[0];
-				const hit = tt_fetch[1];
+			for (self.constAllNoisyMoves()) |move| {
+				const score: evaluation.score.Int = blk: {
+					var s: isize = evaluation.score.draw;
+					defer s = std.math.clamp(s,
+					  evaluation.score.lose, evaluation.score.win);
 
-				var score: evaluation.score.Int = evaluation.score.lose;
-				if (hit) {
-					score = tte.?.score;
-				} else {
 					const src_ptype = self.info.pos.getSquare(move.src).ptype();
 					const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
 					const promotion = move.promotion();
 
-					score = @intCast(evaluation.Taper.pts.get(promotion).avg()
-					  + evaluation.Taper.pts.get(src_ptype).avg()
-					  + evaluation.Taper.pts.get(dst_ptype).avg());
-				}
+					s -= evaluation.Taper.pts.get(src_ptype).avg();
+					s += evaluation.Taper.pts.get(promotion).avg();
+					s += evaluation.Taper.pts.get(dst_ptype).avg();
+
+					break :blk @intCast(s);
+				};
 
 				self.list.append(.{
 					.move  = move,
@@ -658,18 +648,21 @@ pub const Picker = struct {
 		if (self.stage == .gen_quiet) {
 			self.stage = self.stage.inc();
 			if (!self.noisy) {
-				var list = Move.List {};
-				self.quiet_cnt = list.genQuiet(self.info.pos);
-				for (list.constSlice()) |move| {
-					const key = self.info.pos.keyAfterMove(move);
-					const tt_fetch = transposition.Table.global.fetch(key);
-					const tte = tt_fetch[0];
-					const hit = tt_fetch[1];
+				self.quiet_cnt = self.quiet_list.genQuiet(self.info.pos);
+				for (self.constAllQuietMoves()) |move| {
+					const score: evaluation.score.Int = blk: {
+						var s: isize = evaluation.score.draw;
+						defer s = std.math.clamp(s,
+						  evaluation.score.lose, evaluation.score.win);
 
-					var score: evaluation.score.Int = evaluation.score.lose;
-					if (hit) {
-						score = tte.?.score;
-					}
+						const prev = self.info.pos.ssTop().move;
+						if (move == self.info.getCounterMove(prev)) {
+							s += self.info.getCounterMoveHist(move) * 4;
+						}
+						s += self.info.getCutHist(move);
+
+						break :blk @intCast(s);
+					};
 
 					self.list.append(.{
 						.move  = move,
@@ -709,6 +702,20 @@ pub const Picker = struct {
 		}
 
 		return null;
+	}
+
+	pub fn allNoisyMoves(self: *Picker) []Move.Scored {
+		return self.noisy_list.slice();
+	}
+	pub fn allQuietMoves(self: *Picker) []Move.Scored {
+		return self.quiet_list.slice();
+	}
+
+	pub fn constAllNoisyMoves(self: *const Picker) []const Move.Scored {
+		return self.noisy_list.constSlice();
+	}
+	pub fn constAllQuietMoves(self: *const Picker) []const Move.Scored {
+		return self.quiet_list.constSlice();
 	}
 
 	pub fn isNoisy(self: Picker) bool {
