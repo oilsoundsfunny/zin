@@ -588,7 +588,7 @@ pub const Picker = struct {
 		if (self.stage == .gen_noisy) {
 			self.stage = self.stage.inc();
 			self.list = .{};
-			self.noisy_cnt = self.noisy.list.genNoisy(self.info.pos);
+			self.noisy_cnt = self.noisy_list.genNoisy(self.info.pos);
 
 			for (self.constAllNoisyMoves()) |move| {
 				const score: evaluation.score.Int = blk: {
@@ -704,17 +704,17 @@ pub const Picker = struct {
 		return null;
 	}
 
-	pub fn allNoisyMoves(self: *Picker) []Move.Scored {
+	pub fn allNoisyMoves(self: *Picker) []Move {
 		return self.noisy_list.slice();
 	}
-	pub fn allQuietMoves(self: *Picker) []Move.Scored {
+	pub fn allQuietMoves(self: *Picker) []Move {
 		return self.quiet_list.slice();
 	}
 
-	pub fn constAllNoisyMoves(self: *const Picker) []const Move.Scored {
+	pub fn constAllNoisyMoves(self: *const Picker) []const Move {
 		return self.noisy_list.constSlice();
 	}
-	pub fn constAllQuietMoves(self: *const Picker) []const Move.Scored {
+	pub fn constAllQuietMoves(self: *const Picker) []const Move {
 		return self.quiet_list.constSlice();
 	}
 

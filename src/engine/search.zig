@@ -424,8 +424,8 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 			if (s >= b) {
 				if (pos.isMoveQuiet(move)) {
 					info.bonusCutHist(move, depth);
-					for (mp.list.constAllQuiets()) |prev| {
-						info.malusCutHist(prev.move, depth);
+					for (mp.constAllQuietMoves()) |prev| {
+						info.malusCutHist(prev, depth);
 					} 
 
 					info.addCounterMove(pos.ssTop().move, move);
