@@ -40,11 +40,35 @@ const EvalTest = struct {
 pub const score = struct {
 	const pawn_f: comptime_float = @floatFromInt(pawn);
 
+	pub const mg_pts = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
+		.nil = draw,
+		.pawn   = pawn,
+		.knight = pawn * 23 / 8,
+		.bishop = pawn * 25 / 8,
+		.rook  = pawn * 5,
+		.queen = pawn * 9,
+		.king  = draw,
+		.all = draw,
+	});
+	pub const eg_pts = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
+		.nil = draw,
+		.pawn   = pawn,
+		.knight = pawn * 22 / 8,
+		.bishop = pawn * 26 / 8,
+		.rook  = pawn * 5,
+		.queen = pawn * 9,
+		.king  = draw,
+		.all = draw,
+	});
+
 	pub const Int = i16;
 
 	pub const win  = 0 + std.math.maxInt(Int);
 	pub const draw = 0;
 	pub const lose = 0 - std.math.maxInt(Int);
+
+	pub const mate  = win  - 247;
+	pub const mated = lose + 247;
 
 	pub const nil  = std.math.minInt(Int);
 	pub const pawn = 256;
@@ -62,7 +86,7 @@ pub const Taper = struct {
 	mg:	isize,
 	eg:	isize,
 
-	const phase = struct {
+	pub const phase = struct {
 		pub const tbl = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
 			.nil = 0,
 			.pawn   = 1,
@@ -83,33 +107,49 @@ pub const Taper = struct {
 
 		pub fn fromPosition(pos: Position) isize {
 			var r: isize = 0;
-			inline for (misc.types.Piece.w_pieces) |p| {
-				r += @as(isize, pos.ptypeOcc(p.ptype()).cntSquares())
-				  * tbl.get(p.ptype());
+			const ptypes = [_]misc.types.Ptype {
+				.pawn, .knight, .bishop, .rook, .queen,
+			};
+			inline for (ptypes) |pt| {
+				r += @as(isize, pos.ptypeOcc(pt).cntSquares()) * tbl.get(pt);
 			}
 			return r;
 		}
 	};
 
-	const mg_pt_score = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
-		.nil = score.draw,
-		.pawn   = score.pawn,
-		.knight = score.pawn * 23 / 8,
-		.bishop = score.pawn * 25 / 8,
-		.rook  = score.pawn * 5,
-		.queen = score.pawn * 9,
-		.king  = score.draw,
-		.all = score.draw,
-	});
-	const eg_pt_score = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
-		.nil = score.draw,
-		.pawn   = score.pawn,
-		.knight = score.pawn * 22 / 8,
-		.bishop = score.pawn * 26 / 8,
-		.rook  = score.pawn * 5,
-		.queen = score.pawn * 9,
-		.king  = score.draw,
-		.all = score.draw,
+	pub const pts = std.EnumArray(misc.types.Ptype, Taper).init(.{
+		.nil = .{
+			.mg = score.mg_pts.get(.nil),
+			.eg = score.eg_pts.get(.nil),
+		},
+		.pawn = .{
+			.mg = score.mg_pts.get(.pawn),
+			.eg = score.eg_pts.get(.pawn),
+		},
+		.knight = .{
+			.mg = score.mg_pts.get(.knight),
+			.eg = score.eg_pts.get(.knight),
+		},
+		.bishop = .{
+			.mg = score.mg_pts.get(.bishop),
+			.eg = score.eg_pts.get(.bishop),
+		},
+		.rook = .{
+			.mg = score.mg_pts.get(.rook),
+			.eg = score.eg_pts.get(.rook),
+		},
+		.queen = .{
+			.mg = score.mg_pts.get(.queen),
+			.eg = score.eg_pts.get(.queen),
+		},
+		.king = .{
+			.mg = score.mg_pts.get(.king),
+			.eg = score.eg_pts.get(.king),
+		},
+		.all = .{
+			.mg = score.mg_pts.get(.all),
+			.eg = score.eg_pts.get(.all),
+		},
 	});
 
 	pub const mobility_bonus = mobility_init: {
@@ -131,8 +171,8 @@ pub const Taper = struct {
 		for (ptypes) |pt| {
 			const cnt = mobility_cnt.get(pt);
 			for (0 .. cnt + 1) |idx| {
-				const mg: comptime_float = @floatFromInt(mg_pt_score.get(pt));
-				const eg: comptime_float = @floatFromInt(eg_pt_score.get(pt));
+				const mg: comptime_float = @floatFromInt(score.mg_pts.get(pt));
+				const eg: comptime_float = @floatFromInt(score.eg_pts.get(pt));
 
 				const c: comptime_float = @floatFromInt(cnt);
 				const i: comptime_float = @floatFromInt(idx);
@@ -292,29 +332,20 @@ pub const Taper = struct {
 		for (ptypes) |pt| {
 			for (misc.types.Square.values) |s| {
 				tbl.getPtr(pt).set(s, .{
-					.mg = mg_pt_score.get(pt) + score.fromCentipawns(mg_tbl.get(pt).get(s)),
-					.eg = eg_pt_score.get(pt) + score.fromCentipawns(eg_tbl.get(pt).get(s)),
+					.mg = score.mg_pts.get(pt) + score.fromCentipawns(mg_tbl.get(pt).get(s)),
+					.eg = score.eg_pts.get(pt) + score.fromCentipawns(eg_tbl.get(pt).get(s)),
 				});
 			}
 		}
 		break :psqt_init tbl;
 	};
 
-	pub const pt_score = pt_score_init: {
-		var tbl = std.EnumArray(misc.types.Ptype, isize).initUndefined();
-		for (misc.types.Ptype.values) |pt| {
-			const t = Taper {
-				.mg = mg_pt_score.get(pt),
-				.eg = eg_pt_score.get(pt),
-			};
-			tbl.set(pt, t.dither(score.pawn / 2));
-		}
-		break :pt_score_init tbl;
-	};
-
 	pub fn dither(self: Taper, scale: isize) isize {
 		const clamped = std.math.clamp(scale, 0, phase.max);
 		return @divTrunc(self.mg * clamped + self.eg * (phase.max - clamped), phase.max);
+	}
+	pub fn avg(self: Taper) isize {
+		return self.dither(phase.max / 2);
 	}
 };
 

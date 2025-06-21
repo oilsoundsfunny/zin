@@ -125,7 +125,9 @@ pub const manager = struct {
 				pool.spawnWg(&wg, threaded, .{info});
 			}
 			pool.waitAndWork(&wg);
+
 			root_moves.sort();
+			transposition.Table.global.doAging();
 
 			try print(buffered.writer(), depth, root_moves);
 			try buffered.flush();
@@ -196,7 +198,7 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 
 	const ttm = if (hit) tte.?.move else movegen.Move.zero;
 	var best = movegen.Move.Scored {
-		.move  = ttm,
+		.move  = movegen.Move.zero,
 		.score = lose,
 	};
 	var mp = movegen.Picker.init(info,
@@ -285,9 +287,19 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	}
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 
+	const razoring_margin = @as(isize, depth)
+	  * evaluation.score.pawn
+	  + evaluation.Taper.pts.get(.bishop).avg();
+	if (!is_pv and eval + razoring_margin < alpha) {
+		const rs = qs(info, a - 1, a);
+		if (rs < alpha and rs > evaluation.score.mated) {
+			return rs;
+		}
+	}
+
 	const ttm = if (hit) tte.?.move else movegen.Move.zero;
 	var best = movegen.Move.Scored {
-		.move  = ttm,
+		.move  = movegen.Move.zero,
 		.score = lose,
 	};
 	var mp = movegen.Picker.init(info, ttm, movegen.Move.zero, movegen.Move.zero, false);
@@ -344,6 +356,43 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 	}
 }
 
+fn aspiration(info: *Info,
+  rm: *movegen.RootMove, rmi: usize,
+  alpha: isize, beta: isize, depth: u8) isize {
+	var score = rm.score;
+	var window: struct {isize, isize} = .{
+		0 - evaluation.score.pawn * 4,
+		0 + evaluation.score.pawn * 4,
+	};
+	var lower = std.math.clamp(score + window[0], alpha, evaluation.score.win);
+	var upper = std.math.clamp(score + window[0], evaluation.score.lose, beta);
+
+	if (rmi == 0) {
+		score = -ab(info, -upper, -lower, depth);
+	} else {
+		score = -ab(info, -lower - 1, -lower, depth);
+		if (score > lower and score < upper) {
+			score = -ab(info, -upper, -lower, depth);
+		}
+	}
+	while (score > alpha and score < beta and (score <= lower or score >= upper)) {
+		if (score <= lower) {
+			window[0] *= 4;
+			window[1]  = @divTrunc(window[1], 2);
+		} else {
+			window[0]  = @divTrunc(window[0], 2);
+			window[1] *= 4;
+		}
+
+		lower = std.math.clamp(score + window[0], alpha, evaluation.score.win);
+		upper = std.math.clamp(score + window[0], evaluation.score.lose, beta);
+		score = -ab(info, -upper, -lower, depth);
+	}
+
+	rm.score = score;
+	return rm.score;
+}
+
 pub fn threaded(info: *Info) void {
 	const lose = evaluation.score.lose;
 	const b = evaluation.score.win;
@@ -359,7 +408,7 @@ pub fn threaded(info: *Info) void {
 
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(info.pos);
 	var best = movegen.Move.Scored {
-		.move  = if (hit) tte.?.move else movegen.Move.zero,
+		.move  = movegen.Move.zero,
 		.score = lose,
 	};
 
@@ -372,8 +421,8 @@ pub fn threaded(info: *Info) void {
 		info.pos.doMove(move) catch unreachable;
 		defer info.pos.undoMove();
 
-		var s: isize = rm.score;
-		if (i == 0) {
+		var s = rm.score;
+		if (info.isMain() and i == 0) {
 			s = -ab(info, -b, -a, d - 1);
 		} else {
 			s = -ab(info, -a - 1, -a, d - 1);
@@ -381,13 +430,15 @@ pub fn threaded(info: *Info) void {
 				s = -ab(info, -b, -a, d - 1);
 			}
 		}
-		rm.score = s;
 
 		if (s > best.score) {
 			best.score = @intCast(s);
 			if (s > a) {
 				a = s;
 				best.move = move;
+			}
+			if (s > b) {
+				break;
 			}
 		}
 	}

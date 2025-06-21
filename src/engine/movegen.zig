@@ -612,9 +612,9 @@ pub const Picker = struct {
 					const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
 					const promotion = move.promotion();
 
-					score = @intCast(evaluation.Taper.pt_score.get(promotion)
-					  + evaluation.Taper.pt_score.get(src_ptype)
-					  + evaluation.Taper.pt_score.get(dst_ptype));
+					score = @intCast(evaluation.Taper.pts.get(promotion).avg()
+					  + evaluation.Taper.pts.get(src_ptype).avg()
+					  + evaluation.Taper.pts.get(dst_ptype).avg());
 				}
 
 				self.list.append(.{

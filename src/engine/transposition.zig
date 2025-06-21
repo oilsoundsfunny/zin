@@ -105,6 +105,10 @@ pub const Table = struct {
 		}
 	}
 
+	pub fn doAging(self: *Table) void {
+		self.age += 1;
+	}
+
 	pub fn fetch(self: Table, key: Zobrist.Int) struct {?*Entry, bool} {
 		const i = self.index(key) catch return .{null, false};
 		const cluster = if (self.tbl != null) &self.tbl.?.ptr[i] else return .{null, false};
