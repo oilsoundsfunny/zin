@@ -1,9 +1,6 @@
 const misc = @import("misc");
 const std = @import("std");
 
-pub fn init() !void {
-}
-
 pub fn pAtkEast(pawns: misc.types.BitBoard, stm: misc.types.Color) misc.types.BitBoard {
 	return pawns
 	  .bitAnd(misc.types.File.file_h.bb().flip())

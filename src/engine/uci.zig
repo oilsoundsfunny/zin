@@ -11,8 +11,8 @@ const transposition = @import("transposition.zig");
 const stdin  = std.io.getStdIn();
 const stdout = std.io.getStdOut();
 
-var buffered_inp = std.io.bufferedReader(stdin.reader());
-var buffered_out = std.io.bufferedWriter(stdout.writer());
+pub var buffered_inp = std.io.bufferedReader(stdin.reader());
+pub var buffered_out = std.io.bufferedWriter(stdout.writer());
 
 const Command = enum {
 	go,
@@ -68,6 +68,22 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 			const aux_token = tokens.next() orelse return error.UnknownCommand;
 			timeman.time.set(.black, try std.fmt.parseUnsigned(u64, aux_token, 10));
 		} else return error.UnknownCommand;
+	}
+
+	const main_info = try search.Info.ofMain();
+	const overhead = timeman.overhead orelse 10;
+	const stm = main_info.pos.stm;
+
+	if (timeman.increment.get(stm) != null and timeman.time.get(stm) != null) {
+		const increment = timeman.increment.get(stm).?;
+		const time = timeman.time.get(stm).?;
+
+		timeman.start = misc.time.read(.ms);
+		timeman.stop = timeman.start + time / 20 + increment / 2 - overhead;
+	}
+	if (timeman.movetime) |movetime| {
+		timeman.start = misc.time.read(.ms);
+		timeman.stop = timeman.start + movetime - overhead;
 	}
 
 	try search.manager.spawn();

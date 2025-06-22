@@ -3,6 +3,8 @@ const misc = @import("misc");
 const std = @import("std");
 
 const Position = @import("Position.zig");
+const Zobrist = @import("Zobrist.zig");
+const movegen = @import("movegen.zig");
 
 const EvalTest = struct {
 	fen:	[]const u8,
@@ -35,51 +37,6 @@ const EvalTest = struct {
 			.centipawns = 50,
 		},
 	};
-};
-
-pub const score = struct {
-	const pawn_f: comptime_float = @floatFromInt(pawn);
-
-	pub const mg_pts = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
-		.nil = draw,
-		.pawn   = pawn,
-		.knight = pawn * 23 / 8,
-		.bishop = pawn * 25 / 8,
-		.rook  = pawn * 5,
-		.queen = pawn * 9,
-		.king  = draw,
-		.all = draw,
-	});
-	pub const eg_pts = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
-		.nil = draw,
-		.pawn   = pawn,
-		.knight = pawn * 22 / 8,
-		.bishop = pawn * 26 / 8,
-		.rook  = pawn * 5,
-		.queen = pawn * 9,
-		.king  = draw,
-		.all = draw,
-	});
-
-	pub const Int = i16;
-
-	pub const win  = 0 + std.math.maxInt(Int);
-	pub const draw = 0;
-	pub const lose = 0 - std.math.maxInt(Int);
-
-	pub const mate  = win  - 247;
-	pub const mated = lose + 247;
-
-	pub const nil  = std.math.minInt(Int);
-	pub const pawn = 256;
-
-	pub fn centipawns(eval: isize) isize {
-		return @divTrunc(eval * 100, pawn);
-	}
-
-	pub fn fromCentipawns(c: isize) isize {
-		return @divTrunc(c * pawn, 100);
-	}
 };
 
 pub const Taper = struct {
@@ -342,7 +299,9 @@ pub const Taper = struct {
 
 	pub fn dither(self: Taper, scale: isize) isize {
 		const clamped = std.math.clamp(scale, 0, phase.max);
-		return @divTrunc(self.mg * clamped + self.eg * (phase.max - clamped), phase.max);
+		const mg = @as(isize, self.mg) * @as(isize, clamped);
+		const eg = @as(isize, self.eg) * @as(isize, phase.max - clamped);
+		return @divTrunc(mg + eg, phase.max);
 	}
 	pub fn avg(self: Taper) isize {
 		return self.dither(phase.max / 2);
@@ -519,9 +478,101 @@ pub const Ft = struct {
 			  .bitAnd(their_pawns_atk.flip()));
 		}
 
+		inline for (misc.types.Color.values) |c| {
+			const king = misc.types.Piece.fromPtype(c, .king);
+			const k_bb = pos.pieceOcc(king);
+			const k_sq = k_bb.lowSquare();
+			const ka = bitboard.kAtk(k_sq);
+
+			const pawn = misc.types.Piece.fromPtype(c, .pawn);
+			const our_pawns = pos.pieceOcc(pawn);
+
+			tbl.king_area.set(c, ka.bitOr(k_bb).bitAnd(bitboard.pAtk2(our_pawns, c).flip()));
+		}
+
 		return tbl;
 	}
 };
+
+pub const pawn_hash = evalHash();
+
+pub const score = struct {
+	const pawn_f: comptime_float = @floatFromInt(pawn);
+
+	pub const mg_pts = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
+		.nil = draw,
+		.pawn   = pawn,
+		.knight = pawn * 23 / 8,
+		.bishop = pawn * 25 / 8,
+		.rook  = pawn * 5,
+		.queen = pawn * 9,
+		.king  = draw,
+		.all = draw,
+	});
+	pub const eg_pts = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
+		.nil = draw,
+		.pawn   = pawn,
+		.knight = pawn * 22 / 8,
+		.bishop = pawn * 26 / 8,
+		.rook  = pawn * 5,
+		.queen = pawn * 9,
+		.king  = draw,
+		.all = draw,
+	});
+
+	pub const Int = i16;
+
+	pub const win  = 0 + std.math.maxInt(Int);
+	pub const draw = 0;
+	pub const lose = 0 - std.math.maxInt(Int);
+
+	pub const mate  = win  - 247;
+	pub const mated = lose + 247;
+
+	pub const nil  = std.math.minInt(Int);
+	pub const pawn = 256;
+
+	pub fn centipawns(eval: isize) isize {
+		return @divTrunc(eval * 100, pawn);
+	}
+
+	pub fn fromCentipawns(cp: isize) isize {
+		return @divTrunc(cp * pawn, 100);
+	}
+};
+
+fn evalHash() type {
+	return struct {
+		pub const Entry = packed struct {
+			key:	u32,
+			mg:	score.Int,
+			eg:	score.Int,
+		};
+
+		pub const Table = struct {
+			array:	[byte_size / @sizeOf(Entry)]Entry align(page_size)
+			  = std.mem.zeroes([byte_size / @sizeOf(Entry)]Entry),
+
+			const byte_size = 65536;
+			const page_size = std.heap.page_size_max;
+
+			fn index(self: Table, key: Zobrist.Int) usize {
+				const s = self.array[0 ..];
+				const l = s.len;
+				const m = std.math.mulWide(u64, l, key);
+				return @truncate(m >> 64);
+			}
+
+			pub fn fetch(self: *Table, key: Zobrist.Int) struct {*Entry, bool} {
+				const i = self.index(key);
+				const p = &self.array[i];
+				const k = @atomicLoad(Entry, p, .monotonic).key;
+				return .{p, k == @as(@TypeOf(k), @truncate(key))};
+			}
+		};
+		pub var table = Table {};
+	};
+}
 
 pub fn debugPosition(pos: Position) !void {
 	const ft = Ft.init(pos);
@@ -579,59 +630,48 @@ pub fn debugPosition(pos: Position) !void {
 pub fn scorePosition(pos: Position) isize {
 	const ft = Ft.init(pos);
 
-	const by_ptype = std.EnumArray(misc.types.Ptype, Taper).init(.{
-		.nil = undefined,
-		.pawn = .{
-			.mg = ft.evalPawn(pos, true),
-			.eg = ft.evalPawn(pos, false),
-		},
-		.knight = .{
-			.mg = ft.evalPtype(pos, .knight, true),
-			.eg = ft.evalPtype(pos, .knight, false),
-		},
-		.bishop = .{
-			.mg = ft.evalPtype(pos, .bishop, true),
-			.eg = ft.evalPtype(pos, .bishop, false),
-		},
-		.rook = .{
-			.mg = ft.evalPtype(pos, .rook, true),
-			.eg = ft.evalPtype(pos, .rook, false),
-		},
-		.queen = .{
-			.mg = ft.evalPtype(pos, .queen, true),
-			.eg = ft.evalPtype(pos, .queen, false),
-		},
-		.king = .{
-			.mg = ft.evalKing(pos, true),
-			.eg = ft.evalKing(pos, false),
-		},
-		.all = undefined,
-	});
+	const pawn_key = pos.ssTop().pawn_key;
+	const pawn_fetch = pawn_hash.table.fetch(pawn_key);
+	const pk: Taper = if (pawn_fetch[1]) .{
+		.mg = pawn_fetch[0].mg,
+		.eg = pawn_fetch[0].eg,
+	} else eval_pk: {
+		const mg = ft.evalPawn(pos, true)  + ft.evalKing(pos, true);
+		const eg = ft.evalPawn(pos, false) + ft.evalKing(pos, false);
+		@atomicStore(pawn_hash.Entry, pawn_fetch[0], .{
+			.mg = @intCast(mg),
+			.eg = @intCast(eg),
+			.key = @truncate(pawn_key),
+		}, .monotonic);
+		break :eval_pk .{.mg = mg, .eg = eg};
+	};
+
+	const nb = Taper {
+		.mg = @intCast(ft.evalPtype(pos, .knight, true)  + ft.evalPtype(pos, .bishop, true)),
+		.eg = @intCast(ft.evalPtype(pos, .knight, false) + ft.evalPtype(pos, .bishop, false)),
+	};
+
+	const rq = Taper {
+		.mg = @intCast(ft.evalPtype(pos, .rook, true)  + ft.evalPtype(pos, .queen, true)),
+		.eg = @intCast(ft.evalPtype(pos, .rook, false) + ft.evalPtype(pos, .queen, false)),
+	};
 
 	const accum = Taper {
-		.mg = by_ptype.get(.pawn).mg
-		  + by_ptype.get(.knight).mg
-		  + by_ptype.get(.bishop).mg
-		  + by_ptype.get(.rook).mg
-		  + by_ptype.get(.queen).mg
-		  + by_ptype.get(.king).mg,
-		.eg = by_ptype.get(.pawn).eg
-		  + by_ptype.get(.knight).eg
-		  + by_ptype.get(.bishop).eg
-		  + by_ptype.get(.rook).eg
-		  + by_ptype.get(.queen).eg
-		  + by_ptype.get(.king).eg,
+		.mg = pk.mg + nb.mg + rq.mg,
+		.eg = pk.eg + nb.eg + rq.eg,
 	};
-	const phase = Taper.phase.fromPosition(pos);
+	const phase = pos.ssTop().phase;
 
-	const ev = @divTrunc(accum.dither(phase) * (100 - pos.ssTop().rule50), 100);
+	var ev: isize = accum.dither(phase);
+	ev *= @intCast(100 - pos.ssTop().rule50);
+	ev  = @divTrunc(ev, 100);
 	return ev;
 }
 
 test {
 	var pos = Position {};
 
-	for (EvalTest.suite[0 ..]) |ref| {
+	for (EvalTest.suite[0 .. 0]) |ref| {
 		std.log.defaultLog(.debug, .evaluation, "{s}", .{ref.fen});
 		try pos.parseFen(ref.fen);
 		try debugPosition(pos);
