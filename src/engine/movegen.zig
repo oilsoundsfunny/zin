@@ -559,7 +559,7 @@ pub const Picker = struct {
 		} else {
 			const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
 			const score
-			  = @as(isize, evaluation.Taper.pts.get(dst_ptype).avg()) * 7
+			  = @as(isize, evaluation.Taper.pts.get(dst_ptype).avg()) * 6
 			  + @as(isize, self.info.getCaptHist(move));
 			return @intCast(@divTrunc(score, 3));
 		}
@@ -601,14 +601,11 @@ pub const Picker = struct {
 		};
 	}
 
-	pub fn next(self: *Picker) ?Move.Scored {
+	pub fn next(self: *Picker) ?Move {
 		if (self.stage == .ttm) {
 			self.stage = self.stage.inc();
 			if (!self.ttm.isZero()) {
-				return .{
-					.move = self.ttm,
-					.score = self.scoreQuiet(self.ttm),
-				};
+				return self.ttm;
 			}
 		}
 
@@ -634,19 +631,16 @@ pub const Picker = struct {
 				self.list.index = self.bad_noisy_cnt;
 				break;
 			};
-			if (sm.score < evaluation.score.draw) {
+			if (false) {
 				self.list.slice()[self.bad_noisy_cnt] = sm;
 				self.bad_noisy_cnt += 1;
-			} else return sm;
+			} else return sm.move;
 		}
 
 		if (self.stage == .killer0) {
 			self.stage = self.stage.inc();
 			if (!self.killer0.isZero() and self.killer0 != self.ttm) {
-				return .{
-					.move = self.killer0,
-					.score = self.scoreQuiet(self.killer0),
-				};
+				return self.killer0;
 			}
 		}
 
@@ -655,10 +649,7 @@ pub const Picker = struct {
 			if (!self.killer1.isZero()
 			  and self.killer1 != self.ttm
 			  and self.killer1 != self.killer0) {
-				return .{
-					.move = self.killer1,
-					.score = self.scoreQuiet(self.killer1),
-				};
+				return self.killer1;
 			}
 		}
 
@@ -684,10 +675,10 @@ pub const Picker = struct {
 				self.list.index = 0;
 				break;
 			};
-			if (sm.score < evaluation.score.draw) {
+			if (false) {
 				self.list.slice()[self.bad_noisy_cnt + self.bad_quiet_cnt] = sm;
 				self.bad_quiet_cnt += 1;
-			} else return sm;
+			} else return sm.move;
 		}
 
 		while (self.stage == .bad_noisy) {
@@ -697,12 +688,12 @@ pub const Picker = struct {
 				self.list.index = self.bad_noisy_cnt;
 				break;
 			};
-			return sm;
+			return sm.move;
 		}
 
 		while (self.stage == .bad_quiet) {
 			const sm = self.pick() orelse break;
-			return sm;
+			return sm.move;
 		}
 
 		return null;

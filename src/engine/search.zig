@@ -138,7 +138,7 @@ pub const Info = struct {
 		const this_dst = move.dst;
 		const this_src_piece = self.pos.getSquare(this_src);
 
-		return self.conthist[ply -| 1]
+		return self.conthist[ply]
 		  .get(prev_src_piece).get(prev_dst)
 		  .get(this_src_piece).get(this_dst);
 	}
@@ -156,7 +156,7 @@ pub const Info = struct {
 		const this_dst = move.dst;
 		const this_src_piece = self.pos.getSquare(this_src);
 
-		const ptr = self.conthist[ply -| 1]
+		const ptr = self.conthist[ply]
 		  .getPtr(prev_src_piece).getPtr(prev_dst)
 		  .getPtr(this_src_piece).getPtr(this_dst);
 		const current: isize = ptr.*;
@@ -174,7 +174,6 @@ pub const Info = struct {
 		const main_info = ofMain() catch return false;
 		return self == main_info;
 	}
-
 	pub fn ofMain() Error!*Info {
 		const all = try ofThreads();
 		return &all[0];
@@ -219,8 +218,7 @@ pub const manager = struct {
 			infos[0].pos.doMove(move) catch unreachable;
 			defer infos[0].pos.undoMove();
 
-			infos[0].nodes = 0;
-			rm.score = -ab(&infos[0], evaluation.score.lose, evaluation.score.win, 0);
+			rm.score = -qs(&infos[0], evaluation.score.lose, evaluation.score.win);
 		}
 		root_moves.sort();
 
@@ -287,15 +285,6 @@ pub const manager = struct {
 		const current = misc.time.read(.ms);
 		try writer.print("info", .{});
 		try writer.print(" depth {d}", .{depth});
-		try writer.print(" nodes {d}", .{count_nodes: {
-			var sum: u64 = 0;
-			if (Info.global) |infos| {
-				for (infos) |info| {
-					sum += info.nodes;
-				}
-			}
-			break :count_nodes sum;
-		}});
 		try writer.print(" score cp {d}", .{cp});
 		try writer.print(" time {d}", .{current - timeman.start});
 		try writer.print(" pv", .{});
@@ -339,6 +328,10 @@ fn qs(info: *Info, alpha: Info.Score, beta: Info.Score) Info.Score {
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 	const ttm  = if (hit) tte.?.move else movegen.Move.zero;
 
+	if (eval >= b) {
+		return eval;
+	}
+
 	var best = movegen.Move.Scored {
 		.move  = movegen.Move.zero,
 		.score = lose,
@@ -349,18 +342,14 @@ fn qs(info: *Info, alpha: Info.Score, beta: Info.Score) Info.Score {
 	var penalized_noisy_moves = movegen.Move.List {};
 	var penalized_quiet_moves = movegen.Move.List {};
 
-	while (mp.next()) |sm| {
+	while (mp.next()) |move| {
 		if (timeman.hardStop()) {
 			break;
 		}
-		const move = sm.move;
 
-		if (!is_pv and !is_checked and eval < a) {
-			const margin = @as(isize, a) - @as(isize, eval) + evaluation.score.pawn * 2;
-			const clamped = std.math.clamp(margin, evaluation.score.lose, evaluation.score.win);
-			if (!pos.seeMargin(move, @intCast(clamped))) {
-				continue;
-			}
+		if (!is_pv and !is_checked
+		  and eval < a and !pos.seeThreshold(move, a - eval + evaluation.score.pawn * 2)) {
+			continue;
 		}
 
 		const s = blk: {
@@ -438,7 +427,6 @@ fn qs(info: *Info, alpha: Info.Score, beta: Info.Score) Info.Score {
 
 fn ab(info: *Info, alpha: Info.Score, beta: Info.Score, depth: Info.Depth) Info.Score {
 	if (depth == 0) {
-		info.nodes += 1;
 		return qs(info, alpha, beta);
 	}
 
@@ -468,7 +456,15 @@ fn ab(info: *Info, alpha: Info.Score, beta: Info.Score, depth: Info.Depth) Info.
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
 	const ttm  = if (hit) tte.?.move else movegen.Move.zero;
 
-	const rfp_margin = @as(Info.Score, depth) *| 128;
+	const razoring_margin = @as(Info.Score, depth) *| 128;
+	if (!is_pv and eval < alpha -| razoring_margin) {
+		const rs = qs(info, a - 1, a);
+		if (rs < alpha and rs > evaluation.score.mated) {
+			return rs;
+		}
+	}
+
+	const rfp_margin = @as(Info.Score, depth) * 128;
 	if (!is_pv and !is_checked
 	  and !ttm.isZero() and pos.isMoveQuiet(ttm)
 	  and eval >= b +| rfp_margin) {
@@ -478,13 +474,13 @@ fn ab(info: *Info, alpha: Info.Score, beta: Info.Score, depth: Info.Depth) Info.
 	const nmr_margin = 128;
 	if (!is_pv and pos.checkMask() == .all and !pos.ssTop().move.isZero()
 	  and eval >= b +| nmr_margin) {
-		const ns = null_search: {
+		const ns = blk: {
 			pos.doNullMove() catch unreachable;
 			defer pos.undoNullMove();
 
 			const nr: Info.Depth = if (depth > 6) 4 else 3;
 			const nd: Info.Depth = depth -| (nr + 1);
-			break :null_search -ab(info, -b, 1 - b, nd);
+			break :blk -ab(info, -b, 1 - b, nd);
 		};
 
 		if (ns >= b) {
@@ -499,16 +495,15 @@ fn ab(info: *Info, alpha: Info.Score, beta: Info.Score, depth: Info.Depth) Info.
 		.move  = movegen.Move.zero,
 		.score = lose,
 	};
-	var mp = movegen.Picker.init(info, ttm, pos.ssTop().killer0, pos.ssTop().killer1, false);
+	var mp = movegen.Picker.init(info, ttm, movegen.Move.zero, movegen.Move.zero, false);
 	var mi: usize = 0;
 	var penalized_noisy_moves = movegen.Move.List {};
 	var penalized_quiet_moves = movegen.Move.List {};
 
-	while (mp.next()) |sm| {
+	while (mp.next()) |move| {
 		if (timeman.hardStop()) {
 			break;
 		}
-		const move = sm.move;
 
 		const fp_margin = @as(Info.Score, depth) *| 128;
 		if (!is_pv and pos.checkMask() == .all
@@ -567,12 +562,6 @@ fn ab(info: *Info, alpha: Info.Score, beta: Info.Score, depth: Info.Depth) Info.
 			}
 			if (s >= b) {
 				if (pos.isMoveQuiet(move)) {
-					if (pos.ssTop().killer0.isZero()) {
-						pos.ssTopPtr()[0].killer0 = move;
-					} else if (pos.ssTop().killer1.isZero()) {
-						pos.ssTopPtr()[0].killer1 = move;
-					}
-
 					info.bonusCutHist(move, @as(Info.Hist, depth) * 256 - 128);
 					for (penalized_quiet_moves.constSlice()) |prev| {
 						info.malusCutHist(prev, @as(Info.Hist, depth) * 256 - 128);
