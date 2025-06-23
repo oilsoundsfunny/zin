@@ -4,6 +4,7 @@ const misc = @import("misc");
 const std = @import("std");
 
 const Zobrist = @import("Zobrist.zig");
+const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
 
 const Self = @This();
@@ -67,6 +68,13 @@ pub const Stack = struct {
 		}
 		pub fn pop(self: *Array) Stack {
 			return self.buffer.pop() orelse unreachable;
+		}
+
+		pub fn constSlice(self: *const Array) []const Stack {
+			return self.buffer.constSlice();
+		}
+		pub fn slice(self: *Array) []Stack {
+			return self.buffer.slice();
 		}
 	};
 };
@@ -327,6 +335,18 @@ pub fn is3peat(self: Self) bool {
 		peat += if (self.ss.buffer.constSlice()[i].key == self.ssTop().key) 1 else 0;
 	}
 	return peat >= 3;
+}
+
+pub fn squareAtkers(self: Self, s: misc.types.Square) misc.types.BitBoard {
+	const occ = self.allOcc();
+	return misc.types.BitBoard.nil
+	  .bitOr(bitboard.pAtk(s.bb(), .white).bitAnd(self.pieceOcc(.b_pawn)))
+	  .bitOr(bitboard.pAtk(s.bb(), .black).bitAnd(self.pieceOcc(.w_pawn)))
+	  .bitOr(bitboard.nAtk(s).bitAnd(self.ptypeOcc(.knight)))
+	  .bitOr(bitboard.kAtk(s).bitAnd(self.ptypeOcc(.king)))
+	  .bitOr(bitboard.bAtk(s, occ).bitAnd(self.ptypeOcc(.bishop)))
+	  .bitOr(bitboard.rAtk(s, occ).bitAnd(self.ptypeOcc(.rook)))
+	  .bitOr(bitboard.qAtk(s, occ).bitAnd(self.ptypeOcc(.queen)));
 }
 
 pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
@@ -654,6 +674,112 @@ pub fn isMoveNoisy(self: Self, move: movegen.Move) bool {
 }
 pub fn isMoveQuiet(self: Self, move: movegen.Move) bool {
 	return !self.isMoveNoisy(move);
+}
+
+// yoinked from: https://github.com/jhonnold/berserk/blob/main/src/see.c
+pub fn seeThreshold(self: Self, move: movegen.Move, threshold: evaluation.score.Int) bool {
+	if (move.flag != .nil) {
+		return true;
+	}
+
+	const pt_avg = std.EnumArray(misc.types.Ptype, evaluation.score.Int).init(.{
+		.nil = undefined,
+		.pawn   = evaluation.Taper.pts.get(.pawn).avg(),
+		.knight = evaluation.Taper.pts.get(.knight).avg(),
+		.bishop = evaluation.Taper.pts.get(.bishop).avg(),
+		.rook  = evaluation.Taper.pts.get(.rook).avg(),
+		.queen = evaluation.Taper.pts.get(.queen).avg(),
+		.king  = evaluation.Taper.pts.get(.king).avg(),
+		.all = undefined,
+	});
+	const src = move.src;
+	const dst = move.dst;
+
+	const src_ptype = self.getSquare(src).ptype();
+	const dst_ptype = self.getSquare(dst).ptype();
+
+	var value = pt_avg.get(dst_ptype) - threshold;
+	if (value < evaluation.score.draw) {
+		return false;
+	}
+
+	value = pt_avg.get(src_ptype) - value;
+	if (value <= 0) {
+		return true;
+	}
+
+	const diag = self.ptypeOcc(.queen).bitOr(self.ptypeOcc(.bishop));
+	const line = self.ptypeOcc(.queen).bitOr(self.ptypeOcc(.rook));
+	var atk = self.squareAtkers(dst);
+	var occ = self.allOcc().bitXor(src.bb()).bitXor(dst.bb());
+	var stm = self.stm;
+	var ret = true;
+
+	while (true) {
+		atk = atk.bitAnd(occ);
+		stm = stm.flip();
+
+		const our_atkers = atk.bitAnd(self.colorOcc(stm));
+		if (our_atkers == .nil) {
+			break;
+		}
+
+		ret = !ret;
+
+		const our_pieces = std.EnumArray(misc.types.Ptype, misc.types.BitBoard).init(.{
+			.nil = undefined,
+			.pawn   = self.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn)),
+			.knight = self.pieceOcc(misc.types.Piece.fromPtype(stm, .knight)),
+			.bishop = self.pieceOcc(misc.types.Piece.fromPtype(stm, .bishop)),
+			.rook   = self.pieceOcc(misc.types.Piece.fromPtype(stm, .rook)),
+			.queen  = self.pieceOcc(misc.types.Piece.fromPtype(stm, .queen)),
+			.king   = self.pieceOcc(misc.types.Piece.fromPtype(stm, .king)),
+			.all = undefined,
+		});
+		if (our_atkers.bitAnd(our_pieces.get(.pawn)) != .nil) {
+			value = pt_avg.get(.pawn) - value;
+			if (value < @intFromBool(ret)) {
+				break;
+			}
+
+			occ = occ.bitXor(our_atkers.bitAnd(our_pieces.get(.pawn)).getLow());
+			atk = atk.bitOr(bitboard.bAtk(dst, occ).bitAnd(diag));
+		} else if (our_atkers.bitAnd(our_pieces.get(.knight)) != .nil) {
+			value = pt_avg.get(.knight) - value;
+			if (value < @intFromBool(ret)) {
+				break;
+			}
+
+			occ = occ.bitXor(our_atkers.bitAnd(our_pieces.get(.knight)).getLow());
+		} else if (our_atkers.bitAnd(our_pieces.get(.bishop)) != .nil) {
+			value = pt_avg.get(.bishop) - value;
+			if (value < @intFromBool(ret)) {
+				break;
+			}
+
+			occ = occ.bitXor(our_atkers.bitAnd(our_pieces.get(.bishop)).getLow());
+			atk = atk.bitOr(bitboard.bAtk(dst, occ).bitAnd(diag));
+		} else if (our_atkers.bitAnd(our_pieces.get(.rook)) != .nil) {
+			value = pt_avg.get(.rook) - value;
+			if (value < @intFromBool(ret)) {
+				break;
+			}
+
+			occ = occ.bitXor(our_atkers.bitAnd(our_pieces.get(.rook)).getLow());
+			atk = atk.bitOr(bitboard.rAtk(dst, occ).bitAnd(line));
+		} else if (our_atkers.bitAnd(our_pieces.get(.queen)) != .nil) {
+			value = pt_avg.get(.queen) - value;
+			if (value < @intFromBool(ret)) {
+				break;
+			}
+
+			occ = occ.bitXor(our_atkers.bitAnd(our_pieces.get(.queen)).getLow());
+			atk = atk
+			  .bitOr(bitboard.bAtk(dst, occ).bitAnd(diag))
+			  .bitOr(bitboard.rAtk(dst, occ).bitAnd(line));
+		} else return if (atk.bitAnd(self.colorOcc(stm.flip())) != .nil) !ret else ret;
+	}
+	return ret;
 }
 
 test {

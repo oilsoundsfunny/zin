@@ -135,8 +135,8 @@ pub fn build(bld: *std.Build) !void {
 		.name = config_src.name,
 		.version = config_src.version,
 		.linkage = .static,
-		.use_llvm = optimize != .Debug,
-		.use_lld = optimize != .Debug,
+		.use_llvm = true,
+		.use_lld = true,
 	});
 	exe.want_lto = ndebug;
 	bld.installArtifact(exe);

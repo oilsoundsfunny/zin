@@ -9,6 +9,20 @@ const timeman = @import("timeman.zig");
 const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 
+const lmr_tbl = lmr_init: {
+	@setEvalBranchQuota(1 << 20);
+	var tbl align(std.heap.page_size_max) = std.mem.zeroes([256][256][2]Info.Depth);
+	for (tbl[1 ..], 1 ..) |*by_depth, depth| {
+		for (by_depth.*[1 ..], 1 ..) |*by_number, num| {
+			const d: comptime_float = @floatFromInt(depth);
+			const n: comptime_float = @floatFromInt(num);
+			by_number[0] = @intFromFloat(0.20 + @log(d) * @log(n) / 3.35);
+			by_number[1] = @intFromFloat(1.35 + @log(d) * @log(n) / 2.75);
+		}
+	}
+	break :lmr_init tbl;
+};
+
 pub const Info = struct {
 	pos:	Position = .{},
 	depth:	u8 = undefined,
@@ -23,9 +37,9 @@ pub const Info = struct {
 	conthist:	[6]HistArray(Hist, 2) = std.mem.zeroes([6]HistArray(Hist, 2)),
 	countermove:	HistArray(movegen.Move, 1) = std.mem.zeroes(HistArray(movegen.Move, 1)),
 
+	pub const Depth = u8;
 	pub const Hist = i16;
-	pub const hist_max = std.math.maxInt(Hist);
-	pub const hist_min = std.math.maxInt(Hist);
+	pub const Score = evaluation.score.Int;
 
 	pub const Error = error {
 		Uninitialized,
@@ -42,38 +56,66 @@ pub const Info = struct {
 		};
 	}
 
-	pub fn getCutHist(self: *Info, move: movegen.Move) isize {
+	pub fn getCaptHist(self: Info, move: movegen.Move) Hist {
+		const src = move.src;
+		const dst = move.dst;
+		const src_piece = self.pos.getSquare(src);
+		const dst_piece = self.pos.getSquare(dst);
+
+		return self.capthist.get(src_piece).get(src).get(dst_piece).get(dst);
+	}
+	pub fn bonusCaptHist(self: *Info, move: movegen.Move, bonus: Hist) void {
+		const src = move.src;
+		const dst = move.dst;
+		const src_piece = self.pos.getSquare(src);
+		const dst_piece = self.pos.getSquare(dst);
+
+		const ptr = self.capthist.getPtr(src_piece).getPtr(src).getPtr(dst_piece).getPtr(dst);
+		const current: isize = ptr.*;
+		const clamped: isize = bonus;
+		const abs: isize = @intCast(@abs(clamped));
+		const next = current + clamped - @divTrunc(current * abs, std.math.maxInt(Hist));
+
+		ptr.* = @intCast(next);
+	}
+	pub fn malusCaptHist(self: *Info, move: movegen.Move, bonus: Hist) void {
+		self.bonusCaptHist(move, -bonus);
+	}
+
+	pub fn getCutHist(self: Info, move: movegen.Move) Hist {
 		const src = move.src;
 		const dst = move.dst;
 		const src_piece = self.pos.getSquare(src);
 
 		return self.cuthist.get(src_piece).get(dst);
 	}
-	pub fn bonusCutHist(self: *Info, move: movegen.Move, bonus: isize) void {
+	pub fn bonusCutHist(self: *Info, move: movegen.Move, bonus: Hist) void {
 		const src = move.src;
 		const dst = move.dst;
 		const src_piece = self.pos.getSquare(src);
 
 		const current: isize = self.cuthist.get(src_piece).get(dst);
-		const clamped: isize = std.math.clamp(bonus, hist_min, hist_max);
+		const clamped: isize = bonus;
 		const abs: isize = @intCast(@abs(clamped));
-		const next = clamped - @divTrunc(current * abs, hist_max);
+		const next = current + clamped - @divTrunc(current * abs, std.math.maxInt(Hist));
 
 		self.cuthist.getPtr(src_piece).set(dst, @intCast(next));
 	}
-	pub fn malusCutHist(self: *Info, move: movegen.Move, malus: isize) void {
+	pub fn malusCutHist(self: *Info, move: movegen.Move, malus: Hist) void {
 		// TODO: seperate function for malus
 		self.bonusCutHist(move, -malus);
 	}
 
-	pub fn addCounterMove(self: *Info, prev: movegen.Move, counter: movegen.Move) void {
+	pub fn addCounterMove(self: *Info, counter: movegen.Move) void {
+		const prev = self.pos.ssTop().move;
 		const src = prev.src;
 		const dst = prev.dst;
 		const src_piece = self.pos.getSquare(src);
 
 		self.countermove.getPtr(src_piece).set(dst, counter);
 	}
-	pub fn getCounterMove(self: Info, prev: movegen.Move) movegen.Move {
+	pub fn getCounterMove(self: Info) movegen.Move {
+		const prev = self.pos.ssTop().move;
 		const src = prev.src;
 		const dst = prev.dst;
 		const src_piece = self.pos.getSquare(src);
@@ -81,29 +123,51 @@ pub const Info = struct {
 		return self.countermove.get(src_piece).get(dst);
 	}
 
-	pub fn getCounterMoveHist(self: Info, move: movegen.Move) isize {
-		const prev = self.pos.ssTop().move;
+	pub fn getContHist(self: Info, ply: usize, move: movegen.Move) Hist {
+		if (self.pos.ss.constSlice().len < ply) {
+			return evaluation.score.draw;
+		}
+
+		const ss = &self.pos.ss.constSlice()[self.pos.ss.constSlice().len - ply];
+
+		const prev = ss.move;
 		const prev_dst = prev.dst;
-		const prev_src_piece = self.pos.ssTop().src_piece;
+		const prev_src_piece = ss.src_piece;
 
-		const src = move.src;
-		const dst = move.dst;
-		const src_piece = self.pos.getSquare(src);
+		const this_src = move.src;
+		const this_dst = move.dst;
+		const this_src_piece = self.pos.getSquare(this_src);
 
-		return self.conthist[0].get(prev_src_piece).get(prev_dst).get(src_piece).get(dst);
+		return self.conthist[ply]
+		  .get(prev_src_piece).get(prev_dst)
+		  .get(this_src_piece).get(this_dst);
 	}
-	pub fn bonusCounterMoveHist(self: *Info, move: movegen.Move) void {
-		const prev = self.pos.ssTop().move;
+	pub fn bonusContHist(self: *Info, ply: usize, move: movegen.Move, bonus: Hist) void {
+		if (self.pos.ss.constSlice().len < ply) {
+			return;
+		}
+
+		const ss = &self.pos.ss.constSlice()[self.pos.ss.constSlice().len - 2];
+		const prev = ss.move;
 		const prev_dst = prev.dst;
-		const prev_src_piece = self.pos.ssTop().src_piece;
+		const prev_src_piece = ss.src_piece;
 
-		const src = move.src;
-		const dst = move.dst;
-		const src_piece = self.pos.getSquare(src);
+		const this_src = move.src;
+		const this_dst = move.dst;
+		const this_src_piece = self.pos.getSquare(this_src);
 
-		self.conthist[0]
+		const ptr = self.conthist[ply]
 		  .getPtr(prev_src_piece).getPtr(prev_dst)
-		  .getPtr(src_piece).getPtr(dst).* += 1;
+		  .getPtr(this_src_piece).getPtr(this_dst);
+		const current: isize = ptr.*;
+		const clamped: isize = bonus;
+		const abs: isize = @intCast(@abs(clamped));
+		const next = current + clamped - @divTrunc(current * abs, std.math.maxInt(Hist));
+
+		ptr.* = @intCast(next);
+	}
+	pub fn malusContHist(self: *Info, ply: usize, move: movegen.Move, bonus: Hist) void {
+		self.bonusContHist(ply, move, -bonus);
 	}
 
 	pub fn isMain(self: *Info) bool {
@@ -148,16 +212,13 @@ pub const manager = struct {
 			timeman.stop = timeman.start + time / 20 + inc / 2 - overhead;
 		}
 
-		const min_depth = 2;
-		const max_depth = timeman.depth orelse 240;
-
 		var root_moves = movegen.RootMove.List.fromInfo(&infos[0]);
 		for (root_moves.slice()) |*rm| {
 			const move = rm.line.constSlice()[0];
 			infos[0].pos.doMove(move) catch unreachable;
 			defer infos[0].pos.undoMove();
 
-			rm.score = -qs(&infos[0], -evaluation.score.win, -evaluation.score.lose);
+			rm.score = -qs(&infos[0], evaluation.score.lose, evaluation.score.win);
 		}
 		root_moves.sort();
 
@@ -168,11 +229,9 @@ pub const manager = struct {
 		const mod = root_moves.constSlice().len % infos.len;
 		var start: usize = 0;
 		for (infos[0 ..], 0 ..) |*info, i| {
+			info.pos = infos[0].pos;
 			info.rms = root_moves.slice()[start ..][0 .. if (i < mod) div + 1 else div];
 			start += info.rms.len;
-		}
-		for (infos[1 ..]) |*info| {
-			info.pos = infos[0].pos;
 		}
 
 		var pool: std.Thread.Pool = undefined;
@@ -184,12 +243,20 @@ pub const manager = struct {
 		});
 		defer pool.deinit();
 
+		const min_depth = 2;
+		const max_depth = timeman.depth orelse 240;
 		for (min_depth .. max_depth) |d| {
+			if (timeman.hardStop()) {
+				break;
+			}
+
 			const depth: u8 = @truncate(d);
 
 			wg.reset();
 			for (infos, 0 ..) |*info, i| {
 				info.depth = depth + @intFromBool(i % 2 == 0);
+				info.nodes = 0;
+
 				pool.spawnWg(&wg, threaded, .{info});
 			}
 			pool.waitAndWork(&wg);
@@ -199,10 +266,6 @@ pub const manager = struct {
 
 			try print(buffered.writer(), depth, root_moves);
 			try buffered.flush();
-
-			if (timeman.hardStop()) {
-				break;
-			}
 		}
 
 		{
@@ -239,14 +302,14 @@ pub const manager = struct {
 	}
 };
 
-fn qs(info: *Info, alpha: isize, beta: isize) isize {
-	const is_pv = beta - alpha > 1;
+fn qs(info: *Info, alpha: Info.Score, beta: Info.Score) Info.Score {
+	const pos = &info.pos;
+	const is_checked = pos.checkMask() != .all;
+	const is_pv = beta - 1 > alpha;
 	const b = beta;
 	var a = alpha;
-	var pos = &info.pos;
-	const draw: evaluation.score.Int = evaluation.score.draw;
-	const lose: evaluation.score.Int = evaluation.score.lose
-	  + @as(evaluation.score.Int, @intCast(pos.ssPly()));
+	const draw: Info.Score = evaluation.score.draw;
+	const lose: Info.Score = evaluation.score.lose + @as(Info.Score, @intCast(pos.ssPly()));
 
 	if (pos.is3peat() or pos.ssTop().rule50 >= 100) {
 		return draw;
@@ -263,25 +326,38 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 		return tte.?.score;
 	}
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
+	const ttm  = if (hit) tte.?.move else movegen.Move.zero;
 
-	const ttm = if (hit) tte.?.move else movegen.Move.zero;
+	if (eval >= b) {
+		return eval;
+	}
+
 	var best = movegen.Move.Scored {
 		.move  = movegen.Move.zero,
 		.score = lose,
 	};
 	var mp = movegen.Picker.init(info,
 	  ttm, movegen.Move.zero, movegen.Move.zero, pos.checkMask() == .all);
+	var mi: usize = 0;
+	var penalized_noisy_moves = movegen.Move.List {};
+	var penalized_quiet_moves = movegen.Move.List {};
 
 	while (mp.next()) |move| {
 		if (timeman.hardStop()) {
 			break;
 		}
 
+		if (!is_pv and !is_checked
+		  and eval < a and !pos.seeThreshold(move, a - eval + evaluation.score.pawn * 2)) {
+			continue;
+		}
+
 		const s = blk: {
 			pos.doMove(move) catch continue;
+			defer mi += 1;
 			defer pos.undoMove();
 
-			var score: isize = best.score;
+			var score = best.score;
 			if (is_pv and best.score == lose) {
 				score = -qs(info, -b, -a);
 			} else if (is_pv) {
@@ -296,28 +372,49 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 		};
 
 		if (s > best.score) {
-			best.score = @intCast(s);
+			best.score = s;
 			if (s > a) {
-				flag = if (pos.checkMask() == .all) .pv else .alpha;
+				flag = .alpha;
 				a = s;
 				best.move = move;
 			}
 			if (s >= b) {
+				if (pos.checkMask() != .all and pos.isMoveQuiet(move)) {
+					info.bonusCutHist(move, 128);
+					for (penalized_quiet_moves.constSlice()) |prev| {
+						info.malusCutHist(prev, 128);
+					} 
+
+					info.addCounterMove(move);
+					for (1 .. 7) |ply| {
+						info.bonusContHist(ply, move, 128);
+					}
+				} else {
+					info.bonusCaptHist(move, 128);
+					for (penalized_noisy_moves.constSlice()) |prev| {
+						info.malusCaptHist(prev, 128);
+					}
+				}
+
 				flag = .beta;
 				break;
+			} else if (pos.checkMask() != .all and pos.isMoveQuiet(move)) {
+				penalized_quiet_moves.append(move);
+			} else {
+				penalized_noisy_moves.append(move);
 			}
 		}
 	}
 
 	if (best.score == lose) {
-		return if (pos.checkMask() == .all) eval else lose;
+		return if (!is_checked) eval else lose;
 	} else {
-		if (tte != null) {
-			tte.?.* = .{
+		if (tte) |entry| {
+			entry.* = .{
 				.age = @truncate(transposition.Table.global.age),
 				.key = @truncate(pos.ssTop().key),
 				.flag = flag,
-				.eval = @intCast(eval),
+				.eval = eval,
 				.move = best.move,
 				.score = best.score,
 				.depth = 0,
@@ -328,19 +425,19 @@ fn qs(info: *Info, alpha: isize, beta: isize) isize {
 	}
 }
 
-fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
+fn ab(info: *Info, alpha: Info.Score, beta: Info.Score, depth: Info.Depth) Info.Score {
 	if (depth == 0) {
 		return qs(info, alpha, beta);
 	}
 
-	const is_pv = beta - alpha > 1;
+	const pos = &info.pos;
+	const is_checked = pos.checkMask() != .all;
+	const is_pv = beta - 1 > alpha;
 	const b = beta;
 	var a = alpha;
 	var d = depth;
-	var pos = &info.pos;
-	const draw: evaluation.score.Int = evaluation.score.draw;
-	const lose: evaluation.score.Int = evaluation.score.lose
-	  + @as(evaluation.score.Int, @intCast(pos.ssPly()));
+	const draw: Info.Score = evaluation.score.draw;
+	const lose: Info.Score = evaluation.score.lose + @as(Info.Score, @intCast(pos.ssPly()));
 
 	if (pos.is3peat() or pos.ssTop().rule50 >= 100) {
 		return draw;
@@ -357,22 +454,32 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		return tte.?.score;
 	}
 	const eval = if (hit) tte.?.eval else evaluation.scorePosition(pos.*);
+	const ttm  = if (hit) tte.?.move else movegen.Move.zero;
 
-	const razoring_margin = @as(isize, depth) * 256 + 768;
-	if (!is_pv and eval < alpha - razoring_margin) {
+	const razoring_margin = @as(Info.Score, depth) *| 128;
+	if (!is_pv and eval < alpha -| razoring_margin) {
 		const rs = qs(info, a - 1, a);
 		if (rs < alpha and rs > evaluation.score.mated) {
 			return rs;
 		}
 	}
 
-	if (!is_pv and pos.checkMask() == .all and !pos.ssTop().move.isZero() and eval >= b) {
+	const rfp_margin = @as(Info.Score, depth) * 128;
+	if (!is_pv and !is_checked
+	  and !ttm.isZero() and pos.isMoveQuiet(ttm)
+	  and eval >= b +| rfp_margin) {
+		return @divTrunc(eval, 2) + @divTrunc(b, 2);
+	}
+
+	const nmr_margin = 128;
+	if (!is_pv and pos.checkMask() == .all and !pos.ssTop().move.isZero()
+	  and eval >= b +| nmr_margin) {
 		const ns = blk: {
 			pos.doNullMove() catch unreachable;
 			defer pos.undoNullMove();
 
-			const nr: u8 = if (depth > 6) 4 else 3;
-			const nd: u8 = depth -| (nr + 1);
+			const nr: Info.Depth = if (depth > 6) 4 else 3;
+			const nd: Info.Depth = depth -| (nr + 1);
 			break :blk -ab(info, -b, 1 - b, nd);
 		};
 
@@ -384,38 +491,70 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 		}
 	}
 
-	const ttm = if (hit) tte.?.move else movegen.Move.zero;
 	var best = movegen.Move.Scored {
 		.move  = movegen.Move.zero,
 		.score = lose,
 	};
 	var mp = movegen.Picker.init(info, ttm, movegen.Move.zero, movegen.Move.zero, false);
+	var mi: usize = 0;
+	var penalized_noisy_moves = movegen.Move.List {};
+	var penalized_quiet_moves = movegen.Move.List {};
 
 	while (mp.next()) |move| {
 		if (timeman.hardStop()) {
 			break;
 		}
 
+		const fp_margin = @as(Info.Score, depth) *| 128;
+		if (!is_pv and pos.checkMask() == .all
+		  and a > evaluation.score.mated and b < evaluation.score.mate
+		  and !mp.isMoveKiller(move) and mp.isQuiet()
+		  and eval <= a -| fp_margin) {
+			break;
+		}
+
 		const s = blk: {
 			pos.doMove(move) catch continue;
+			defer mi += 1;
 			defer pos.undoMove();
 
-			var score: isize = best.score;
+			var lmr = if (!is_pv and mi >= 2)
+			  lmr_tbl[depth][mi][@intFromBool(pos.isMoveQuiet(move))] else 0;
+			if (lmr != 0 and hit and tte.?.flag == .beta) {
+				lmr += 1;
+			}
+			if (lmr != 0 and !ttm.isZero() and pos.isMoveNoisy(move)) {
+				lmr += 1;
+			}
+			if (lmr != 0 and is_checked) {
+				lmr -|= 1;
+			}
+			if (lmr != 0 and pos.checkMask() != .all) {
+				lmr -|= 1;
+			}
+
+			const original_d = d;
+			defer d = original_d;
+
+			d -|= lmr;
+			d -|= 1;
+
+			var score = best.score;
 			if (is_pv and best.score == lose) {
-				score = -ab(info, -b, -a, d - 1);
+				score = -ab(info, -b, -a, d);
 			} else if (is_pv) {
-				score = -ab(info, -a - 1, -a, d - 1);
+				score = -ab(info, -a - 1, -a, d);
 				if (score > a and score < b) {
-					score = -ab(info, -b, -a, d - 1);
+					score = -ab(info, -b, -a, d);
 				}
 			} else {
-				score = -ab(info, -a - 1, -a, d - 1);
+				score = -ab(info, -a - 1, -a, d);
 			}
 			break :blk score;
 		};
 
 		if (s > best.score) {
-			best.score = @intCast(s);
+			best.score = s;
 			if (s > a) {
 				flag = .pv;
 				a = s;
@@ -423,94 +562,59 @@ fn ab(info: *Info, alpha: isize, beta: isize, depth: u8) isize {
 			}
 			if (s >= b) {
 				if (pos.isMoveQuiet(move)) {
-					info.bonusCutHist(move, depth);
-					for (mp.constAllQuietMoves()) |prev| {
-						info.malusCutHist(prev, depth);
+					info.bonusCutHist(move, @as(Info.Hist, depth) * 256 - 128);
+					for (penalized_quiet_moves.constSlice()) |prev| {
+						info.malusCutHist(prev, @as(Info.Hist, depth) * 256 - 128);
 					} 
 
-					info.addCounterMove(pos.ssTop().move, move);
-					info.bonusCounterMoveHist(move);
+					info.addCounterMove(move);
+					for (1 .. 7) |ply| {
+						info.bonusContHist(ply, move, @as(Info.Hist, d) * 256 - 128);
+					}
+				} else {
+					info.bonusCaptHist(move, @as(Info.Hist, depth) * 256 - 128);
+					for (penalized_noisy_moves.constSlice()) |prev| {
+						info.malusCaptHist(prev, @as(Info.Hist, depth) * 256 - 128);
+					}
 				}
 
 				flag = .beta;
 				break;
+			} else if (pos.isMoveQuiet(move)) {
+				penalized_quiet_moves.append(move);
+			} else {
+				penalized_noisy_moves.append(move);
 			}
 		}
 	}
 
 	if (best.score == lose) {
-		return if (pos.checkMask() == .all) draw else lose;
+		return if (!is_checked) draw else lose;
 	} else {
-		if (tte != null) {
-			tte.?.* = .{
+		if (tte) |entry| {
+			entry.* = .{
 				.age = @truncate(transposition.Table.global.age),
 				.key = @truncate(pos.ssTop().key),
 				.flag = flag,
-				.eval = @intCast(eval),
+				.eval = eval,
 				.move = best.move,
 				.score = best.score,
-				.depth = @intCast(depth),
+				.depth = depth,
 			};
 		}
+
 		return best.score;
 	}
 }
 
-fn aspiration(info: *Info,
-  rm: *movegen.RootMove, rmi: usize,
-  alpha: isize, beta: isize, depth: u8) isize {
-	var score = rm.score;
-	var window: struct {isize, isize} = .{
-		0 - evaluation.score.pawn * 4,
-		0 + evaluation.score.pawn * 4,
-	};
-	var lower = std.math.clamp(score + window[0], alpha, evaluation.score.win);
-	var upper = std.math.clamp(score + window[0], evaluation.score.lose, beta);
-
-	if (rmi == 0) {
-		score = -ab(info, -upper, -lower, depth);
-	} else {
-		score = -ab(info, -lower - 1, -lower, depth);
-		if (score > lower and score < upper) {
-			score = -ab(info, -upper, -lower, depth);
-		}
-	}
-	while (score > alpha and score < beta and (score <= lower or score >= upper)) {
-		if (score <= lower) {
-			window[0] *= 4;
-			window[1]  = @divTrunc(window[1], 2);
-		} else {
-			window[0]  = @divTrunc(window[0], 2);
-			window[1] *= 4;
-		}
-
-		lower = std.math.clamp(score + window[0], alpha, evaluation.score.win);
-		upper = std.math.clamp(score + window[0], evaluation.score.lose, beta);
-		score = -ab(info, -upper, -lower, depth);
-	}
-
-	rm.score = score;
-	return rm.score;
-}
-
 pub fn threaded(info: *Info) void {
-	const lose = evaluation.score.lose;
 	const b = evaluation.score.win;
 	const d = info.depth;
-	var a: isize = evaluation.score.lose;
+	var a: Info.Score = evaluation.score.lose;
 
-	const tt_fetch = transposition.Table.global.fetch(info.pos.ssTop().key);
-	const tte = tt_fetch[0];
-	const hit = tt_fetch[1];
 	if (timeman.hardStop()) {
 		return;
 	}
-
-	const eval = if (hit) tte.?.eval else evaluation.scorePosition(info.pos);
-	var best = movegen.Move.Scored {
-		.move  = movegen.Move.zero,
-		.score = lose,
-	};
 
 	for (info.rms[0 ..], 0 ..) |*rm, i| {
 		if (timeman.hardStop()) {
@@ -534,29 +638,22 @@ pub fn threaded(info: *Info) void {
 			break :blk score;
 		};
 
-		if (s > best.score) {
-			best.score = @intCast(s);
-			if (s > a) {
-				a = s;
-				best.move = move;
-			}
-			if (s > b) {
-				break;
-			}
+		rm.score = s;
+		if (s > a) {
+			a = s;
 		}
-	}
+		if (s >= b) {
+			if (info.pos.isMoveQuiet(move)) {
+				info.bonusCutHist(move, @as(Info.Hist, d) * 256 - 128);
 
-	if (best.score != lose) {
-		if (tte != null) {
-			tte.?.* = .{
-				.age = @truncate(transposition.Table.global.age),
-				.key = @truncate(info.pos.ssTop().key),
-				.depth = info.depth,
-				.flag = .pv,
-				.eval = @intCast(eval),
-				.move = best.move,
-				.score = @intCast(best.score),
-			};
+				info.addCounterMove(move);
+				for (1 .. 7) |ply| {
+					info.bonusContHist(ply, move, @as(Info.Hist, d) * 256 - 128);
+				}
+			} else {
+				info.bonusCaptHist(move, @as(Info.Hist, d) * 256 - 128);
+			}
+			break;
 		}
 	}
 }

@@ -147,16 +147,6 @@ pub const Move = packed struct(u16) {
 				return;
 			}
 
-			const their_pieces = std.EnumArray(misc.types.Ptype, misc.types.BitBoard).init(.{
-				.nil = .nil,
-				.pawn   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .pawn)),
-				.knight = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .knight)),
-				.bishop = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .bishop)),
-				.rook   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .rook)),
-				.queen  = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .queen)),
-				.king   = pos.pieceOcc(misc.types.Piece.fromPtype(stm.flip(), .king)),
-				.all = .nil,
-			});
 			var atk_mask = (switch (side) {
 				.king  => misc.types.BitBoard.fromSlice(misc.types.File, &.{.file_f, .file_g}),
 				.queen => misc.types.BitBoard.fromSlice(misc.types.File, &.{.file_c, .file_d}),
@@ -164,12 +154,7 @@ pub const Move = packed struct(u16) {
 			}).bitAnd(stm.homeRank().bb());
 			while (atk_mask != .nil) : (atk_mask.popLow()) {
 				const s = atk_mask.lowSquare();
-				const a = bitboard.pAtk(s.bb(), stm).bitAnd(their_pieces.get(.pawn))
-				  .bitOr(bitboard.nAtk(s).bitAnd(their_pieces.get(.knight)))
-				  .bitOr(bitboard.kAtk(s).bitAnd(their_pieces.get(.king)))
-				  .bitOr(bitboard.bAtk(s, occ).bitAnd(their_pieces.get(.bishop)))
-				  .bitOr(bitboard.rAtk(s, occ).bitAnd(their_pieces.get(.rook)))
-				  .bitOr(bitboard.qAtk(s, occ).bitAnd(their_pieces.get(.queen)));
+				const a = pos.squareAtkers(s).bitAnd(pos.colorOcc(stm.flip()));
 				if (a != .nil) {
 					return;
 				}
@@ -447,7 +432,8 @@ test {
 
 pub const RootMove = struct {
 	line:	std.BoundedArray(Move, 256 - 2 * @sizeOf(usize) / @sizeOf(Move)),
-	score:	isize,
+	score:	evaluation.score.Int,
+	pad:	[@sizeOf(isize) - @sizeOf(evaluation.score.Int)]u8,
 
 	pub const List = struct {
 		array:	std.BoundedArray(RootMove, 256),
@@ -477,7 +463,7 @@ pub const RootMove = struct {
 
 		pub fn fromInfo(info: *search.Info) List {
 			var array = List.init(0) catch unreachable;
-			var list = std.mem.zeroes(Move.List);
+			var list = Move.List {};
 			_ = list.genNoisy(info.pos);
 			_ = list.genQuiet(info.pos);
 			for (list.constSlice()) |move| {
@@ -518,9 +504,7 @@ test {
 
 pub const Picker = struct {
 	list:	Move.Scored.List = .{},
-	noisy_list:	Move.List = .{},
-	quiet_list:	Move.List = .{},
-	info:	*search.Info = undefined,
+	info:	*const search.Info = undefined,
 
 	noisy:	bool = false,
 	stage:	Stage = .ttm,
@@ -566,7 +550,47 @@ pub const Picker = struct {
 		return null;
 	}
 
-	pub fn init(info: *search.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
+	fn scoreNoisy(self: Picker, move: Move) evaluation.score.Int {
+		const hist_min = std.math.minInt(search.Info.Hist) / 2;
+		const hist_max = -hist_min;
+
+		if (move == self.ttm) {
+			return hist_max + 40;
+		} else {
+			const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
+			const score
+			  = @as(isize, evaluation.Taper.pts.get(dst_ptype).avg()) * 6
+			  + @as(isize, self.info.getCaptHist(move));
+			return @intCast(@divTrunc(score, 3));
+		}
+	}
+
+	fn scoreQuiet(self: Picker, move: Move) evaluation.score.Int {
+		const hist_min = std.math.minInt(search.Info.Hist) / 2;
+		const hist_max = -hist_min;
+
+		if (move == self.ttm) {
+			return hist_max + 40;
+		} else if (move == self.killer0) {
+			return hist_max + 20;
+		} else if (move == self.killer1) {
+			return hist_max + 10;
+		} else if (move == self.info.getCounterMove()) {
+			return hist_max + 5;
+		} else {
+			const hist: isize
+			  = @as(isize, self.info.getCutHist(move))
+			  + @as(isize, self.info.getContHist(1, move)) * 2
+			  + @as(isize, self.info.getContHist(2, move))
+			  + @as(isize, self.info.getContHist(3, move))
+			  + @as(isize, self.info.getContHist(4, move))
+			  + @as(isize, self.info.getContHist(5, move))
+			  + @as(isize, self.info.getContHist(6, move));
+			return @intCast(@divTrunc(hist, 16));
+		}
+	}
+
+	pub fn init(info: *const search.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
 		return .{
 			.info = info,
 			.noisy = noisy,
@@ -588,31 +612,16 @@ pub const Picker = struct {
 		if (self.stage == .gen_noisy) {
 			self.stage = self.stage.inc();
 			self.list = .{};
-			self.noisy_cnt = self.noisy_list.genNoisy(self.info.pos);
 
-			for (self.constAllNoisyMoves()) |move| {
-				const score: evaluation.score.Int = blk: {
-					var s: isize = evaluation.score.draw;
-					defer s = std.math.clamp(s,
-					  evaluation.score.lose, evaluation.score.win);
-
-					const src_ptype = self.info.pos.getSquare(move.src).ptype();
-					const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
-					const promotion = move.promotion();
-
-					s -= evaluation.Taper.pts.get(src_ptype).avg();
-					s += evaluation.Taper.pts.get(promotion).avg();
-					s += evaluation.Taper.pts.get(dst_ptype).avg();
-
-					break :blk @intCast(s);
-				};
-
+			var list = Move.List {};
+			self.noisy_cnt = list.genNoisy(self.info.pos);
+			for (list.constSlice()) |move| {
 				self.list.append(.{
 					.move  = move,
-					.score = score,
+					.score = self.scoreNoisy(move),
 				});
 			}
-			self.list.sort();
+			Move.Scored.sortSlice(self.list.slice()[self.list.index ..][0 .. self.noisy_cnt]);
 		}
 
 		while (self.stage == .good_noisy) {
@@ -630,8 +639,7 @@ pub const Picker = struct {
 
 		if (self.stage == .killer0) {
 			self.stage = self.stage.inc();
-			if (!self.killer0.isZero()
-			  and !self.killer0.eql(self.ttm)) {
+			if (!self.killer0.isZero() and self.killer0 != self.ttm) {
 				return self.killer0;
 			}
 		}
@@ -639,8 +647,8 @@ pub const Picker = struct {
 		if (self.stage == .killer1) {
 			self.stage = self.stage.inc();
 			if (!self.killer1.isZero()
-			  and !self.killer1.eql(self.ttm)
-			  and !self.killer1.eql(self.killer0)) {
+			  and self.killer1 != self.ttm
+			  and self.killer1 != self.killer0) {
 				return self.killer1;
 			}
 		}
@@ -648,28 +656,15 @@ pub const Picker = struct {
 		if (self.stage == .gen_quiet) {
 			self.stage = self.stage.inc();
 			if (!self.noisy) {
-				self.quiet_cnt = self.quiet_list.genQuiet(self.info.pos);
-				for (self.constAllQuietMoves()) |move| {
-					const score: evaluation.score.Int = blk: {
-						var s: isize = evaluation.score.draw;
-						defer s = std.math.clamp(s,
-						  evaluation.score.lose, evaluation.score.win);
-
-						const prev = self.info.pos.ssTop().move;
-						if (move == self.info.getCounterMove(prev)) {
-							s += self.info.getCounterMoveHist(move) * 4;
-						}
-						s += self.info.getCutHist(move);
-
-						break :blk @intCast(s);
-					};
-
+				var list = Move.List {};
+				self.quiet_cnt = list.genQuiet(self.info.pos);
+				for (list.constSlice()) |move| {
 					self.list.append(.{
 						.move  = move,
-						.score = score,
+						.score = self.scoreQuiet(move),
 					});
 				}
-				self.list.sort();
+				Move.Scored.sortSlice(self.list.slice()[self.list.index ..][0 .. self.quiet_cnt]);
 			}
 		}
 
@@ -711,11 +706,18 @@ pub const Picker = struct {
 		return self.quiet_list.slice();
 	}
 
-	pub fn constAllNoisyMoves(self: *const Picker) []const Move {
+	pub fn constAllNoisyMoves(self: *const Picker) []const Move.Scored {
 		return self.noisy_list.constSlice();
 	}
-	pub fn constAllQuietMoves(self: *const Picker) []const Move {
+	pub fn constAllQuietMoves(self: *const Picker) []const Move.Scored {
 		return self.quiet_list.constSlice();
+	}
+
+	pub fn isMoveHashed(self: Picker, move: Move) bool {
+		return move == self.ttm;
+	}
+	pub fn isMoveKiller(self: Picker, move: Move) bool {
+		return move == self.killer0 or move == self.killer1;
 	}
 
 	pub fn isNoisy(self: Picker) bool {

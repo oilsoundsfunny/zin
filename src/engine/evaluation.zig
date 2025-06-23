@@ -6,7 +6,7 @@ const Position = @import("Position.zig");
 
 const EvalTest = struct {
 	fen:	[]const u8,
-	centipawns:	isize,
+	centipawns:	score.Int,
 
 	pub const suite = [_]EvalTest {
 		.{
@@ -73,18 +73,20 @@ pub const score = struct {
 	pub const nil  = std.math.minInt(Int);
 	pub const pawn = 256;
 
-	pub fn centipawns(eval: isize) isize {
-		return @divTrunc(eval * 100, pawn);
+	pub fn centipawns(eval: score.Int) score.Int {
+		const e: isize = eval;
+		return @intCast(@divTrunc(e * 100, pawn));
 	}
 
-	pub fn fromCentipawns(c: isize) isize {
-		return @divTrunc(c * pawn, 100);
+	pub fn fromCentipawns(cp: score.Int) score.Int {
+		const c: isize = cp;
+		return @intCast(@divTrunc(c * pawn, 100));
 	}
 };
 
 pub const Taper = struct {
-	mg:	isize,
-	eg:	isize,
+	mg:	score.Int,
+	eg:	score.Int,
 
 	pub const phase = struct {
 		pub const tbl = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
@@ -105,13 +107,13 @@ pub const Taper = struct {
 		  + 2 * tbl.get(.queen)
 		  + 2 * tbl.get(.king);
 
-		pub fn fromPosition(pos: Position) isize {
-			var r: isize = 0;
+		pub fn fromPosition(pos: Position) score.Int {
+			var r: score.Int = 0;
 			const ptypes = [_]misc.types.Ptype {
 				.pawn, .knight, .bishop, .rook, .queen,
 			};
 			inline for (ptypes) |pt| {
-				r += @as(isize, pos.ptypeOcc(pt).cntSquares()) * tbl.get(pt);
+				r += @as(score.Int, pos.ptypeOcc(pt).cntSquares()) * tbl.get(pt);
 			}
 			return r;
 		}
@@ -340,11 +342,14 @@ pub const Taper = struct {
 		break :psqt_init tbl;
 	};
 
-	pub fn dither(self: Taper, scale: isize) isize {
+	pub fn dither(self: Taper, scale: score.Int) score.Int {
 		const clamped = std.math.clamp(scale, 0, phase.max);
-		return @divTrunc(self.mg * clamped + self.eg * (phase.max - clamped), phase.max);
+		const mg = @as(isize, self.mg) * @as(isize, clamped);
+		const eg = @as(isize, self.eg) * @as(isize, phase.max - clamped);
+
+		return @intCast(@divTrunc(mg + eg, phase.max));
 	}
-	pub fn avg(self: Taper) isize {
+	pub fn avg(self: Taper) score.Int {
 		return self.dither(phase.max / 2);
 	}
 };
@@ -354,14 +359,14 @@ pub const Ft = struct {
 	passed_pawns:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
 	mobility_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
 	king_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
-	king_atk_cnt:	std.EnumArray(misc.types.Color, isize),
-	king_atk_mat:	std.EnumArray(misc.types.Color, isize),
-	king_def_cnt:	std.EnumArray(misc.types.Color, isize),
-	king_def_mat:	std.EnumArray(misc.types.Color, isize),
+	king_atk_cnt:	std.EnumArray(misc.types.Color, score.Int),
+	king_atk_mat:	std.EnumArray(misc.types.Color, score.Int),
+	king_def_cnt:	std.EnumArray(misc.types.Color, score.Int),
+	king_def_mat:	std.EnumArray(misc.types.Color, score.Int),
 
-	fn evalKing(self: Ft, pos: Position, comptime mg: bool) isize {
+	fn evalKing(self: Ft, pos: Position, comptime mg: bool) score.Int {
 		const stm = pos.stm;
-		var ev: isize = 0;
+		var ev: score.Int = 0;
 
 		_ = self;
 
@@ -389,9 +394,9 @@ pub const Ft = struct {
 		};
 	}
 
-	fn evalPawn(self: Ft, pos: Position, comptime mg: bool) isize {
+	fn evalPawn(self: Ft, pos: Position, comptime mg: bool) score.Int {
 		const stm = pos.stm;
-		var ev: isize = 0;
+		var ev: score.Int = 0;
 
 		_ = self;
 
@@ -423,9 +428,9 @@ pub const Ft = struct {
 
 	fn evalPtype(self: Ft, pos: Position,
 	  comptime pt: misc.types.Ptype,
-	  comptime mg: bool) isize {
+	  comptime mg: bool) score.Int {
 		const stm = pos.stm;
-		var ev: isize = 0;
+		var ev: score.Int = 0;
 
 		const pieces = std.EnumArray(misc.types.Color, misc.types.BitBoard).init(.{
 			.white = pos.pieceOcc(misc.types.Piece.fromPtype(.white, pt)),
@@ -523,60 +528,7 @@ pub const Ft = struct {
 	}
 };
 
-pub fn debugPosition(pos: Position) !void {
-	const ft = Ft.init(pos);
-	const by_ptype = std.EnumArray(misc.types.Ptype, Taper).init(.{
-		.nil = undefined,
-		.pawn = .{
-			.mg = ft.evalPawn(pos, true),
-			.eg = ft.evalPawn(pos, false),
-		},
-		.knight = .{
-			.mg = ft.evalPtype(pos, .knight, true),
-			.eg = ft.evalPtype(pos, .knight, false),
-		},
-		.bishop = .{
-			.mg = ft.evalPtype(pos, .bishop, true),
-			.eg = ft.evalPtype(pos, .bishop, false),
-		},
-		.rook = .{
-			.mg = ft.evalPtype(pos, .rook, true),
-			.eg = ft.evalPtype(pos, .rook, false),
-		},
-		.queen = .{
-			.mg = ft.evalPtype(pos, .queen, true),
-			.eg = ft.evalPtype(pos, .queen, false),
-		},
-		.king = .{
-			.mg = ft.evalKing(pos, true),
-			.eg = ft.evalKing(pos, false),
-		},
-		.all = .{
-			.mg = ft.evalPawn(pos, true) + ft.evalKing(pos, true)
-			  + ft.evalPtype(pos, .knight, true) + ft.evalPtype(pos, .bishop, true)
-			  + ft.evalPtype(pos, .rook,   true) + ft.evalPtype(pos, .queen,  true),
-			.eg = ft.evalPawn(pos, false) + ft.evalKing(pos, false)
-			  + ft.evalPtype(pos, .knight, false) + ft.evalPtype(pos, .bishop, false)
-			  + ft.evalPtype(pos, .rook,   false) + ft.evalPtype(pos, .queen,  false),
-		},
-	});
-	const phase = Taper.phase.fromPosition(pos);
-
-	const ev = @divTrunc(by_ptype.get(.all).dither(phase) * (100 - pos.ssTop().rule50), 100);
-
-	try pos.printSelf();
-	std.log.defaultLog(.debug, .evaluation, "pawn:   {d}", .{by_ptype.get(.pawn).dither(phase)});
-	std.log.defaultLog(.debug, .evaluation, "knight: {d}", .{by_ptype.get(.knight).dither(phase)});
-	std.log.defaultLog(.debug, .evaluation, "bishop: {d}", .{by_ptype.get(.bishop).dither(phase)});
-	std.log.defaultLog(.debug, .evaluation, "rook:   {d}", .{by_ptype.get(.rook).dither(phase)});
-	std.log.defaultLog(.debug, .evaluation, "queen:  {d}", .{by_ptype.get(.queen).dither(phase)});
-	std.log.defaultLog(.debug, .evaluation, "king:   {d}", .{by_ptype.get(.king).dither(phase)});
-	std.log.defaultLog(.debug, .evaluation, "phase:  {d}",
-	  .{@divTrunc(phase * 100, Taper.phase.max)});
-	std.log.defaultLog(.debug, .evaluation, "score:     {d}", .{ev});
-}
-
-pub fn scorePosition(pos: Position) isize {
+pub fn scorePosition(pos: Position) score.Int {
 	const ft = Ft.init(pos);
 
 	const by_ptype = std.EnumArray(misc.types.Ptype, Taper).init(.{
@@ -624,17 +576,8 @@ pub fn scorePosition(pos: Position) isize {
 	};
 	const phase = Taper.phase.fromPosition(pos);
 
-	const ev = @divTrunc(accum.dither(phase) * (100 - pos.ssTop().rule50), 100);
-	return ev;
-}
-
-test {
-	var pos = Position {};
-
-	for (EvalTest.suite[0 ..]) |ref| {
-		std.log.defaultLog(.debug, .evaluation, "{s}", .{ref.fen});
-		try pos.parseFen(ref.fen);
-		try debugPosition(pos);
-		std.log.defaultLog(.debug, .evaluation, "reference: {d}", .{score.fromCentipawns(ref.centipawns)});
-	}
+	var ev: isize = accum.dither(phase);
+	ev *= @intCast(100 - pos.ssTop().rule50);
+	ev  = @divTrunc(ev, 100);
+	return @intCast(ev);
 }
