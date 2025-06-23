@@ -499,7 +499,7 @@ fn ab(info: *Info, alpha: Info.Score, beta: Info.Score, depth: Info.Depth) Info.
 		.move  = movegen.Move.zero,
 		.score = lose,
 	};
-	var mp = movegen.Picker.init(info, ttm, pos.ssTop().killer0, pos.ssTop().killer1, false);
+	var mp = movegen.Picker.init(info, ttm, movegen.Move.zero, movegen.Move.zero, false);
 	var mi: usize = 0;
 	var penalized_noisy_moves = movegen.Move.List {};
 	var penalized_quiet_moves = movegen.Move.List {};
@@ -567,12 +567,6 @@ fn ab(info: *Info, alpha: Info.Score, beta: Info.Score, depth: Info.Depth) Info.
 			}
 			if (s >= b) {
 				if (pos.isMoveQuiet(move)) {
-					if (pos.ssTop().killer0.isZero()) {
-						pos.ssTopPtr()[0].killer0 = move;
-					} else if (pos.ssTop().killer1.isZero()) {
-						pos.ssTopPtr()[0].killer1 = move;
-					}
-
 					info.bonusCutHist(move, @as(Info.Hist, depth) * 256 - 128);
 					for (penalized_quiet_moves.constSlice()) |prev| {
 						info.malusCutHist(prev, @as(Info.Hist, depth) * 256 - 128);
