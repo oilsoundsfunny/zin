@@ -18,7 +18,7 @@ piece_occ:	std.EnumArray(misc.types.Piece, misc.types.BitBoard)
 stm:	misc.types.Color = .white,
 
 game_len:	usize = 1,
-ss:	Stack.Array = Stack.Array.default,
+ss:	Stack.Array = .{},
 
 pub const FenError = error {
 	InvalidPiece,
@@ -52,16 +52,14 @@ pub const Stack = struct {
 	key:	Zobrist.Int = 0,
 	rule50:	u8 = 0,
 
-	pub const Array = struct {
-		buffer:	std.BoundedArray(Stack, 512),
+	killer0:	movegen.Move = movegen.Move.zero,
+	killer1:	movegen.Move = movegen.Move.zero,
 
-		pub const default = blk: {
-			var arr = std.mem.zeroes(Array);
-			arr.buffer.resize(0) catch unreachable;
-			arr.buffer.appendNTimes(.{}, arr.buffer.buffer[0 ..].len) catch unreachable;
-			arr.buffer.resize(1) catch unreachable;
-			break :blk arr;
-		};
+	pub const Array = struct {
+		buffer:	std.BoundedArray(Stack, 512) = .{
+			.buffer = .{Stack {}} ** 512,
+			.len = 1,
+		},
 
 		pub fn append(self: *Array, stack: Stack) void {
 			self.buffer.append(stack) catch unreachable;
@@ -677,7 +675,7 @@ pub fn isMoveQuiet(self: Self, move: movegen.Move) bool {
 }
 
 // yoinked from: https://github.com/jhonnold/berserk/blob/main/src/see.c
-pub fn seeThreshold(self: Self, move: movegen.Move, threshold: evaluation.score.Int) bool {
+pub fn seeMargin(self: Self, move: movegen.Move, margin: evaluation.score.Int) bool {
 	if (move.flag != .nil) {
 		return true;
 	}
@@ -698,7 +696,7 @@ pub fn seeThreshold(self: Self, move: movegen.Move, threshold: evaluation.score.
 	const src_ptype = self.getSquare(src).ptype();
 	const dst_ptype = self.getSquare(dst).ptype();
 
-	var value = pt_avg.get(dst_ptype) - threshold;
+	var value = pt_avg.get(dst_ptype) - margin;
 	if (value < evaluation.score.draw) {
 		return false;
 	}

@@ -173,7 +173,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 	}
 
 	main_info.pos = pos;
-	main_info.pos.ss = @TypeOf(main_info.pos.ss).default;
+	main_info.pos.ss = .{};
 	main_info.pos.ssTopPtr()[0] = pos.ssTop();
 }
 

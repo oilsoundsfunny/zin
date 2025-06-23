@@ -138,6 +138,6 @@ pub fn build(bld: *std.Build) !void {
 		.use_llvm = true,
 		.use_lld = true,
 	});
-	exe.want_lto = ndebug;
+	exe.want_lto = false;
 	bld.installArtifact(exe);
 }
