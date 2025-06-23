@@ -460,9 +460,6 @@ pub const RootMove = struct {
 				.array = try std.BoundedArray(RootMove, 256).init(len),
 			};
 		}
-		pub fn clear(self: *List) void {
-			self.array.len = 0;
-		}
 
 		pub fn constSlice(self: *const List) []const RootMove {
 			return self.array.constSlice();
@@ -555,18 +552,6 @@ pub const Picker = struct {
 		}
 	};
 
-	pub const order = struct {
-		pub const ttm = 40;
-
-		pub const noisy_max
-		  = evaluation.Taper.pts.get(.queen).avg() * 2
-		  - evaluation.Taper.pts.get(.pawn).avg();
-
-		pub const killer0 = 20;
-		pub const killer1 = 10;
-		pub const cm_bonus = 5;
-	};
-
 	fn pick(self: *Picker) ?Move.Scored {
 		while (self.list.index < self.list.constSlice().len) {
 			const sm = self.list.constSlice()[self.list.index];
@@ -579,31 +564,6 @@ pub const Picker = struct {
 			}
 		}
 		return null;
-	}
-
-	fn scoreNoisy(self: *Picker, move: Move) isize {
-		if (move == self.ttm) {
-			return order.noisy_max + order.ttm;
-		} else {
-			const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
-			return evaluation.Taper.pts.get(dst_ptype).avg() * 4
-			  + self.info.getCaptHist(move);
-		}
-	}
-
-	fn scoreQuiet(self: *Picker, move: Move) isize {
-		if (move == self.ttm) {
-			return order.noisy_max + order.ttm;
-		} else if (move == self.killer0) {
-			return order.noisy_max + order.killer0;
-		} else if (move == self.killer1) {
-			return order.noisy_max + order.killer1;
-		} else if (move == self.info.getCounterMove()) {
-			return order.noisy_max + order.cm_bonus;
-		} else {
-			return self.info.getCutHist(move)
-			  + self.info.getCounterMoveHist(move);
-		}
 	}
 
 	pub fn init(info: *search.Info, ttm: Move, killer0: Move, killer1: Move, noisy: bool) Picker {
@@ -631,11 +591,25 @@ pub const Picker = struct {
 			self.noisy_cnt = self.noisy_list.genNoisy(self.info.pos);
 
 			for (self.constAllNoisyMoves()) |move| {
-				const score = self.scoreNoisy(move);
+				const score: evaluation.score.Int = blk: {
+					var s: isize = evaluation.score.draw;
+					defer s = std.math.clamp(s,
+					  evaluation.score.lose, evaluation.score.win);
+
+					const src_ptype = self.info.pos.getSquare(move.src).ptype();
+					const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
+					const promotion = move.promotion();
+
+					s -= evaluation.Taper.pts.get(src_ptype).avg();
+					s += evaluation.Taper.pts.get(promotion).avg();
+					s += evaluation.Taper.pts.get(dst_ptype).avg();
+
+					break :blk @intCast(s);
+				};
+
 				self.list.append(.{
 					.move  = move,
-					.score = @intCast(std.math.clamp(score,
-					  evaluation.score.lose, evaluation.score.win)),
+					.score = score,
 				});
 			}
 			self.list.sort();
@@ -676,11 +650,23 @@ pub const Picker = struct {
 			if (!self.noisy) {
 				self.quiet_cnt = self.quiet_list.genQuiet(self.info.pos);
 				for (self.constAllQuietMoves()) |move| {
-					const score = self.scoreQuiet(move);
+					const score: evaluation.score.Int = blk: {
+						var s: isize = evaluation.score.draw;
+						defer s = std.math.clamp(s,
+						  evaluation.score.lose, evaluation.score.win);
+
+						const prev = self.info.pos.ssTop().move;
+						if (move == self.info.getCounterMove(prev)) {
+							s += self.info.getCounterMoveHist(move) * 4;
+						}
+						s += self.info.getCutHist(move);
+
+						break :blk @intCast(s);
+					};
+
 					self.list.append(.{
 						.move  = move,
-						.score = @intCast(std.math.clamp(score,
-						  evaluation.score.lose, evaluation.score.win)),
+						.score = score,
 					});
 				}
 				self.list.sort();
@@ -739,103 +725,3 @@ pub const Picker = struct {
 		return self.stage == .good_quiet or self.stage == .bad_quiet;
 	}
 };
-
-pub fn see(pos: Position, move: Move) isize {
-	var gain = std.BoundedArray(isize, misc.types.Square.num).init(0) catch unreachable;
-
-	const src = move.src;
-	const dst = move.dst;
-	const src_ptype = pos.getSquare(src).ptype();
-	const dst_ptype = pos.getSquare(dst).ptype();
-	const promotion = move.promotion();
-
-	gain.append(evaluation.Taper.pts.get(dst_ptype).avg()
-	  + evaluation.Taper.pts.get(promotion).avg()) catch unreachable;
-	gain.append(evaluation.Taper.pts.get(src_ptype).avg() - gain.buffer[0]) catch unreachable;
-
-	const diag = pos.ptypeOcc(.queen).bitOr(pos.ptypeOcc(.bishop));
-	const line = pos.ptypeOcc(.queen).bitOr(pos.ptypeOcc(.rook));
-	var atk = pos.squareAtkers(dst);
-	var occ = pos.allOcc().bitXor(src.bb()).bitXor(dst.bb());
-	var stm = pos.stm;
-
-	while (true) {
-		atk = atk.bitAnd(occ);
-		stm = stm.flip();
-
-		const this_gain = gain.buffer[gain.constSlice().len - 1];
-		const our_atker = atk.bitAnd(pos.colorOcc(stm));
-		const their_atker = atk.bitXor(our_atker);
-
-		if (our_atker == .nil) {
-			break;
-		}
-
-		const our_pieces = std.EnumArray(misc.types.Ptype, misc.types.BitBoard).init(.{
-			.nil = .nil,
-			.pawn   = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn)),
-			.knight = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .knight)),
-			.bishop = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .bishop)),
-			.rook   = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .rook)),
-			.queen  = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .queen)),
-			.king   = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .king)),
-			.all = .nil,
-		});
-
-		if (our_atker.bitAnd(our_pieces.get(.pawn)) != .nil) {
-			gain.append(evaluation.Taper.pts.get(.pawn).avg() - this_gain) catch unreachable;
-
-			const least = our_atker.bitAnd(our_pieces.get(.pawn));
-			occ = occ.bitXor(least.getLow());
-			atk = atk.bitOr(bitboard.bAtk(dst, occ).bitAnd(diag));
-		} else if (our_atker.bitAnd(our_pieces.get(.knight)) != .nil) {
-			gain.append(evaluation.Taper.pts.get(.knight).avg() - this_gain) catch unreachable;
-
-			const least = our_atker.bitAnd(our_pieces.get(.knight));
-			occ = occ.bitXor(least.getLow());
-		} else if (our_atker.bitAnd(our_pieces.get(.bishop)) != .nil) {
-			gain.append(evaluation.Taper.pts.get(.bishop).avg() - this_gain) catch unreachable;
-
-			const least = our_atker.bitAnd(our_pieces.get(.bishop));
-			occ = occ.bitXor(least.getLow());
-			atk = atk.bitOr(bitboard.bAtk(dst, occ).bitAnd(diag));
-		} else if (our_atker.bitAnd(our_pieces.get(.rook)) != .nil) {
-			gain.append(evaluation.Taper.pts.get(.rook).avg() - this_gain) catch unreachable;
-
-			const least = our_atker.bitAnd(our_pieces.get(.rook));
-			occ = occ.bitXor(least.getLow());
-			atk = atk.bitOr(bitboard.rAtk(dst, occ).bitAnd(line));
-		} else if (our_atker.bitAnd(our_pieces.get(.queen)) != .nil) {
-			gain.append(evaluation.Taper.pts.get(.queen).avg() - this_gain) catch unreachable;
-
-			const least = our_atker.bitAnd(our_pieces.get(.queen));
-			occ = occ.bitXor(least.getLow());
-			atk = atk
-			  .bitOr(bitboard.bAtk(dst, occ).bitAnd(diag))
-			  .bitOr(bitboard.rAtk(dst, occ).bitAnd(line));
-		} else if (their_atker == .nil) {
-			gain.append(evaluation.Taper.pts.get(.king).avg() - this_gain) catch unreachable;
-			break;
-		} else break;
-	}
-
-	var reverse_gain = std.mem.reverseIterator(gain.slice()[0 .. gain.slice().len - 2]);
-	while (reverse_gain.nextPtr()) |p| {
-		const s: []isize = @as([*]isize, @ptrCast(p))[0 .. 2];
-		s[0] = -@max(-s[0], s[1]);
-	}
-	return gain.constSlice()[0];
-}
-
-test {
-	var pos = Position {};
-
-	const move0 = Move.gen(.nil, .nil, .e1, .e5);
-	try pos.parseFen("1k1r4/1pp4p/p7/4p3/8/P5P1/1PP4P/2K1R3 w - - 0 1");
-	try std.testing.expectEqual(see(pos, move0), evaluation.Taper.pts.get(.pawn).avg());
-
-	const move1 = Move.gen(.nil, .nil, .d3, .e5);
-	try pos.parseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1");
-	try std.testing.expectEqual(see(pos, move1),
-	  evaluation.Taper.pts.get(.pawn).avg() - evaluation.Taper.pts.get(.knight).avg());
-}

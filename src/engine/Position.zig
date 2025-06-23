@@ -4,7 +4,6 @@ const misc = @import("misc");
 const std = @import("std");
 
 const Zobrist = @import("Zobrist.zig");
-const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
 
 const Self = @This();
@@ -49,19 +48,8 @@ pub const Stack = struct {
 	castle:	misc.types.Castle = .nil,
 	chk:	misc.types.BitBoard = .all,
 	en_pas:	?misc.types.Square = null,
-	rule50:	u8 = 0,
-
 	key:	Zobrist.Int = 0,
-	pawn_key:	Zobrist.Int = 0,
-	minor_key:	Zobrist.Int = 0,
-	major_key:	Zobrist.Int = 0,
-
-	eval:	evaluation.score.Int = evaluation.score.draw,
-	phase:	evaluation.score.Int = evaluation.score.draw,
-	nonpawn_cnt:	std.EnumArray(misc.types.Color, evaluation.score.Int)
-	  = std.EnumArray(misc.types.Color, evaluation.score.Int).initFill(evaluation.score.draw),
-	nonpawn_mat:	std.EnumArray(misc.types.Color, evaluation.score.Int)
-	  = std.EnumArray(misc.types.Color, evaluation.score.Int).initFill(evaluation.score.draw),
+	rule50:	u8 = 0,
 
 	pub const Array = struct {
 		buffer:	std.BoundedArray(Stack, 512),
@@ -79,13 +67,6 @@ pub const Stack = struct {
 		}
 		pub fn pop(self: *Array) Stack {
 			return self.buffer.pop() orelse unreachable;
-		}
-
-		pub fn constSlice(self: *const Array) []const Stack {
-			return self.buffer.constSlice();
-		}
-		pub fn slice(self: *Array) []Stack {
-			return self.buffer.slice();
 		}
 	};
 };
@@ -154,10 +135,18 @@ fn genChk(self: Self) misc.types.BitBoard {
 	return if (chk != .nil) chk else .all;
 }
 
-fn genPtypeKey(self: Self, comptime pt: misc.types.Ptype) Zobrist.Int {
-	var z: Zobrist.Int = 0;
-	inline for (misc.types.Color.values) |c| {
-		const p = misc.types.Piece.fromPtype(c, pt);
+fn genKey(self: Self) Zobrist.Int {
+	var z = Zobrist.default.castle.get(self.ssTop().castle)
+	  ^ (if (self.ssTop().en_pas) |s| Zobrist.default.en_pas.get(s.file()) else 0)
+	  ^ (if (self.stm == .white) Zobrist.default.stm.get(.white) else 0);
+	for (misc.types.Piece.w_pieces) |p| {
+		var b = self.pieceOcc(p);
+		while (b != .nil) : (b.popLow()) {
+			const s = b.lowSquare();
+			z ^= Zobrist.default.psq.get(s).get(p);
+		}
+	}
+	for (misc.types.Piece.b_pieces) |p| {
 		var b = self.pieceOcc(p);
 		while (b != .nil) : (b.popLow()) {
 			const s = b.lowSquare();
@@ -165,25 +154,6 @@ fn genPtypeKey(self: Self, comptime pt: misc.types.Ptype) Zobrist.Int {
 		}
 	}
 	return z;
-}
-
-fn genPawnKey(self: Self) Zobrist.Int {
-	return self.genPtypeKey(.pawn) ^ self.genPtypeKey(.king);
-}
-
-fn genMinorKey(self: Self) Zobrist.Int {
-	return self.genPtypeKey(.knight) ^ self.genPtypeKey(.bishop);
-}
-
-fn genMajorKey(self: Self) Zobrist.Int {
-	return self.genPtypeKey(.rook) ^ self.genPtypeKey(.queen);
-}
-
-fn genKey(self: Self) Zobrist.Int {
-	const z = Zobrist.default.castle.get(self.ssTop().castle)
-	  ^ (if (self.ssTop().en_pas) |s| Zobrist.default.en_pas.get(s.file()) else 0)
-	  ^ (if (self.stm == .white) Zobrist.default.stm.get(.white) else 0);
-	return z ^ self.genPawnKey() ^ self.genMinorKey() ^ self.genMajorKey();
 }
 
 fn casAfterMove(self: Self, move: movegen.Move) misc.types.Castle {
@@ -288,128 +258,6 @@ pub fn keyAfterMove(self: Self, move: movegen.Move) Zobrist.Int {
 		  ^ Zobrist.default.psq.get(rook_dst).get(our_rook);
 	} else unreachable;
 
-	return z;
-}
-
-pub fn pawnKeyAfterMove(self: Self, move: movegen.Move) Zobrist.Int {
-	const stm = self.stm;
-	const src = move.src;
-	const dst = move.dst;
-	const src_piece = self.getSquare(src);
-	const dst_piece = self.getSquare(dst);
-
-	const src_ptype = src_piece.ptype();
-	const dst_ptype = dst_piece.ptype();
-	var z = self.ssTop().pawn_key;
-
-	if (src_ptype != .pawn and src_ptype != .king and dst_ptype != .pawn) {
-		return z;
-	}
-
-	if (move.flag == .nil) {
-		if (src_ptype == .pawn or src_ptype == .king) {
-			z ^= Zobrist.default.psq.get(src).get(src_piece);
-			z ^= Zobrist.default.psq.get(dst).get(src_piece);
-		}
-		if (dst_ptype == .pawn) {
-			z ^= Zobrist.default.psq.get(dst).get(dst_piece);
-		}
-	} else if (move.flag == .promote) {
-		z ^= Zobrist.default.psq.get(src).get(src_piece);
-	} else if (move.flag == .en_passant) {
-		const their_pawn = misc.types.Piece.fromPtype(stm.flip(), .pawn);
-		const enp = dst.shift(stm.forward().flip(), 1);
-
-		z ^= Zobrist.default.psq.get(src).get(src_piece);
-		z ^= Zobrist.default.psq.get(dst).get(src_piece);
-		z ^= Zobrist.default.psq.get(enp).get(their_pawn);
-	} else if (move.flag == .castle) {
-		z ^= Zobrist.default.psq.get(src).get(src_piece);
-		z ^= Zobrist.default.psq.get(dst).get(src_piece);
-	} else unreachable;
-	return z;
-}
-
-pub fn minorKeyAfterMove(self: Self, move: movegen.Move) Zobrist.Int {
-	const stm = self.stm;
-	const src = move.src;
-	const dst = move.dst;
-	const src_piece = self.getSquare(src);
-	const dst_piece = self.getSquare(dst);
-
-	const promotion = move.promotion();
-	const src_ptype = src_piece.ptype();
-	const dst_ptype = dst_piece.ptype();
-	var z = self.ssTop().minor_key;
-
-	if (src_ptype != .knight and src_ptype != .bishop
-	  and dst_ptype != .knight and dst_ptype != .bishop) {
-		return z;
-	}
-
-	if (move.flag == .nil) {
-		if (src_ptype == .knight or src_ptype == .bishop) {
-			z ^= Zobrist.default.psq.get(src).get(src_piece);
-			z ^= Zobrist.default.psq.get(dst).get(src_piece);
-		}
-		if (dst_ptype == .knight or src_ptype == .bishop) {
-			z ^= Zobrist.default.psq.get(dst).get(dst_piece);
-		}
-	} else if (move.flag == .promote) {
-		if (promotion == .knight or promotion == .bishop) {
-			const our_promotion = misc.types.Piece.fromPtype(stm, promotion);
-			z ^= Zobrist.default.psq.get(dst).get(dst).get(our_promotion);
-		}
-	} else if (move.flag == .en_passant) {
-	} else if (move.flag == .castle) {
-	} else unreachable;
-	return z;
-}
-
-pub fn majorKeyAfterMove(self: Self, move: movegen.Move) Zobrist.Int {
-	const stm = self.stm;
-	const src = move.src;
-	const dst = move.dst;
-	const src_piece = self.getSquare(src);
-	const dst_piece = self.getSquare(dst);
-
-	const promotion = move.promotion();
-	const src_ptype = src_piece.ptype();
-	const dst_ptype = dst_piece.ptype();
-	var z = self.ssTop().major_key;
-
-	if (src_ptype != .rook and src_ptype != .queen and dst_ptype != .rook and dst_ptype != .queen) {
-		return z;
-	}
-
-	if (move.flag == .nil) {
-		if (src_ptype == .rook or src_ptype == .queen) {
-			z ^= Zobrist.default.psq.get(src).get(src_piece);
-			z ^= Zobrist.default.psq.get(dst).get(src_piece);
-		}
-		if (dst_ptype == .rook or src_ptype == .queen) {
-			z ^= Zobrist.default.psq.get(dst).get(dst_piece);
-		}
-	} else if (move.flag == .promote) {
-		if (promotion == .rook or promotion == .queen) {
-			const our_promotion = misc.types.Piece.fromPtype(stm, promotion);
-			z ^= Zobrist.default.psq.get(dst).get(dst).get(our_promotion);
-		}
-	} else if (move.flag == .en_passant) {
-	} else if (move.flag == .castle) {
-		const is_k = dst.file() == .file_g;
-		const is_q = dst.file() == .file_c;
-		std.debug.assert(is_k or is_q);
-
-		const home = stm.homeRank();
-		const rook_src = misc.types.Square.fromCoord(home, if (is_k) .file_h else .file_a);
-		const rook_dst = misc.types.Square.fromCoord(home, if (is_k) .file_f else .file_d);
-
-		const our_rook = misc.types.Piece.fromPtype(stm, .rook);
-
-		z ^= Zobrist.default.get(rook_src).get(our_rook);
-		z ^= Zobrist.default.get(rook_dst).get(our_rook);
-	} else unreachable;
 	return z;
 }
 
@@ -593,9 +441,6 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 
 	self.ssTopPtr()[0].chk = self.genChk();
 	self.ssTopPtr()[0].key = self.genKey();
-	self.ssTopPtr()[0].pawn_key = self.genPawnKey();
-	self.ssTopPtr()[0].minor_key = self.genMinorKey();
-	self.ssTopPtr()[0].major_key = self.genMajorKey();
 }
 
 pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
@@ -607,7 +452,6 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 
 	const next_cas = self.casAfterMove(move);
 	const next_key = self.keyAfterMove(move);
-	const next_pawn_key = self.pawnKeyAfterMove(move);
 	const ply_clock = self.ssTop().rule50;
 
 	self.ss.append(.{
@@ -620,8 +464,6 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		.move = move,
 		.src_piece = src_piece,
 		.dst_piece = dst_piece,
-
-		.pawn_key = next_pawn_key,
 	});
 
 	self.popSquare(src, src_piece);
@@ -814,18 +656,6 @@ pub fn isMoveQuiet(self: Self, move: movegen.Move) bool {
 	return !self.isMoveNoisy(move);
 }
 
-pub fn squareAtkers(self: Self, s: misc.types.Square) misc.types.BitBoard {
-	const occ = self.allOcc();
-	return misc.types.BitBoard.nil
-	  .bitOr(bitboard.pAtk(s.bb(), .white).bitAnd(self.pieceOcc(.b_pawn)))
-	  .bitOr(bitboard.pAtk(s.bb(), .black).bitAnd(self.pieceOcc(.w_pawn)))
-	  .bitOr(bitboard.nAtk(s).bitAnd(self.ptypeOcc(.knight)))
-	  .bitOr(bitboard.kAtk(s).bitAnd(self.ptypeOcc(.king)))
-	  .bitOr(bitboard.bAtk(s, occ).bitAnd(self.ptypeOcc(.bishop)))
-	  .bitOr(bitboard.rAtk(s, occ).bitAnd(self.ptypeOcc(.rook)))
-	  .bitOr(bitboard.qAtk(s, occ).bitAnd(self.ptypeOcc(.queen)));
-}
-
 test {
 	var pos = Self {};
 
@@ -835,16 +665,13 @@ test {
 
 	try pos.doMove(movegen.Move.gen(.nil, .nil, .b4, .f4));
 	var chk = misc.types.BitBoard.fromSlice(misc.types.Square, &.{.f4, .g4});
-	var key = pos.genKey();
-	var pawn_key = pos.genPawnKey();
+	var key = genKey(pos);
 	try std.testing.expectEqual(chk, pos.ssTop().chk);
 	try std.testing.expectEqual(key, pos.ssTop().key);
 
 	try pos.doMove(movegen.Move.gen(.nil, .nil, .h4, .g3));
 	chk = misc.types.BitBoard.all;
-	key = pos.genKey();
-	pawn_key = pos.genPawnKey();
+	key = genKey(pos);
 	try std.testing.expectEqual(chk, pos.ssTop().chk);
 	try std.testing.expectEqual(key, pos.ssTop().key);
-	try std.testing.expectEqual(pawn_key, pos.ssTop().pawn_key);
 }
