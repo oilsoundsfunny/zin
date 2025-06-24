@@ -4,6 +4,7 @@ const config_src = @import("config.zig");
 
 pub fn build(bld: *std.Build) !void {
 	const optimize = bld.standardOptimizeOption(.{});
+	const strip = bld.option(bool, "strip", "Strip modules");
 	const ndebug = optimize == .ReleaseFast or optimize == .ReleaseSmall;
 	const target = bld.graph.host;
 
@@ -12,16 +13,7 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
-		.link_libc = false,
-		.link_libcpp = false,
-		.strip = ndebug,
-		.unwind_tables = if (ndebug) .none else .sync,
-		.stack_check = !ndebug,
-		.sanitize_c = if (ndebug) .off else .full,
-		.valgrind = !ndebug,
-		.red_zone = !ndebug,
-		.omit_frame_pointer = ndebug,
-		.error_tracing = !ndebug,
+		.strip = strip orelse ndebug,
 	});
 
 	const misc = bld.createModule(.{
@@ -29,16 +21,7 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
-		.link_libc = false,
-		.link_libcpp = false,
-		.strip = ndebug,
-		.unwind_tables = if (ndebug) .none else .sync,
-		.stack_check = !ndebug,
-		.sanitize_c = if (ndebug) .off else .full,
-		.valgrind = !ndebug,
-		.red_zone = !ndebug,
-		.omit_frame_pointer = ndebug,
-		.error_tracing = !ndebug,
+		.strip = strip orelse ndebug,
 	});
 
 	const bitboard = bld.createModule(.{
@@ -46,16 +29,7 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
-		.link_libc = false,
-		.link_libcpp = false,
-		.strip = ndebug,
-		.unwind_tables = if (ndebug) .none else .sync,
-		.stack_check = !ndebug,
-		.sanitize_c = if (ndebug) .off else .full,
-		.valgrind = !ndebug,
-		.red_zone = !ndebug,
-		.omit_frame_pointer = ndebug,
-		.error_tracing = !ndebug,
+		.strip = strip orelse ndebug,
 	});
 	bitboard.addImport("misc", misc);
 
@@ -64,17 +38,7 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
-		.link_libc = false,
-		.link_libcpp = false,
-		.single_threaded = false,
-		.strip = ndebug,
-		.unwind_tables = if (ndebug) .none else .sync,
-		.stack_check = !ndebug,
-		.sanitize_c = if (ndebug) .off else .full,
-		.valgrind = !ndebug,
-		.red_zone = !ndebug,
-		.omit_frame_pointer = ndebug,
-		.error_tracing = !ndebug,
+		.strip = strip orelse ndebug,
 	});
 	engine.addImport("bitboard", bitboard);
 	engine.addImport("config", config);
@@ -85,17 +49,7 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
-		.link_libc = false,
-		.link_libcpp = false,
-		.single_threaded = false,
-		.strip = ndebug,
-		.unwind_tables = if (ndebug) .none else .sync,
-		.stack_check = !ndebug,
-		.sanitize_c = if (ndebug) .off else .full,
-		.valgrind = !ndebug,
-		.red_zone = !ndebug,
-		.omit_frame_pointer = ndebug,
-		.error_tracing = !ndebug,
+		.strip = strip orelse ndebug,
 	});
 	root.addImport("bitboard", bitboard);
 	root.addImport("config", config);
@@ -122,10 +76,6 @@ pub fn build(bld: *std.Build) !void {
 		.use_lld = optimize != .Debug,
 	});
 
-	bitboard_test.want_lto = ndebug;
-	engine_test.want_lto = ndebug;
-	misc_test.want_lto = ndebug;
-
 	test_step.dependOn(&bld.addRunArtifact(bitboard_test).step);
 	test_step.dependOn(&bld.addRunArtifact(engine_test).step);
 	test_step.dependOn(&bld.addRunArtifact(misc_test).step);
@@ -135,9 +85,8 @@ pub fn build(bld: *std.Build) !void {
 		.name = config_src.name,
 		.version = config_src.version,
 		.linkage = .static,
-		.use_llvm = true,
-		.use_lld = true,
+		.use_llvm = optimize != .Debug,
+		.use_lld = optimize != .Debug,
 	});
-	exe.want_lto = ndebug;
 	bld.installArtifact(exe);
 }

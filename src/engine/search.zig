@@ -123,7 +123,7 @@ pub const Info = struct {
 		return self.countermove.get(src_piece).get(dst);
 	}
 
-	pub fn getContHist(self: Info, ply: usize, move: movegen.Move) Hist {
+	pub fn getContHist(self: *const Info, ply: usize, move: movegen.Move) Hist {
 		if (self.pos.ss.constSlice().len < ply) {
 			return evaluation.score.draw;
 		}
@@ -138,7 +138,7 @@ pub const Info = struct {
 		const this_dst = move.dst;
 		const this_src_piece = self.pos.getSquare(this_src);
 
-		return self.conthist[ply]
+		return self.conthist[ply - 1]
 		  .get(prev_src_piece).get(prev_dst)
 		  .get(this_src_piece).get(this_dst);
 	}
@@ -156,7 +156,7 @@ pub const Info = struct {
 		const this_dst = move.dst;
 		const this_src_piece = self.pos.getSquare(this_src);
 
-		const ptr = self.conthist[ply]
+		const ptr = self.conthist[ply - 1]
 		  .getPtr(prev_src_piece).getPtr(prev_dst)
 		  .getPtr(this_src_piece).getPtr(this_dst);
 		const current: isize = ptr.*;

@@ -559,7 +559,7 @@ pub const Picker = struct {
 		} else {
 			const dst_ptype = self.info.pos.getSquare(move.dst).ptype();
 			const score
-			  = @as(isize, evaluation.Taper.pts.get(dst_ptype).avg()) * 6
+			  = @as(isize, evaluation.Taper.pts.get(dst_ptype).avg()) * 7
 			  + @as(isize, self.info.getCaptHist(move));
 			return @intCast(@divTrunc(score, 3));
 		}
