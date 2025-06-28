@@ -36,3 +36,21 @@ pub const Score = enum(i16) {
 		return @enumFromInt(i);
 	}
 };
+
+pub const PawnFeatures = struct {
+	passers:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
+	blocked:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
+	doubled:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
+	tripled:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
+};
+
+pub const Features = struct {
+	pawn_ft:	PawnFeatures,
+
+	piece_atk:	std.EnumArray(misc.types.Piece, misc.types.BitBoard),
+	mobility_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
+
+	king_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
+	king_atker_cnt:	std.EnumArray(misc.types.Color, Score.Int),
+	king_atker_mat:	std.EnumArray(misc.types.Color, Score.Int),
+};
