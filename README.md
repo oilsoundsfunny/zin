@@ -2,15 +2,8 @@
 
 ## building
 
-1. install zig master e.g. via zvm:
-
 ```
-$ zvm install master
+$ zig build --prefix prefix
 ```
 
-2. build:
-
-```
-$ zig build
-```
-
+the binary will be in $(prefix)/bin/
