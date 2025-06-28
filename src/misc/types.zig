@@ -454,13 +454,11 @@ pub const BitBoard = enum(std.meta.Int(.unsigned, Square.cnt)) {
 	}
 
 	pub fn fromRank(r: Rank) BitBoard {
-		return ranks_bb.get(r)
-			orelse std.debug.panic("ranks_bb was not initialized", .{});
+		return ranks_bb.get(r);
 	}
 
 	pub fn fromFile(f: File) BitBoard {
-		return files_bb.get(f)
-			orelse std.debug.panic("files_bb was not initialized", .{});
+		return files_bb.get(f);
 	}
 
 	pub fn fromSquare(s: Square) BitBoard {
@@ -506,11 +504,44 @@ pub const BitBoard = enum(std.meta.Int(.unsigned, Square.cnt)) {
 		return self.bitAnd(s.bb()) != .nil;
 	}
 
+	pub fn lowSquare(self: BitBoard) Square {
+		return Square.fromInt(@truncate(@ctz(self.int())));
+	}
+
 	pub fn popSquare(self: *BitBoard, s: Square) void {
 		self.* = self.bitAnd(s.bb().flip());
 	}
 
 	pub fn setSquare(self: *BitBoard, s: Square) void {
 		self.* = self.bitOr(s.bb());
+	}
+
+	pub fn popCount(self: BitBoard) u8 {
+		return @popCount(self.int());
+	}
+
+	pub fn getLow(self: BitBoard) BitBoard {
+		std.debug.assert(self != .nil);
+		return self.bitAnd(fromInt(0 -% self.int()));
+	}
+
+	pub fn popLow(self: *BitBoard) void {
+		std.debug.assert(self.* != .nil);
+		self.* = self.bitAnd(fromInt(self.int() - 1));
+	}
+
+	pub fn permute(self: BitBoard, idx: usize) BitBoard {
+		var i = idx;
+		var m = self;
+		var r = BitBoard.nil;
+
+		while (i != 0) {
+			if (i % 2 != 0) {
+				r.setSquare(m.lowSquare());
+			}
+			i /= 2;
+			m.popLow();
+		}
+		return r;
 	}
 };
