@@ -1,42 +1,34 @@
 const misc = @import("misc");
+const params = @import("params");
 const std = @import("std");
 
 const Position = @import("Position.zig");
 const transposition = @import("transposition.zig");
 
-pub const Score = enum(i16) {
-	win  = 0 + 32767,
-	draw = 0,
-	lose = 0 - 32767,
+pub const Pair = struct {
+	mg:	Int,
+	eg:	Int,
 
-	nil  = -32768,
-	pawn = 256,
+	pub const Int = score.Int;
 
-	_,
+	pub const phase = struct {
+		pub const max = params.pts.get(.pawn).avg() * 16
+		  + params.pts.get(.knight).avg() * 4
+		  + params.pts.get(.bishop).avg() * 4
+		  + params.pts.get(.rook).avg()  * 4
+		  + params.pts.get(.queen).avg() * 2;
+		pub const min = 0;
 
-	pub const Int = std.meta.Tag(Score);
+		pub fn fromScore(s: Int) Int {
+			const clamped: isize = std.math.clamp(s, min, max);
+			return @intCast(@divTrunc(clamped * score.pawn, max));
+		}
+	};
 
-	pub const max = std.math.maxInt(Int);
-	pub const min = std.math.minInt(Int);
-
-	pub fn centipawns(self: Score) Int {
-		const s: isize = self.int();
-		const d = @divTrunc(s * 100, Score.pawn.int());
-		return @intCast(d);
-	}
-
-	pub fn int(self: Score) Int {
-		return @intFromEnum(self);
-	}
-
-	pub fn fromCentipawns(cp: Int) Score {
-		const c: isize = cp;
-		const d = @divTrunc(c * Score.pawn.int(), 100);
-		return fromInt(@intCast(d));
-	}
-
-	pub fn fromInt(i: Int) Score {
-		return @enumFromInt(i);
+	pub fn taper(self: Pair, p: Int) Int {
+		const mg = @as(isize, self.mg) * @as(isize, p);
+		const eg = @as(isize, self.eg) * @as(isize, score.pawn - p);
+		return @intCast(@divTrunc(mg + eg, phase.max));
 	}
 };
 
@@ -108,6 +100,35 @@ pub const Features = struct {
 	mobility_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
 
 	king_area:	std.EnumArray(misc.types.Color, misc.types.BitBoard),
-	king_atker_cnt:	std.EnumArray(misc.types.Color, Score.Int),
-	king_atker_mat:	std.EnumArray(misc.types.Color, Score.Int),
+	king_atker_cnt:	std.EnumArray(misc.types.Color, score.Int),
+	king_atker_mat:	std.EnumArray(misc.types.Color, score.Int),
+};
+
+pub const score = struct {
+	pub const win  = 0 + max;
+	pub const draw = 0;
+	pub const lose = 0 - max;
+
+	pub const nil  = min;
+	pub const pawn = 256;
+
+	pub const Int = i16;
+
+	pub const max = std.math.maxInt(Int);
+	pub const min = std.math.minInt(Int);
+
+	pub fn centipawns(s: Int) Int {
+		const i: isize = s;
+		const d = @divTrunc(i * 100, pawn);
+		return @intCast(d);
+	}
+
+	pub fn fromCentipawns(cp: Int) Int {
+		const i: isize = cp;
+		const d = @divTrunc(i * pawn, 100);
+		return @intCast(d);
+	}
+
+	// pub fn fromPosition(pos: Position) Int {
+	// }
 };

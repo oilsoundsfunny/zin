@@ -1,5 +1,6 @@
 const bitboard = @import("bitboard");
 const misc = @import("misc");
+const params = @import("params");
 const std = @import("std");
 
 const Zobrist = @import("Zobrist.zig");
@@ -24,16 +25,19 @@ pub const Error = error {
 };
 
 pub const State = struct {
-	castle:	 misc.types.Castle = .nil,
-	en_pas:	?misc.types.Square = null,
-	rule50:	 usize = 0,
+	castle:	 misc.types.Castle,
+	en_pas:	?misc.types.Square,
+	rule50:	 usize,
 
-	key:	Zobrist.Int = 0,
-	pawn_key:	Zobrist.Int = 0,
-	minor_key:	Zobrist.Int = 0,
-	major_key:	Zobrist.Int = 0,
+	key:	Zobrist.Int,
+	pawn_key:	Zobrist.Int,
+	minor_key:	Zobrist.Int,
+	major_key:	Zobrist.Int,
 
-	checkers:	misc.types.BitBoard = .nil,
+	checkers:	misc.types.BitBoard,
+
+	eval:	evaluation.score.Int,
+	psqt:	evaluation.Pair,
 
 	move:	movegen.Move = .{},
 	dst_piece:	misc.types.Piece = .nil,
@@ -41,7 +45,7 @@ pub const State = struct {
 
 	pub const Stack = struct {
 		array:	std.BoundedArray(State, 1024) = .{
-			.buffer = .{State {}} ** 1024,
+			.buffer = .{std.mem.zeroInit(State, .{})} ** 1024,
 			.len = offset,
 		},
 
@@ -179,10 +183,15 @@ fn doMoveLazy(self: *Self, move: movegen.Move) Error!void {
 		.en_pas = null,
 		.rule50 = self.ss.top().rule50 + 1,
 
+		.checkers = .all,
+
 		.key = self.ss.top().key,
 		.pawn_key = self.ss.top().pawn_key,
 		.minor_key = self.ss.top().minor_key,
 		.major_key = self.ss.top().major_key,
+
+		.eval = self.ss.top().eval,
+		.psqt = self.ss.top().psqt,
 	});
 
 	self.popSquare(src, src_piece);
@@ -318,6 +327,17 @@ pub fn popSquare(self: *Self, s: misc.types.Square, p: misc.types.Piece) void {
 		self.colorOccPtr(c).popSquare(s);
 		self.pieceOccPtr(p).popSquare(s);
 
+		switch (c) {
+			.white => {
+				self.ss.top().psqt.mg -= params.psqt.get(p.ptype()).get(s).mg;
+				self.ss.top().psqt.eg -= params.psqt.get(p.ptype()).get(s).eg;
+			},
+			.black => {
+				self.ss.top().psqt.mg += params.psqt.get(p.ptype()).get(s).mg;
+				self.ss.top().psqt.eg += params.psqt.get(p.ptype()).get(s).eg;
+			},
+		}
+
 		const z = Zobrist.default.psq.get(s).get(p);
 		self.ss.top().key ^= z;
 		switch (p.ptype()) {
@@ -328,7 +348,7 @@ pub fn popSquare(self: *Self, s: misc.types.Square, p: misc.types.Piece) void {
 				self.ss.top().minor_key ^= z;
 			},
 			.rook, .queen => {
-				self.ss.top().minor_key ^= z;
+				self.ss.top().major_key ^= z;
 			},
 			else => std.debug.panic("what the hell are we popping", .{}),
 		}
@@ -343,6 +363,17 @@ pub fn setSquare(self: *Self, s: misc.types.Square, p: misc.types.Piece) void {
 		self.colorOccPtr(c).setSquare(s);
 		self.pieceOccPtr(p).setSquare(s);
 
+		switch (c) {
+			.white => {
+				self.ss.top().psqt.mg += params.psqt.get(p.ptype()).get(s).mg;
+				self.ss.top().psqt.eg += params.psqt.get(p.ptype()).get(s).eg;
+			},
+			.black => {
+				self.ss.top().psqt.mg -= params.psqt.get(p.ptype()).get(s).mg;
+				self.ss.top().psqt.eg -= params.psqt.get(p.ptype()).get(s).eg;
+			},
+		}
+
 		const z = Zobrist.default.psq.get(s).get(p);
 		self.ss.top().key ^= z;
 		switch (p.ptype()) {
@@ -353,7 +384,7 @@ pub fn setSquare(self: *Self, s: misc.types.Square, p: misc.types.Piece) void {
 				self.ss.top().minor_key ^= z;
 			},
 			.rook, .queen => {
-				self.ss.top().minor_key ^= z;
+				self.ss.top().major_key ^= z;
 			},
 			else => std.debug.panic("what the hell are we setting", .{}),
 		}
@@ -547,6 +578,19 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Err
 	const length_token = tokens.next() orelse return error.InvalidFen;
 	self.game_len = std.fmt.parseUnsigned(@TypeOf(self.game_len), length_token, 10)
 		catch return error.InvalidFen;
+}
+
+pub fn isChecked(self: Self) bool {
+	return self.ss.top().checkers != .all;
+}
+
+pub fn is3peat(self: Self) bool {
+	var peat: usize = 0;
+	const key = self.ss.top().key;
+	for (self.ss.constSlice()) |s| {
+		peat += if (s.key == key) 1 else 0;
+	}
+	return peat >= 3;
 }
 
 test {
