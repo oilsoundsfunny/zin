@@ -4,9 +4,13 @@ const std = @import("std");
 const Zobrist = @import("Zobrist.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
+const search = @import("search.zig");
 
 pub const Entry = packed struct(u80) {
 	flag:	Flag,
+	was_pv:	u1,
+	age:	u5,
+	depth:	search.Depth,
 	eval:	evaluation.Score.Int,
 	score:	evaluation.Score.Int,
 	move:	movegen.Move,

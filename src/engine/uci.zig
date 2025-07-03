@@ -3,6 +3,7 @@ const std = @import("std");
 
 const search = @import("search.zig");
 const timeman = @import("timeman.zig");
+const transposition = @import("transposition.zig");
 
 const Command = enum {
 	debug,
@@ -54,6 +55,8 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 			timeman.time.set(.black, try std.fmt.parseUnsigned(u64, aux, 10));
 		} else return error.UnknownCommand;
 	}
+
+	try search.manager.spawn();
 }
 
 fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !void {
@@ -61,6 +64,45 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 	if (!std.ascii.eqlIgnoreCase(first, "name")) {
 		return error.UnknownCommand;
 	}
+
+	const second = tokens.next() orelse return error.UnknownCommand;
+	if (std.ascii.eqlIgnoreCase(second, "Clear")) {
+		const third = tokens.next() orelse return error.UnknownCommand;
+		if (!std.ascii.eqlIgnoreCase(third, "Hash")) {
+			return error.UnknownCommand;
+		}
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
+		transposition.table.clear();
+	} else if (std.ascii.eqlIgnoreCase(second, "Hash")) {
+		const third = tokens.next() orelse return error.UnknownCommand;
+		if (!std.ascii.eqlIgnoreCase(third, "value")) {
+			return error.UnknownCommand;
+		}
+
+		const fourth = tokens.next() orelse return error.UnknownCommand;
+		const value = std.fmt.parseUnsigned(usize, fourth, 10) catch return error.UnknownCommand;
+
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+		try transposition.table.alloc(value);
+	} else if (std.ascii.eqlIgnoreCase(second, "Threads")) {
+		const third = tokens.next() orelse return error.UnknownCommand;
+		if (!std.ascii.eqlIgnoreCase(third, "value")) {
+			return error.UnknownCommand;
+		}
+
+		const fourth = tokens.next() orelse return error.UnknownCommand;
+		const value = std.fmt.parseUnsigned(usize, fourth, 10) catch return error.UnknownCommand;
+
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+		try search.Info.many.alloc(value);
+	} else return error.UnknownCommand;
 }
 
 fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any)) !void {
