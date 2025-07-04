@@ -84,12 +84,51 @@ const ScoredMove = packed struct(u32) {
 		fn genCastle(self: *List, pos: Position, comptime side: misc.types.Ptype) usize {
 			const cnt = self.array.len;
 			const stm = pos.side2move;
-			const occ = pos.allOcc();
 
-			var atk_mask = misc.types.BitBoard.nil;
-			var occ_mask = misc.types.BitBoard.nil;
-			switch (side) {
+			const home = stm.homeRank();
+
+			const king_src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .king)).lowSquare();
+			const king_dst = switch (side) {
+				.king  => misc.types.Square.fromCoord(home, .file_g),
+				.queen => misc.types.Square.fromCoord(home, .file_c),
+				else => @compileError("unexpected tag " ++ @tagName(side)),
+			};
+
+			const rook_src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .rook))
+			  .bitAnd(bitboard.)
+			  .lowSquare();
+
+			return 1;
+		}
+
+		fn genEnPassant(self: *List, pos: Position) usize {
+			const cnt = self.array.len;
+			const stm = pos.side2move;
+			const enp = pos.ss.top().en_pas orelse return 0;
+			const src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .pawn));
+			const dst = enp.bb();
+
+			const east_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
+			if (east_atk != .nil) {
+				const d = east_atk.lowSquare();
+				const s = d.shift(stm.forward().add(.east).flip(), 1);
+				self.append(.{
+					.move = Move.gen(.en_passant, .nil, s, d),
+					.score = evaluation.score.draw,
+				});
 			}
+
+			const west_atk = bitboard.pAtkEast(src, stm).bitAnd(dst);
+			if (west_atk != .nil) {
+				const d = west_atk.lowSquare();
+				const s = d.shift(stm.forward().add(.west).flip(), 1);
+				self.append(.{
+					.move = Move.gen(.en_passant, .nil, s, d),
+					.score = evaluation.score.draw,
+				});
+			}
+
+			return self.array.len - cnt;
 		}
 
 		fn genPromotions(self: *List, pos: Position,
