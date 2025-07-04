@@ -18,6 +18,42 @@ const RootMove = struct {
 			.buffer = .{RootMove {}} ** 256,
 			.len = 0,
 		},
+
+		pub fn append(self: *List, rm: RootMove) void {
+			self.array.append(rm)
+				catch std.debug.panic("too many root moves", .{});
+		}
+
+		pub fn constSlice(self: *const List) []const RootMove {
+			return self.slice();
+		}
+
+		pub fn slice(self: anytype) switch (@TypeOf(self)) {
+			*const List => []const RootMove,
+			*List => []RootMove,
+			else => @compileError("unexpected type " ++ @typeName(@TypeOf(self))),
+		} {
+			return self.array.slice();
+		}
+
+		pub fn fromPosition(pos: *Position) List {
+			var list = std.mem.zeroInit(List, .{});
+			var sm_list = std.mem.zeroInit(Move.Scored.List, .{});
+
+			_ = sm_list.genNoisy(pos.*);
+			_ = sm_list.genQuiet(pos.*);
+			for (sm_list.constSlice()) |sm| {
+				const move = sm.move;
+				pos.doMove(move) catch continue;
+				defer pos.undoMove();
+
+				var rm = std.mem.zeroInit(RootMove, .{});
+				rm.line.append(move) catch unreachable;
+				list.append(rm);
+			}
+
+			return list;
+		}
 	};
 
 	const length = 256 - 2 * @sizeOf(usize) / @sizeOf(Move);
@@ -41,9 +77,20 @@ const ScoredMove = packed struct(u32) {
 			.buffer = .{ScoredMove {}} ** capacity,
 			.len = 0,
 		},
-		index:	usize,
+		index:	usize = 0,
 
 		const capacity = 256 - 2 * @sizeOf(usize) / @sizeOf(ScoredMove);
+
+		fn genCastle(self: *List, pos: Position, comptime side: misc.types.Ptype) usize {
+			const cnt = self.array.len;
+			const stm = pos.side2move;
+			const occ = pos.allOcc();
+
+			var atk_mask = misc.types.BitBoard.nil;
+			var occ_mask = misc.types.BitBoard.nil;
+			switch (side) {
+			}
+		}
 
 		fn genPromotions(self: *List, pos: Position,
 		  comptime promo: misc.types.Ptype,
@@ -165,7 +212,7 @@ const ScoredMove = packed struct(u32) {
 			  .bitAnd(if (ptype != .king) pos.ss.top().checkers else .all)
 			  .bitAnd(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
-			var src = pos.pieceOcc(misc.types.Ptype(stm, ptype));
+			var src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, ptype));
 			while (src != .nil) : (src.popLow()) {
 				const s = src.lowSquare();
 				var dst = bitboard.ptAtk(ptype, s, occ).bitAnd(target);
@@ -221,7 +268,28 @@ const ScoredMove = packed struct(u32) {
 
 		pub fn append(self: *List, sm: ScoredMove) void {
 			self.array.append(sm)
-				catch std.debug.panic("{s} hit the movegen lottery", .{@src().fn_name});
+				catch std.debug.panic("much scored move list no good", .{});
+		}
+
+		pub fn get(self: List, i: usize) ScoredMove {
+			return self.constSlice()[i];
+		}
+
+		pub fn resize(self: *List, len: usize) void {
+			self.array.resize(len)
+				catch std.debug.panic("much scored move list no good", .{});
+		}
+
+		pub fn constSlice(self: *const List) []const ScoredMove {
+			return self.slice();
+		}
+
+		pub fn slice(self: anytype) switch (@TypeOf(self)) {
+			*const List => []const ScoredMove,
+			*List => []ScoredMove,
+			else => @compileError("unexpected type " ++ @typeName(@TypeOf(self))),
+		} {
+			return self.array.slice();
 		}
 	};
 
@@ -285,8 +353,13 @@ pub const Move = packed struct(u16) {
 					if (flag != .promote) {
 						@compileError("unexpected tag " ++ @tagName(flag));
 					}
-					break :sw @as(comptime_int, promo.int())
-					  - @as(comptime_int, misc.types.Ptype.knight.int());
+					break :sw switch (promo) {
+						.knight => 0,
+						.bishop => 1,
+						.rook =>  2,
+						.queen => 3,
+						else => unreachable,
+					};
 				},
 				else => @compileError("unexpected tag " ++ @tagName(promo)),
 			},
@@ -294,10 +367,14 @@ pub const Move = packed struct(u16) {
 	}
 
 	pub fn promotion(self: Move) misc.types.Ptype {
-		return if (self.flag == .promote)
-		  misc.types.Ptype.fromInt(misc.types.Ptype.knight.int() + self.key)
-		else if (self.key == 0) .nil
-		else std.debug.panic("weird move", .{});
+		if (self.flag == .promote) {
+			return switch (self.key) {
+				0 => .knight,
+				1 => .bishop,
+				2 => .rook,
+				3 => .queen,
+			};
+		} else return .nil;
 	}
 };
 
@@ -307,6 +384,10 @@ pub const Picker = struct {
 
 	quies:	bool,
 	stage:	Stage,
+
+	ttm:	Move,
+	killer0:	Move,
+	killer1:	Move,
 
 	noisy_cnt:	usize = 0,
 	quiet_cnt:	usize = 0,
@@ -333,10 +414,62 @@ pub const Picker = struct {
 		}
 	};
 
+	fn scoreNoisy(self: *Picker, move: Move) search.Hist {
+		const hist_min = std.math.minInt(search.Hist) / 2;
+		const hist_max = -hist_min;
+
+		if (move == self.ttm) {
+			return hist_max + 8;
+		} else {
+			return evaluation.score.draw;
+		}
+	}
+
+	fn scoreQuiet(self: *Picker, move: Move) search.Hist {
+		const hist_min = std.math.minInt(search.Hist) / 2;
+		const hist_max = -hist_min;
+
+		if (move == self.ttm) {
+			return hist_max + 8;
+		} else if (move == self.killer0) {
+			return hist_max + 4;
+		} else if (move == self.killer1) {
+			return hist_max + 2;
+		} else {
+			return evaluation.score.draw;
+		}
+	}
+
+	fn pick(self: *Picker) ?Move.Scored {
+		while (self.list.index < self.list.array.len) {
+			const sm = self.list.array.get(self.list.index);
+			self.list.index += 1;
+
+			if (sm.move != self.ttm
+			  and sm.move != self.killer0
+			  and sm.move != self.killer1) {
+				return sm;
+			}
+		}
+		return null;
+	}
+
+	pub fn init(info: *search.Info, ttm: Move, killer0: Move, killer1: Move, quies: bool) Picker {
+		return .{
+			.list = .{},
+			.info = info,
+			.quies = quies,
+			.stage = if (ttm != Move {}) .ttm else .gen_noisy,
+			.ttm = ttm,
+			.killer0 = killer0,
+			.killer1 = killer1,
+		};
+	}
+
 	pub fn next(self: *Picker) ?Move.Scored {
 		if (self.stage == .ttm) {
 			self.stage = self.stage.inc();
-			if (self.ttm != .{}) {
+			if (self.ttm != Move {}) {
 				return .{
 					.move = self.ttm,
 					.score = self.scoreQuiet(self.ttm),
@@ -348,7 +481,7 @@ pub const Picker = struct {
 			self.stage = self.stage.inc();
 			self.list = .{};
 			self.noisy_cnt = self.list.genNoisy(self.info.pos);
-			for (self.list.slice()) |sm| {
+			for (self.list.slice()) |*sm| {
 				sm.score = self.scoreNoisy(sm.move);
 			}
 			Move.Scored.sortSlice(self.list.slice());

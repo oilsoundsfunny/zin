@@ -4,9 +4,6 @@ const std = @import("std");
 
 const pts = @import("pts.zig");
 
-// dependency loop blah blah blah
-// TODO: bug the zig devs to print better messages ig
-
 pub const mg_tbl = mg_wrapper: {
 	@setEvalBranchQuota(1 << 12);
 	break :mg_wrapper Array(comptime_int).init(.{
@@ -163,11 +160,9 @@ pub const tbl = init: {
 
 	for (misc.types.Ptype.values) |pt| {
 		for (misc.types.Square.values) |s| {
-			const mg = mg_tbl.get(pt).get(s) * engine.evaluation.score.pawn / 100;
-			const eg = eg_tbl.get(pt).get(s) * engine.evaluation.score.pawn / 100;
 			tmp.getPtr(pt).set(s, .{
-				.mg = mg + pts.mg_tbl.get(pt),
-				.eg = eg + pts.eg_tbl.get(pt),
+				.mg = engine.evaluation.score.fromCentipawns(mg_tbl.get(pt).get(s)),
+				.eg = engine.evaluation.score.fromCentipawns(eg_tbl.get(pt).get(s)),
 			});
 		}
 	}

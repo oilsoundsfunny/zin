@@ -27,7 +27,7 @@ pub const Error = error {
 pub const State = struct {
 	castle:	 misc.types.Castle,
 	en_pas:	?misc.types.Square,
-	rule50:	 usize,
+	rule50:	 u8,
 
 	key:	Zobrist.Int,
 	pawn_key:	Zobrist.Int,
@@ -38,10 +38,14 @@ pub const State = struct {
 
 	eval:	evaluation.score.Int,
 	psqt:	evaluation.Pair,
+	pts:	evaluation.Pair,
 
 	move:	movegen.Move = .{},
 	dst_piece:	misc.types.Piece = .nil,
 	src_piece:	misc.types.Piece = .nil,
+
+	killer0:	movegen.Move = .{},
+	killer1:	movegen.Move = .{},
 
 	pub const Stack = struct {
 		array:	std.BoundedArray(State, 1024) = .{
@@ -192,6 +196,7 @@ fn doMoveLazy(self: *Self, move: movegen.Move) Error!void {
 
 		.eval = self.ss.top().eval,
 		.psqt = self.ss.top().psqt,
+		.pts  = self.ss.top().pts,
 	});
 
 	self.popSquare(src, src_piece);
@@ -331,10 +336,16 @@ pub fn popSquare(self: *Self, s: misc.types.Square, p: misc.types.Piece) void {
 			.white => {
 				self.ss.top().psqt.mg -= params.psqt.get(p.ptype()).get(s).mg;
 				self.ss.top().psqt.eg -= params.psqt.get(p.ptype()).get(s).eg;
+
+				self.ss.top().pts.mg -= params.pts.get(p.ptype()).mg;
+				self.ss.top().pts.eg -= params.pts.get(p.ptype()).eg;
 			},
 			.black => {
 				self.ss.top().psqt.mg += params.psqt.get(p.ptype()).get(s).mg;
 				self.ss.top().psqt.eg += params.psqt.get(p.ptype()).get(s).eg;
+
+				self.ss.top().pts.mg += params.pts.get(p.ptype()).mg;
+				self.ss.top().pts.eg += params.pts.get(p.ptype()).eg;
 			},
 		}
 
@@ -367,10 +378,16 @@ pub fn setSquare(self: *Self, s: misc.types.Square, p: misc.types.Piece) void {
 			.white => {
 				self.ss.top().psqt.mg += params.psqt.get(p.ptype()).get(s).mg;
 				self.ss.top().psqt.eg += params.psqt.get(p.ptype()).get(s).eg;
+
+				self.ss.top().pts.mg += params.pts.get(p.ptype()).mg;
+				self.ss.top().pts.eg += params.pts.get(p.ptype()).eg;
 			},
 			.black => {
 				self.ss.top().psqt.mg -= params.psqt.get(p.ptype()).get(s).mg;
 				self.ss.top().psqt.eg -= params.psqt.get(p.ptype()).get(s).eg;
+
+				self.ss.top().pts.mg -= params.pts.get(p.ptype()).mg;
+				self.ss.top().pts.eg -= params.pts.get(p.ptype()).eg;
 			},
 		}
 
@@ -591,6 +608,28 @@ pub fn is3peat(self: Self) bool {
 		peat += if (s.key == key) 1 else 0;
 	}
 	return peat >= 3;
+}
+
+pub fn isMoveNoisy(self: Self, move: movegen.Move) bool {
+	return switch (move.flag) {
+		.nil => nil: {
+			@branchHint(.likely);
+			const dst_ptype = self.getSquare(move.dst).ptype();
+			break :nil dst_ptype != .nil;
+		},
+		.en_passant => true,
+		.promote => pr: {
+			const dst_ptype = self.getSquare(move.dst).ptype();
+			const promotion = move.promotion();
+
+			break :pr dst_ptype != .nil or promotion == .queen or promotion == .knight;
+		},
+		.castle => false,
+	};
+}
+
+pub fn isMoveQuiet(self: Self, move: movegen.Move) bool {
+	return !self.isMoveNoisy(move);
 }
 
 test {

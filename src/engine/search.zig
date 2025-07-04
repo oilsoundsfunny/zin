@@ -8,14 +8,18 @@ const timeman = @import("timeman.zig");
 const transposition = @import("transposition.zig");
 
 pub const Depth = u8;
+pub const Hist = i16;
 
 pub const Info = struct {
 	pos:	Position,
-	root:	*Position.Stack,
+	root:	*Position.State,
 
 	depth:	Depth,
 	nodes:	u64,
 	tbhits:	u64,
+
+	rms:	[]movegen.Move.Root,
+	rmi:	usize,
 
 	pub const Many = struct {
 		slice:	?[]Info = null,
@@ -24,12 +28,21 @@ pub const Info = struct {
 			Uninitialized,
 		};
 
+		pub fn alloc(self: *Many, cnt: usize) !void {
+			if (self.slice) |s| {
+				self.slice = try misc.heap.allocator.realloc(s, cnt);
+			} else {
+				self.slice = try misc.heap.allocator
+				  .alignedAlloc(Info, std.heap.page_size_max, cnt);
+			}
+		}
+
 		pub fn ofMain(self: Many) Error!*Info {
 			const infos = try self.ofWorkers();
 			return &infos[0];
 		}
 
-		pub fn ofWorkers(self: Many) Error!*Info {
+		pub fn ofWorkers(self: Many) Error![]Info {
 			return self.slice orelse error.Uninitialized;
 		}
 	};
@@ -59,7 +72,8 @@ pub const Info = struct {
 		const b = beta;
 		var a = alpha;
 
-		const fetch = transposition.table.fetch(ss.key);
+		const fetch = transposition.table.fetch(ss.key)
+			catch std.debug.panic("tt is uninitialized", .{});
 		const tte = fetch[0];
 		const hit = fetch[1];
 		if (hit and tte.shouldTrust(a, b, d)) {
@@ -97,6 +111,8 @@ pub const Info = struct {
 				} else {
 					score = -self.ab(ss_ply + 1, -b, -a, d - 1, false);
 				}
+
+				break :recur score;
 			};
 
 			if (s > best.score) {
@@ -123,13 +139,14 @@ pub const Info = struct {
 			return if (pos.isChecked()) lose else draw;
 		} else {
 			tte.* = .{
-				.flag = flag,
-				.was_pv = if (is_pv) true else tte.was_pv,
+				.key = @truncate(pos.ss.top().key),
 				.age = @truncate(transposition.table.age),
-				.depth = depth,
+				.was_pv = if (is_pv) true else tte.was_pv,
+				.flag = flag,
 				.move = best.move,
 				.eval = eval,
 				.score = best.score,
+				.depth = depth,
 			};
 
 			return best.score;
@@ -145,15 +162,16 @@ pub const Info = struct {
 
 		const draw: evaluation.score.Int
 		  = evaluation.score.draw
-		  + @as(u4, @truncate(self.nodes));
+		  + @as(evaluation.score.Int, @as(u4, @truncate(self.nodes)));
 		const lose: evaluation.score.Int
 		  = evaluation.score.lose
-		  + @as(u8, @truncate(ss_ply));
+		  + @as(evaluation.score.Int, @as(u8, @truncate(ss_ply)));
 
 		const b = beta;
 		var a = alpha;
 
-		const fetch = transposition.table.fetch(ss.key);
+		const fetch = transposition.table.fetch(ss.key)
+			catch std.debug.panic("tt is uninitialized", .{});
 		const tte = fetch[0];
 		const hit = fetch[1];
 		if (hit and tte.shouldTrust(a, b, 0)) {
@@ -192,40 +210,74 @@ pub const Info = struct {
 				} else {
 					score = -self.qs(ss_ply + 1, -a - 1, -a, false);
 				}
+
+				break :recur score;
 			};
 
 			if (s > best.score) {
 				best.score = s;
-				if (s > a) {
-					a = s;
-					best.move = move;
-					flag = if (is_pv) .exact else .lowerbound;
-				}
-				if (s >= b) {
-				} else {
-					if (pos.isMoveNoisy(move)) {
-						searched_noisy_moves.append(move);
-					} else {
-						searched_quiet_moves.append(move);
-					}
-				}
+			}
+			if (s > a) {
+				a = s;
+				best.move = move;
+				flag = if (is_pv) .exact else .lowerbound;
+			}
+			if (s >= b) {
+				flag = .upperbound;
+				break;
 			}
 		}
 
 		if (best.score == lose) {
-			return if (pos.isChecked()) lose else eval;
+			return if (pos.isChecked()) lose else draw;
 		} else {
 			tte.* = .{
-				.flag = flag,
-				.was_pv = if (is_pv) true else tte.was_pv,
+				.key = @truncate(pos.ss.top().key),
 				.age = @truncate(transposition.table.age),
-				.depth = 0,
+				.was_pv = if (is_pv) true else tte.was_pv,
+				.flag = flag,
 				.move = best.move,
 				.eval = eval,
 				.score = best.score,
+				.depth = 0,
 			};
 
 			return best.score;
+		}
+	}
+
+	pub fn threaded(self: *Info, idx: usize) void {
+		const depth = self.depth;
+		const pos = &self.pos;
+
+		const beta: evaluation.score.Int = evaluation.score.win;
+		var alpha: evaluation.score.Int = evaluation.score.lose;
+
+		for (self.rms, 0 ..) |*rm, i| {
+			self.rmi = i;
+
+			const move = rm.line.get(0);
+			const s = recur: {
+				pos.doMove(move) catch unreachable;
+				defer pos.doMove();
+
+				var score: evaluation.score.Int = evaluation.score.lose + 1;
+				if (i == 0) {
+					score = -self.ab(1, -beta, -alpha, depth - 1, true);
+				} else {
+					score = -self.ab(1, -beta, -alpha, depth - 1, false);
+					if (score > alpha and score < beta) {
+						score = -self.ab(1, -beta, -alpha, depth - 1, true);
+					}
+				}
+			};
+
+			if (s > best.score) {
+			}
+			if (s > alpha) 	{
+			}
+			if (s >= beta) {
+			}
 		}
 	}
 };
@@ -235,21 +287,50 @@ pub const manager = struct {
 	}
 
 	pub fn spawn() !void {
+		const infos = try Info.many.ofWorkers();
 		const main_info = try Info.many.ofMain();
+		const pos = &main_info.pos;
 
 		timeman.start = misc.time.read(.ms);
 		if (timeman.movetime) |movetime| {
-			timeman.stop = timeman.start.? + movetime - timeman.overhead;
+			timeman.stop = timeman.start + movetime - timeman.overhead;
+		}
+		if (timeman.increment.get(pos.stm) != null and timeman.time.get(pos.stm) != null) {
+			const increment = timeman.increment.?;
+			const time = timeman.time.?;
+
+			timeman.stop = timeman.start + time / 20 + increment / 2 - timeman.overhead;
 		}
 
-		var root_moves = movegen.Move.Root.List.fromPosition(&main_info.pos);
-		for (root_moves.slice()) |rm| {
-			const move = rm.move;
-			main_info.pos.doMove(move) catch unreachable;
-			defer main_info.pos.undoMove();
+		var root_moves = movegen.Move.Root.List.fromPosition(pos);
+		for (root_moves.slice()) |*rm| {
+			const move = rm.line.get(0);
+			pos.doMove(move) catch unreachable;
+			defer pos.undoMove();
 
-			rm.score = -main_info.qs(evaluation.score.lose, evaluation.score.win);
+			rm.score = -main_info.qs(1, evaluation.score.lose, evaluation.score.win, true);
 		}
 		movegen.Move.Root.sortSlice(root_moves.slice());
+
+		var pool: std.Thread.Pool = undefined;
+		var wg = std.Thread.WaitGroup {};
+		try pool.init(.{
+			.allocator = misc.heap.allocator,
+			.n_jobs = infos.len,
+		});
+		defer pool.deinit();
+
+		const min_depth = 2;
+		const max_depth = timeman.depth orelse 240;
+		for (min_depth .. max_depth) |depth| {
+			wg.reset();
+			for (infos, 0 ..) |*info, i| {
+				info.depth = depth + @intFromBool(i % 2 != 0);
+				info.nodes = 0;
+
+				pool.spawnWg(&wg, Info.threaded, .{info, i});
+			}
+			pool.waitAndWork(&wg);
+		}
 	}
 };

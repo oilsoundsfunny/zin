@@ -223,5 +223,16 @@ pub fn kAtk(s: misc.types.Square) misc.types.BitBoard {
 	return k_atk_tbl.get(s);
 }
 
+pub fn ptAtk(comptime pt: misc.types.Ptype, s: misc.types.Square, occ: misc.types.BitBoard) misc.types.BitBoard {
+	return switch (pt) {
+		.knight => nAtk(s),
+		.bishop => bAtk(s, occ),
+		.rook   => rAtk(s, occ),
+		.queen  => qAtk(s, occ),
+		.king   => kAtk(s),
+		else => @compileError("unexpected tag " ++ @tagName(pt)),
+	};
+}
+
 test {
 }

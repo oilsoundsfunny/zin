@@ -14,6 +14,8 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
+		.link_libc = false,
+		.link_libcpp = false,
 	});
 
 	const bitboard = bld.createModule(.{
@@ -21,6 +23,8 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
+		.link_libc = false,
+		.link_libcpp = false,
 	});
 
 	const engine = bld.createModule(.{
@@ -28,6 +32,9 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
+		.link_libc = false,
+		.link_libcpp = false,
+		.single_threaded = false,
 	});
 
 	const params = bld.createModule(.{
@@ -35,6 +42,8 @@ pub fn build(bld: *std.Build) !void {
 		.target = target,
 		.optimize = optimize,
 		.pic = true,
+		.link_libc = false,
+		.link_libcpp = false,
 	});
 
 	bitboard.addImport("misc", misc);
@@ -78,6 +87,7 @@ pub fn build(bld: *std.Build) !void {
 		.root_source_file = bld.path("src/root.zig"),
 		.target = target,
 		.pic = true,
+		.single_threaded = false,
 	});
 	root.addImport("bitboard", bitboard);
 	root.addImport("engine", engine);

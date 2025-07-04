@@ -19,6 +19,10 @@ pub const Pair = struct {
 		  + params.pts.get(.queen).avg() * 2;
 		pub const min = 0;
 
+		pub fn fromPosition(pos: Position) Int {
+			return pos.ss.top().pts.avg();
+		}
+
 		pub fn fromScore(s: Int) Int {
 			const clamped: isize = std.math.clamp(s, min, max);
 			return @intCast(@divTrunc(clamped * score.pawn, max));
@@ -28,7 +32,11 @@ pub const Pair = struct {
 	pub fn taper(self: Pair, p: Int) Int {
 		const mg = @as(isize, self.mg) * @as(isize, p);
 		const eg = @as(isize, self.eg) * @as(isize, score.pawn - p);
-		return @intCast(@divTrunc(mg + eg, phase.max));
+		return @intCast(@divTrunc(mg + eg, score.pawn));
+	}
+
+	pub fn avg(self: Pair) Int {
+		return self.taper(score.pawn / 2);
 	}
 };
 
@@ -129,6 +137,15 @@ pub const score = struct {
 		return @intCast(d);
 	}
 
-	// pub fn fromPosition(pos: Position) Int {
-	// }
+	pub fn fromPosition(pos: Position) Int {
+		var pair = Pair {
+			.mg = pos.ss.top().pts.mg + pos.ss.top().psqt.mg,
+			.eg = pos.ss.top().pts.eg + pos.ss.top().psqt.eg,
+		};
+
+		var ev: isize = pair.avg();
+		ev *= 100 - pos.ss.top().rule50;
+		ev  = @divTrunc(ev, 100);
+		return @intCast(ev);
+	}
 };

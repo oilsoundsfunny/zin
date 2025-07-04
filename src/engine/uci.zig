@@ -26,6 +26,8 @@ const stdout = std.io.getStdOut();
 var buffered_inp = std.io.bufferedReader(stdin.reader());
 var buffered_out = std.io.bufferedWriter(stdout.writer());
 
+pub var is_frc = false;
+
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 	timeman.depth = null;
 	timeman.increment = @TypeOf(timeman.increment).initFill(null);

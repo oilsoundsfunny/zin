@@ -7,12 +7,13 @@ const movegen = @import("movegen.zig");
 const search = @import("search.zig");
 
 pub const Entry = packed struct(u80) {
+	key:	u16,
 	flag:	Flag,
-	was_pv:	u1,
+	was_pv:	bool,
 	age:	u5,
 	depth:	search.Depth,
-	eval:	evaluation.Score.Int,
-	score:	evaluation.Score.Int,
+	eval:	evaluation.score.Int,
+	score:	evaluation.score.Int,
 	move:	movegen.Move,
 
 	pub const Flag = enum(u2) {
@@ -21,6 +22,18 @@ pub const Entry = packed struct(u80) {
 		exact,
 		upperbound,
 	};
+
+	pub fn shouldTrust(self: Entry,
+	  alpha: evaluation.score.Int,
+	  beta:  evaluation.score.Int,
+	  depth: search.Depth) bool {
+		if (self.depth < depth) {
+			return false;
+		}
+		return self.flag == .exact
+		  or (self.flag == .lowerbound and self.score < alpha)
+		  or (self.flag == .upperbound and self.score > beta);
+	}
 };
 
 pub const Cluster = packed struct(u256) {
@@ -43,6 +56,30 @@ pub const Table = struct {
 		const c = s.len;
 		const m = std.math.mulWide(u64, c, key);
 		return @truncate(m >> 64);
+	}
+
+	pub fn alloc(self: *Table, mb: usize) !void {
+		const cnt = mb * 1024 * 1024 / @sizeOf(Cluster);
+
+		if (self.slice) |s| {
+			self.slice = try misc.heap.allocator.realloc(s, cnt);
+		} else {
+			self.slice = try misc.heap.allocator.alignedAlloc(Cluster, std.heap.page_size_max, cnt);
+		}
+	}
+
+	pub fn clear(self: Table) void {
+		if (self.slice) |s| {
+			for (s) |*p| {
+				p.* = @bitCast(@as(u256, std.math.minInt(u256)));
+			}
+		}
+	}
+
+	pub fn free(self: *Table) void {
+		if (self.slice) |s| {
+			misc.heap.allocator.free(s);
+		}
 	}
 
 	pub fn fetch(self: Table, key: Zobrist.Int) !struct {*Entry, bool} {

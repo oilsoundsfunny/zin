@@ -6,22 +6,22 @@ const std = @import("std");
 
 pub const mg_tbl = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
 	.nil = 0,
-	.pawn   = 256,
-	.knight = 800,
-	.bishop = 864,
-	.rook  = 1280,
-	.queen = 2304,
+	.pawn   = 100,
+	.knight = 320,
+	.bishop = 330,
+	.rook  = 500,
+	.queen = 900,
 	.king  = 0,
 	.all = 0,
 });
 
 pub const eg_tbl = std.EnumArray(misc.types.Ptype, comptime_int).init(.{
 	.nil = 0,
-	.pawn   = 256,
-	.knight = 784,
-	.bishop = 880,
-	.rook  = 1280,
-	.queen = 2304,
+	.pawn   = 100,
+	.knight = 315,
+	.bishop = 335,
+	.rook  = 500,
+	.queen = 900,
 	.king  = 0,
 	.all = 0,
 });
@@ -30,8 +30,8 @@ pub const tbl = init: {
 	var tmp = std.mem.zeroInit(std.EnumArray(misc.types.Ptype, engine.evaluation.Pair), .{});
 	for (misc.types.Ptype.values) |pt| {
 		tmp.set(pt, .{
-			.mg = mg_tbl.get(pt),
-			.eg = eg_tbl.get(pt),
+			.mg = engine.evaluation.score.fromCentipawns(mg_tbl.get(pt)),
+			.eg = engine.evaluation.score.fromCentipawns(eg_tbl.get(pt)),
 		});
 	}
 	break :init tmp;
