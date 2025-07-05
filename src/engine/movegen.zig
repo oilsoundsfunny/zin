@@ -5,6 +5,7 @@ const std = @import("std");
 const Position = @import("Position.zig");
 const evaluation = @import("evaluation.zig");
 const search = @import("search.zig");
+const uci = @import("uci.zig");
 
 const RootMove = struct {
 	score:	evaluation.score.Int = evaluation.score.draw,
@@ -84,21 +85,41 @@ const ScoredMove = packed struct(u32) {
 		fn genCastle(self: *List, pos: Position, comptime side: misc.types.Ptype) usize {
 			const cnt = self.array.len;
 			const stm = pos.side2move;
+			const cas = misc.types.Castle.fromPiece(misc.types.Piece.fromPtype(stm, side));
 
-			const home = stm.homeRank();
+			if (pos.ss.top().castle.bitAnd(cas) == .nil or pos.isChecked()) {
+				return self.array.len - cnt;
+			}
 
-			const king_src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .king)).lowSquare();
-			const king_dst = switch (side) {
-				.king  => misc.types.Square.fromCoord(home, .file_g),
-				.queen => misc.types.Square.fromCoord(home, .file_c),
-				else => @compileError("unexpected tag " ++ @tagName(side)),
+			const occ = pos.allOcc();
+			const occ_mask = pos.castle_infos.get(cas).occ_mask;
+			if (occ.bitAnd(occ_mask) != .nil) {
+				return self.array.len - cnt;
+			}
+
+			var atk_mask = pos.castle_infos.get(cas).atk_mask;
+			while (atk_mask != .nil) : (atk_mask.popLow()) {
+				const s = atk_mask.lowSquare();
+				const atkers = pos.squareAtkers(s);
+				if (atkers != .nil) {
+					return self.array.len - cnt;
+				}
+			}
+
+			const s = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .king)).lowSquare();
+			const d = if (uci.is_frc) pos.castle_infos.get(cas).rook.? else switch (cas) {
+				.wk => misc.types.Square.g1,
+				.wq => misc.types.Square.c1,
+				.bk => misc.types.Square.g8,
+				.bq => misc.types.Square.c8,
+				else => unreachable,
 			};
+			self.append(.{
+				.move = Move.gen(.castle, .nil, s, d),
+				.score = evaluation.score.draw,
+			});
 
-			const rook_src = pos.pieceOcc(misc.types.Piece.fromPtype(stm, .rook))
-			  .bitAnd(bitboard.)
-			  .lowSquare();
-
-			return 1;
+			return self.array.len - cnt;
 		}
 
 		fn genEnPassant(self: *List, pos: Position) usize {
@@ -278,6 +299,8 @@ const ScoredMove = packed struct(u32) {
 			cnt += self.genPromotions(pos, .queen,  false);
 			cnt += self.genPromotions(pos, .knight, false);
 
+			cnt += self.genEnPassant(pos);
+
 			cnt += self.genPtypeMoves(pos, .knight, true);
 			cnt += self.genPtypeMoves(pos, .bishop, true);
 			cnt += self.genPtypeMoves(pos, .rook,   true);
@@ -296,6 +319,9 @@ const ScoredMove = packed struct(u32) {
 
 			cnt += self.genPromotions(pos, .rook,   false);
 			cnt += self.genPromotions(pos, .bishop, false);
+
+			cnt += self.genCastle(pos, .king);
+			cnt += self.genCastle(pos, .queen);
 
 			cnt += self.genPtypeMoves(pos, .knight, false);
 			cnt += self.genPtypeMoves(pos, .bishop, false);

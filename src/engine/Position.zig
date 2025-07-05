@@ -9,12 +9,12 @@ const movegen = @import("movegen.zig");
 
 const Self = @This();
 
-mailbox:	std.EnumArray(misc.types.Square, misc.types.Piece)
-  = std.EnumArray(misc.types.Square, misc.types.Piece).initFill(.nil),
-piece_occ:	std.EnumArray(misc.types.Piece,  misc.types.BitBoard)
-  = std.EnumArray(misc.types.Piece,  misc.types.BitBoard).initFill(.nil),
+mailbox:	std.EnumArray(misc.types.Square, misc.types.Piece),
+piece_occ:	std.EnumArray(misc.types.Piece,  misc.types.BitBoard),
 
-side2move:	misc.types.Color = .white,
+castle_infos:	std.EnumArray(misc.types.Castle, Castle),
+
+side2move:	misc.types.Color,
 game_len:	usize = 1,
 
 ss:	State.Stack = .{},
@@ -22,6 +22,12 @@ ss:	State.Stack = .{},
 pub const Error = error {
 	InvalidFen,
 	InvalidMove,
+};
+
+pub const Castle = struct {
+	rook:	?misc.types.Square,
+	atk_mask:	misc.types.BitBoard,
+	occ_mask:	misc.types.BitBoard,
 };
 
 pub const State = struct {
@@ -506,6 +512,8 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Err
 		.a1, .b1, .c1, .d1, .e1, .f1, .g1, .h1,
 	};
 	var si: usize = 0;
+	var castle_rooks = std.EnumArray(misc.types.Castle, ?misc.types.Square).initFill(null);
+
 	const psq_token = tokens.next() orelse return error.InvalidFen;
 	for (psq_token) |c| {
 		const p = misc.types.Piece.fromChar(c) orelse switch (c) {
@@ -519,6 +527,21 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Err
 			else => return error.InvalidFen,
 		};
 		self.setSquare(sa[si], p);
+
+		switch (p) {
+			.w_rook => {
+				self.castle_infos
+				  .getPtr(if (self.pieceOcc(.w_king) != .nil) .wk else .wq).rook
+				  = sa[si];
+			},
+			.b_rook => {
+				self.castle_infos
+				  .getPtr(if (self.pieceOcc(.b_king) != .nil) .bk else .bq).rook
+				  = sa[si];
+			},
+			else => {},
+		}
+
 		si += 1;
 	}
 
@@ -595,6 +618,67 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Err
 	const length_token = tokens.next() orelse return error.InvalidFen;
 	self.game_len = std.fmt.parseUnsigned(@TypeOf(self.game_len), length_token, 10)
 		catch return error.InvalidFen;
+
+	self.ss.top().checkers = self.genCheckers(self.stm);
+	self.ss.top().key = self.genKey();
+
+	const single_castle = [_]misc.types.Castle {
+		.wk, .wq, .bk, .bq,
+	};
+	for (single_castle) |c| {
+		if (self.ss.top().castle.bitAnd(c) == .nil) {
+			self.castle_infos.getPtr(c).atk_mask = .all;
+			self.castle_infos.getPtr(c).occ_mask = .all;
+			continue;
+		}
+
+		const rook_src = castle_rooks.get(c) orelse return error.InvalidFen;
+		const rook_dst: misc.types.Square = switch (c) {
+			.wk => .f1,
+			.wq => .d1,
+			.bk => .f8,
+			.bq => .d8,
+			else => unreachable,
+		};
+
+		const king_src = self.pieceOcc(misc.types.Piece.fromPtype(switch (c) {
+			.wk, .wq => .white,
+			.bk, .bq => .black,
+			else => unreachable,
+		}, .king));
+		const king_dst: misc.types.Square = switch (c) {
+			.wk => .g1,
+			.wq => .c1,
+			.bk => .g8,
+			.bq => .c8,
+			else => unreachable,
+		};
+
+		const king_atk = misc.types.BitBoard.all
+		  .bitAnd(bitboard.rAtk(king_dst, .nil))
+		  .bitAnd(bitboard.rAtk(king_src, .nil))
+		  .bitOr(king_dst.bb());
+		const king_occ = king_atk;
+
+		const rook_occ = misc.types.BitBoard.all
+		  .bitAnd(bitboard.rAtk(rook_dst, .nil))
+		  .bitAnd(bitboard.rAtk(rook_src, .nil))
+		  .bitOr(rook_dst.bb());
+
+		self.castle_atk_mask.set(c, king_atk);
+		self.castle_occ_mask.set(c, king_occ.bitOr(rook_occ));
+	}
+}
+
+pub fn squareAtkers(self: Self, s: misc.types.Square) misc.types.BitBoard {
+	return misc.types.BitBoard.nil
+	  .bitOr(bitboard.pAtk(s.bb(), .white).bitAnd(self.pieceOcc(.b_pawn)))
+	  .bitOr(bitboard.pAtk(s.bb(), .black).bitAnd(self.pieceOcc(.w_pawn)))
+	  .bitOr(bitboard.nAtk(s).bitAnd(self.ptypeOcc(.knight)))
+	  .bitOr(bitboard.kAtk(s).bitAnd(self.ptypeOcc(.king)))
+	  .bitOr(bitboard.bAtk(s, self.allOcc()).bitAnd(self.ptypeOcc(.bishop)))
+	  .bitOr(bitboard.rAtk(s, self.allOcc()).bitAnd(self.ptypeOcc(.rook)))
+	  .bitOr(bitboard.qAtk(s, self.allOcc()).bitAnd(self.ptypeOcc(.queen)));
 }
 
 pub fn isChecked(self: Self) bool {

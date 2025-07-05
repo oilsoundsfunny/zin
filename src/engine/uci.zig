@@ -16,7 +16,6 @@ const Command = enum {
 };
 
 const Error = error {
-	InvalidPosition,
 	UnknownCommand,
 };
 
@@ -33,7 +32,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !void {
 	timeman.increment = @TypeOf(timeman.increment).initFill(null);
 	timeman.movetime = null;
 	timeman.time = @TypeOf(timeman.time).initFill(null);
-	timeman.start = null;
+	timeman.start = misc.time.read(.ms);
 	timeman.stop = null;
 
 	while (tokens.next()) |token| {
@@ -138,7 +137,14 @@ pub fn loop() !void {
 		const read = try buffered_inp.reader().readUntilDelimiter(buffered_inp.buf[0 ..], '\n');
 		var tokens = std.mem.tokenizeAny(u8, read, &.{'\r', '\t', ' '});
 
-		const command = parseCommand(&tokens) catch Command.none;
+		const command = parseCommand(&tokens) catch |err| switch (err) {
+			error.UnknownCommand => {
+				try buffered_out.writer().print("Unknown command {s}.\n", .{read});
+				try buffered_out.flush();
+				continue;
+			},
+			else => return err,
+		};
 
 		if (command == .quit) {
 			break;

@@ -63,10 +63,10 @@ pub const Info = struct {
 
 		const draw: evaluation.score.Int
 		  = evaluation.score.draw
-		  + @as(u4, @truncate(self.nodes));
+		  + @as(evaluation.score.Int, @as(u4, @truncate(self.nodes)));
 		const lose: evaluation.score.Int
 		  = evaluation.score.lose
-		  + @as(u8, @truncate(ss_ply));
+		  + @as(evaluation.score.Int, @as(u8, @truncate(ss_ply)));
 
 		const d = depth;
 		const b = beta;
@@ -101,7 +101,7 @@ pub const Info = struct {
 				var score = sm.score;
 				if (is_pv) {
 					if (best.score == lose) {
-						score = -self.ab(ss_ply + 1, -b, -a, true);
+						score = -self.ab(ss_ply + 1, -b, -a, d - 1, true);
 					} else {
 						score = -self.ab(ss_ply + 1, -a - 1, -a, d - 1, false);
 						if (score > a and score < b) {
@@ -225,6 +225,12 @@ pub const Info = struct {
 			if (s >= b) {
 				flag = .upperbound;
 				break;
+			} else {
+				if (pos.isMoveNoisy(move)) {
+					searched_noisy_moves.append(move);
+				} else {
+					searched_quiet_moves.append(move);
+				}
 			}
 		}
 
@@ -250,8 +256,17 @@ pub const Info = struct {
 		const depth = self.depth;
 		const pos = &self.pos;
 
+		if (idx == 0 and timeman.stoptime != null and misc.time.read(.ms) >= timeman.stoptime.?) {
+			return;
+		}
+
 		const beta: evaluation.score.Int = evaluation.score.win;
 		var alpha: evaluation.score.Int = evaluation.score.lose;
+
+		var best = movegen.Move.Scored {
+			.move = .{},
+			.score = evaluation.score.lose,
+		};
 
 		for (self.rms, 0 ..) |*rm, i| {
 			self.rmi = i;
@@ -259,7 +274,7 @@ pub const Info = struct {
 			const move = rm.line.get(0);
 			const s = recur: {
 				pos.doMove(move) catch unreachable;
-				defer pos.doMove();
+				defer pos.undoMove();
 
 				var score: evaluation.score.Int = evaluation.score.lose + 1;
 				if (i == 0) {
@@ -270,13 +285,18 @@ pub const Info = struct {
 						score = -self.ab(1, -beta, -alpha, depth - 1, true);
 					}
 				}
+
+				break :recur score;
 			};
 
 			if (s > best.score) {
+				best.score = s;
 			}
 			if (s > alpha) 	{
+				alpha = s;
 			}
 			if (s >= beta) {
+				break;
 			}
 		}
 	}
@@ -290,14 +310,15 @@ pub const manager = struct {
 		const infos = try Info.many.ofWorkers();
 		const main_info = try Info.many.ofMain();
 		const pos = &main_info.pos;
+		const stm = pos.side2move;
 
 		timeman.start = misc.time.read(.ms);
 		if (timeman.movetime) |movetime| {
 			timeman.stop = timeman.start + movetime - timeman.overhead;
 		}
-		if (timeman.increment.get(pos.stm) != null and timeman.time.get(pos.stm) != null) {
-			const increment = timeman.increment.?;
-			const time = timeman.time.?;
+		if (timeman.increment.get(stm) != null and timeman.time.get(stm) != null) {
+			const increment = timeman.increment.get(stm).?;
+			const time = timeman.time.get(stm).?;
 
 			timeman.stop = timeman.start + time / 20 + increment / 2 - timeman.overhead;
 		}
@@ -323,9 +344,11 @@ pub const manager = struct {
 		const min_depth = 2;
 		const max_depth = timeman.depth orelse 240;
 		for (min_depth .. max_depth) |depth| {
+			const d: Depth = @truncate(depth);
+
 			wg.reset();
 			for (infos, 0 ..) |*info, i| {
-				info.depth = depth + @intFromBool(i % 2 != 0);
+				info.depth = d + @intFromBool(i % 2 != 0);
 				info.nodes = 0;
 
 				pool.spawnWg(&wg, Info.threaded, .{info, i});

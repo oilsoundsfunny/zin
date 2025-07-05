@@ -701,6 +701,20 @@ pub const Castle = enum(u4) {
 		};
 	}
 
+	pub fn fromPtype(p: Ptype) Castle {
+		return switch (p) {
+			.queen => Castle.nil.bitOr(.wq).bitOr(.bq),
+			.king  => Castle.nil.bitOr(.wk).bitOr(.bk),
+			else => .nil,
+		};
+	}
+
+	pub fn fromPiece(p: Piece) Castle {
+		return Castle.all
+		  .bitAnd(fromColor(p.color()))
+		  .bitAnd(fromPtype(p.ptype()));
+	}
+
 	pub fn fromInt(i: Int) Castle {
 		return @enumFromInt(i);
 	}
