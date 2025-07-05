@@ -7,6 +7,67 @@ const evaluation = @import("evaluation.zig");
 const search = @import("search.zig");
 const uci = @import("uci.zig");
 
+const Perft = struct {
+	fen:	[]const u8,
+	nodes:	[6]usize,
+
+	pub const suite = [_]Perft {
+		.{
+			.fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+			.nodes = .{20, 400, 8902, 197281, 4865609, 119060324},
+		}, .{
+			.fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+			.nodes = .{48, 2039, 97862, 4085603, 193690690, 8031647685},
+		}, .{
+			.fen = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+			.nodes = .{14, 191, 2812, 43238, 674624, 11030083},
+		}, .{
+			.fen = "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+			.nodes = .{6, 264, 9467, 422333, 15833292, 706045033},
+		}, .{
+			.fen = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+			.nodes = .{44, 1486, 62379, 2103487, 89941194, 3048196529},
+		}, .{
+			.fen = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+			.nodes = .{46, 2079, 89890, 3894594, 164075551, 6923051137},
+		}, .{
+			.fen = "1rqbkrbn/1ppppp1p/1n6/p1N3p1/8/2P4P/PP1PPPP1/1RQBKRBN w FBfb - 0 9",
+			.nodes = .{29, 502, 14569, 287739, 8652810, 191762235},
+		}, .{
+			.fen = "rbbqn1kr/pp2p1pp/6n1/2pp1p2/2P4P/P7/BP1PPPP1/R1BQNNKR w HAha - 0 9",
+			.nodes = .{27, 916, 25798, 890435, 26302461, 924181432},
+		}, .{
+			.fen = "rqbbknr1/1ppp2pp/p5n1/4pp2/P7/1PP5/1Q1PPPPP/R1BBKNRN w GAga - 0 9",
+			.nodes = .{24, 600, 15347, 408207, 11029596, 308553169},
+		},
+	};
+
+	fn divRecursive(pos: *Position, depth: search.Depth, recur: search.Depth) usize {
+		if (depth <= recur) {
+			return 1;
+		}
+
+		var list = Move.Scored.List {};
+		var this: usize = 0;
+		var sum: usize = 0;
+		_ = list.genNoisy(pos.*);
+		_ = list.genQuiet(pos.*);
+		for (list.constSlice()) |sm| {
+			const move = sm.move;
+			pos.doMove(move) catch continue;
+			defer pos.undoMove();
+
+			this = divRecursive(pos, depth, recur + 1);
+			sum += this;
+		}
+		return sum;
+	}
+
+	pub fn div(pos: *Position, depth: search.Depth) usize {
+		return divRecursive(pos, depth, 0);
+	}
+};
+
 const RootMove = struct {
 	score:	evaluation.score.Int = evaluation.score.draw,
 	line:	std.BoundedArray(Move, length) = .{
@@ -572,4 +633,16 @@ pub const Picker = struct {
 test {
 	try std.testing.expectEqual(@sizeOf(Move) * 256, @sizeOf(Move.Root));
 	try std.testing.expectEqual(@sizeOf(Move.Scored) * 256, @sizeOf(Move.Scored.List));
+}
+
+test {
+	var pos = std.mem.zeroInit(Position, .{});
+
+	for (Perft.suite[0 .. 6]) |reference| {
+		try pos.parseFen(reference.fen);
+		for (reference.nodes[0 ..], 1 ..) |expected, depth| {
+			const actual = Perft.div(&pos, @truncate(depth));
+			try std.testing.expectEqual(expected, actual);
+		}
+	}
 }

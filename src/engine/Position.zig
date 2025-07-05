@@ -498,7 +498,7 @@ pub fn parseFen(self: *Self, fen: []const u8) Error!void {
 
 pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Error!void {
 	const backup = self.*;
-	self.* = .{};
+	self.* = std.mem.zeroInit(Self, .{});
 	errdefer self.* = backup;
 
 	const sa = [_]misc.types.Square {
@@ -619,7 +619,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Err
 	self.game_len = std.fmt.parseUnsigned(@TypeOf(self.game_len), length_token, 10)
 		catch return error.InvalidFen;
 
-	self.ss.top().checkers = self.genCheckers(self.stm);
+	self.ss.top().checkers = self.genCheckers(self.side2move);
 	self.ss.top().key = self.genKey();
 
 	const single_castle = [_]misc.types.Castle {
@@ -645,7 +645,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Err
 			.wk, .wq => .white,
 			.bk, .bq => .black,
 			else => unreachable,
-		}, .king));
+		}, .king)).lowSquare();
 		const king_dst: misc.types.Square = switch (c) {
 			.wk => .g1,
 			.wq => .c1,
@@ -665,8 +665,8 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Err
 		  .bitAnd(bitboard.rAtk(rook_src, .nil))
 		  .bitOr(rook_dst.bb());
 
-		self.castle_atk_mask.set(c, king_atk);
-		self.castle_occ_mask.set(c, king_occ.bitOr(rook_occ));
+		self.castle_infos.getPtr(c).atk_mask = king_atk;
+		self.castle_infos.getPtr(c).occ_mask = king_occ.bitOr(rook_occ);
 	}
 }
 
