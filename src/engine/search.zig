@@ -15,17 +15,13 @@ pub const Node = transposition.Entry.Flag;
 
 pub const Info = struct {
 	pos:	Position,
+	depth:	Depth,
 
 	instance:	*const Instance,
 	options:	*const Options,
 
 	ti:	usize,
 	tn:	usize,
-
-	depth:	Depth,
-	nodes:	u64,
-	tbhits:	u64,
-	tthits:	u64,
 
 	rms:	bounded_array.BoundedArray(*movegen.Move.Root, 256),
 	rmi:	usize,
@@ -44,7 +40,7 @@ pub const Info = struct {
 		var s: @TypeOf(a) = @intCast(rm.score);
 		defer rm.score = s;
 
-		if (self.options.hardStop()) {
+		if (self.instance.hardStop()) {
 			return s;
 		}
 		if (self.ti != 0 or rm != self.rms.slice()[0]) {
@@ -57,7 +53,7 @@ pub const Info = struct {
 		var lo = std.math.clamp(s - evaluation.score.unit / 4, a, s);
 		var hi = std.math.clamp(s + evaluation.score.unit / 4, s, b);
 
-		if (self.options.hardStop()) {
+		if (self.instance.hardStop()) {
 			return s;
 		}
 		s = -self.ab(.exact, 1, -hi, -lo, d - 1);
@@ -69,7 +65,7 @@ pub const Info = struct {
 				hi = std.math.clamp(hi * 2 - s, s, b);
 			}
 
-			if (self.options.hardStop()) {
+			if (self.instance.hardStop()) {
 				break;
 			}
 			s = -self.ab(.exact, 1, -hi, -lo, d - 1);
@@ -105,7 +101,8 @@ pub const Info = struct {
 		var a = alpha;
 
 		if (d == 0) {
-			_ = @atomicRmw(u64, &self.nodes, .Add, 1, .monotonic);
+			const nodes = &self.instance.nodes;
+			_ = @atomicRmw(u64, @constCast(nodes), .Add, 1, .monotonic);
 			return self.qs(node, ply, a, b);
 		}
 
@@ -113,9 +110,10 @@ pub const Info = struct {
 		const key = pos.ss.top().key;
 		const is_checked = pos.isChecked();
 
+		const nodes = @atomicLoad(u64, &self.instance.nodes, .monotonic);
 		const draw
 		  = @as(evaluation.score.Int, evaluation.score.draw)
-		  + @as(evaluation.score.Int, @as(u4, @truncate(self.nodes))) - 8;
+		  + @as(evaluation.score.Int, @as(u4, @truncate(nodes))) - 8;
 
 		const lose
 		  = @as(evaluation.score.Int, evaluation.score.lose)
@@ -140,7 +138,7 @@ pub const Info = struct {
 		const corr_eval = pos.ss.top().corr_eval;
 		const stat_eval = pos.ss.top().stat_eval;
 
-		if (self.options.hardStop()) {
+		if (self.instance.hardStop()) {
 			return if (corr_eval != evaluation.score.none) corr_eval
 			  else draw + evaluation.score.fromPosition(pos);
 		}
@@ -171,7 +169,7 @@ pub const Info = struct {
 		var mp = movegen.Picker.init(self, false, tte.move);
 
 		while (mp.next()) |sm| {
-			if (self.options.hardStop()) {
+			if (self.instance.hardStop()) {
 				break;
 			}
 
@@ -256,9 +254,10 @@ pub const Info = struct {
 		const key = pos.ss.top().key;
 		const is_checked = pos.isChecked();
 
+		const nodes = @atomicLoad(u64, &self.instance.nodes, .monotonic);
 		const draw
 		  = @as(evaluation.score.Int, evaluation.score.draw)
-		  + @as(evaluation.score.Int, @as(u4, @truncate(self.nodes))) - 8;
+		  + @as(evaluation.score.Int, @as(u4, @truncate(nodes))) - 8;
 
 		const lose
 		  = @as(evaluation.score.Int, evaluation.score.lose)
@@ -283,7 +282,7 @@ pub const Info = struct {
 		const corr_eval = pos.ss.top().corr_eval;
 		const stat_eval = pos.ss.top().stat_eval;
 
-		if (self.options.hardStop()) {
+		if (self.instance.hardStop()) {
 			return if (corr_eval != evaluation.score.none) corr_eval
 			  else draw + evaluation.score.fromPosition(pos);
 		}
@@ -298,7 +297,7 @@ pub const Info = struct {
 		var mp = movegen.Picker.init(self, !is_checked, tte.move);
 
 		while (mp.next()) |sm| {
-			if (self.options.hardStop()) {
+			if (self.instance.hardStop()) {
 				break;
 			}
 
@@ -361,6 +360,34 @@ pub const Instance = struct {
 	infos:	[]Info = &.{},
 	options:	Options = std.mem.zeroInit(Options, .{}),
 
+	nodes:	u64 = 0,
+	tbhits:	u64 = 0,
+	tthits:	u64 = 0,
+
+	fn hardStop(self: *const Instance) bool {
+		const options = &self.options;
+		if (!@atomicLoad(bool, &options.is_searching, .monotonic)) {
+			return true;
+		}
+
+		// TODO: proper periodic time-checking
+		// if (@atomicLoad(u64, &self.nodes, .monotonic) % 1024 != 0) {
+			// return false;
+		// }
+
+		if (@atomicLoad(bool, &options.infinite, .monotonic)) {
+			return false;
+		}
+
+		const stop = options.stop orelse return false;
+		const time = base.time.read(.ms);
+		if (time > stop) {
+			@atomicStore(bool, @constCast(&options.is_searching), false, .monotonic);
+		}
+
+		return !@atomicLoad(bool, &options.is_searching, .monotonic);
+	}
+
 	fn printBest(self: Instance) !void {
 		const pv = self.infos[0].rms.slice()[0];
 		const m = pv.slice()[0];
@@ -375,14 +402,14 @@ pub const Instance = struct {
 	fn printInfo(self: Instance) !void {
 		const info = &self.infos[0];
 		const depth = if (info.depth == 1) info.depth else info.depth - 1;
-		const nodes_cnt = self.nodes();
+		const nodes = @atomicLoad(u64, &self.nodes, .monotonic);
 		const pv = info.rms.slice()[0];
 		const time = base.time.read(.ns) - self.options.start * std.time.ns_per_ms;
 
 		try io.writer.print("info", .{});
 		try io.writer.print(" depth {d}", .{depth});
 		try io.writer.print(" time {d}", .{time / std.time.ns_per_ms});
-		try io.writer.print(" nodes {d}", .{nodes_cnt});
+		try io.writer.print(" nodes {d}", .{nodes});
 		try io.writer.print(" pv", .{});
 		for (pv.slice()) |m| {
 			const s = m.toString();
@@ -390,7 +417,7 @@ pub const Instance = struct {
 			try io.writer.print(" {s}", .{s[0 .. l]});
 		}
 		try io.writer.print(" score cp {d}", .{evaluation.score.toCentipawns(@intCast(pv.score))});
-		try io.writer.print(" nps {d}", .{nodes_cnt * std.time.ns_per_s / time});
+		try io.writer.print(" nps {d}", .{nodes * std.time.ns_per_s / time});
 		try io.writer.print("\n", .{});
 		try io.writer.flush();
 	}
@@ -413,14 +440,6 @@ pub const Instance = struct {
 		}
 	}
 
-	pub fn nodes(self: Instance) u64 {
-		var sum: u64 = 0;
-		for (self.infos) |*info| {
-			sum += @atomicLoad(u64, &info.nodes, .monotonic);
-		}
-		return sum;
-	}
-
 	pub fn reset(self: *Instance) void {
 		var pos = std.mem.zeroInit(Position, .{});
 		pos.parseFen(Position.startpos) catch std.debug.panic("invalid position", .{});
@@ -435,6 +454,9 @@ pub const Instance = struct {
 	}
 
 	pub fn think(self: *Instance) !void {
+		self.nodes = 0;
+		self.tbhits = 0;
+		self.tthits = 0;
 		@atomicStore(bool, &self.options.is_searching, true, .monotonic);
 		defer @atomicStore(bool, &self.options.is_searching, false, .monotonic);
 
@@ -443,9 +465,6 @@ pub const Instance = struct {
 		}
 		for (self.infos, 0 ..) |*info, i| {
 			info.depth = 1;
-			info.nodes = 0;
-			info.tbhits = 0;
-			info.tthits = 0;
 
 			info.rms.clear();
 			info.rmi = 0;
@@ -493,7 +512,7 @@ pub const Instance = struct {
 
 			movegen.Move.Root.sortSlice(root_moves.slice());
 			try self.printInfo();
-			if (self.options.hardStop()) {
+			if (self.hardStop()) {
 				break;
 			}
 		}
@@ -519,24 +538,6 @@ pub const Options = struct {
 
 	infinite:		bool = true,
 	is_searching:	bool = false,
-
-	fn hardStop(self: *const Options) bool {
-		if (!@atomicLoad(bool, &self.is_searching, .monotonic)) {
-			return true;
-		}
-
-		if (@atomicLoad(bool, &self.infinite, .monotonic)) {
-			return false;
-		}
-
-		const stop = self.stop orelse return false;
-		const time = base.time.read(.ms);
-		if (time > stop) {
-			@atomicStore(bool, &@constCast(self).is_searching, false, .monotonic);
-		}
-
-		return !@atomicLoad(bool, &self.is_searching, .monotonic);
-	}
 
 	pub fn reset(self: *Options) void {
 		self.* = std.mem.zeroInit(Options, .{
