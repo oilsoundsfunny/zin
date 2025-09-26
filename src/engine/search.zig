@@ -1,5 +1,6 @@
 const base = @import("base");
 const bounded_array = @import("bounded_array");
+const params = @import("params");
 const std = @import("std");
 
 const evaluation = @import("evaluation.zig");
@@ -9,7 +10,7 @@ const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
-pub const Depth = u8;
+pub const Depth = isize;
 pub const Node = transposition.Entry.Flag;
 
 pub const Info = struct {
@@ -148,7 +149,7 @@ pub const Info = struct {
 		  and node == .lowerbound
 		  and depth >= 4
 		  and corr_eval >= b
-		  and stat_eval >= b + @as(i32, depth) * 128) {
+		  and stat_eval >= b + d * 128) {
 			pos.doNull() catch std.debug.panic("invalid null move", .{});
 			defer pos.undoNull();
 
@@ -175,7 +176,10 @@ pub const Info = struct {
 			}
 
 			const m = sm.move;
+			const is_noisy = pos.isMoveNoisy(m);
+			const is_quiet = !is_noisy;
 			const is_ttm = m == tte.move;
+			var loop_d = d;
 
 			if (is_ttm and !pos.isMovePseudoLegal(m)) {
 				// @branchHint(.unlikely);
@@ -192,6 +196,18 @@ pub const Info = struct {
 				.lowerbound => if (mi == 0) .upperbound else .lowerbound,
 				else => std.debug.panic("invalid node", .{}),
 			};
+
+			if (d >= 3 and mi >= 3
+			  and !is_checked
+			  and !pos.isChecked()
+			  and node != .exact
+			  and child != .exact) {
+				const clamped_d: usize = @intCast(@min(d, 31));
+				const clamped_i: usize = @min(mi, 31);
+
+				loop_d -= (&params.search.lmr)[clamped_d][clamped_i][@intFromBool(is_quiet)];
+			}
+
 			const s = -self.ab(child, ply + 1, if (child == .exact) -b else -a - 1, -a, d - 1);
 
 			if (s > best.score) {
@@ -218,7 +234,7 @@ pub const Info = struct {
 			.was_pv = flag == .exact or (tth and tte.was_pv),
 			.flag = flag,
 			.age = @truncate(transposition.table.age),
-			.depth = depth,
+			.depth = @intCast(depth),
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
 			.score = best.score,
@@ -463,12 +479,12 @@ pub const Instance = struct {
 		});
 		defer pool.deinit();
 
-		const max_d = self.options.depth orelse 240;
+		const max_d: u8 = @intCast(self.options.depth orelse 240);
 		for (1 .. max_d + 1) |d| {
 			wg.reset();
 			for (self.infos) |*info| {
 				info.depth = 0;
-				info.depth += @truncate(d);
+				info.depth += @intCast(d);
 				info.depth += @intFromBool(d > 1 and info.ti % 2 == 0);
 
 				pool.spawnWg(&wg, Info.think, .{info});

@@ -11,7 +11,7 @@ pub const Entry = packed struct(u80) {
 	was_pv:	bool,
 	flag:	Flag,
 	age:	u5,
-	depth:	search.Depth,
+	depth:	u8,
 	key:	u16,
 	eval:	i16,
 	score:	i16,

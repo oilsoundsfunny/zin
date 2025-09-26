@@ -53,7 +53,7 @@ pub const score = struct {
 	const min = std.math.minInt(i16);
 	const max = std.math.maxInt(i16);
 
-	pub const Int = i32;
+	pub const Int = isize;
 
 	pub const none = min;
 	pub const unit = 256;
