@@ -5,7 +5,7 @@ const params = @import("params");
 const std = @import("std");
 
 pub const author = "oilsoundsfunny";
-pub const name = "yoom";
+pub const name = "zin";
 pub const version = std.SemanticVersion {
 	.major = 0,
 	.minor = 1,
