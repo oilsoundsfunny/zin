@@ -29,20 +29,60 @@ pub const Info = struct {
 	rms:	bounded_array.BoundedArray(*movegen.Move.Root, 256),
 	rmi:	usize,
 
+	fn aspiration(self: *Info,
+	  rm: *movegen.Move.Root,
+	  alpha: evaluation.score.Int,
+	  beta:  evaluation.score.Int) evaluation.score.Int {
+		self.pos.doMove(rm.line.slice()[0]) catch std.debug.panic("invalid root move", .{});
+		defer self.pos.undoMove();
+
+		const a = alpha;
+		const b = beta;
+		const d = self.depth;
+
+		var s: @TypeOf(a) = @intCast(rm.score);
+		defer rm.score = s;
+
+		if (self.options.hardStop()) {
+			return s;
+		}
+		if (self.ti != 0 or rm != self.rms.slice()[0]) {
+			s = -self.ab(.lowerbound, 1, -a - 1, -a, d - 1);
+			if (s < a or s > b) {
+				return s;
+			}
+		}
+
+		var lo = std.math.clamp(s - evaluation.score.unit / 4, a, s);
+		var hi = std.math.clamp(s + evaluation.score.unit / 4, s, b);
+
+		if (self.options.hardStop()) {
+			return s;
+		}
+		s = -self.ab(.exact, 1, -hi, -lo, d - 1);
+
+		while ((a < s and s <= lo) or (b > s and s >= hi)) {
+			if (s <= lo) {
+				lo = std.math.clamp(lo * 2 - s, a, s);
+			} else {
+				hi = std.math.clamp(hi * 2 - s, s, b);
+			}
+
+			if (self.options.hardStop()) {
+				break;
+			}
+			s = -self.ab(.exact, 1, -hi, -lo, d - 1);
+		}
+
+		return s;
+	}
+
 	fn think(self: *Info) void {
 		const b = evaluation.score.win;
 		var a: evaluation.score.Int = evaluation.score.lose;
 
 		for (self.rms.slice()) |rm| {
-			if (self.options.hardStop()) {
-				break;
-			}
-
-			self.pos.doMove(rm.line.slice()[0]) catch std.debug.panic("invalid root move", .{});
-			defer self.pos.undoMove();
-
-			const s = -self.ab(.lowerbound, 1, -a - 1, -a, self.depth - 1);
-			rm.score = s;
+			const s = self.aspiration(rm, a, b);
 
 			if (s > a) {
 				a = s;
