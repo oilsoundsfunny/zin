@@ -104,6 +104,22 @@ pub const Info = struct {
 			  else draw + evaluation.score.fromPosition(pos);
 		}
 
+		if (!is_checked
+		  and node == .lowerbound
+		  and depth >= 4
+		  and corr_eval >= b
+		  and stat_eval >= b + @as(i32, depth) * 128) {
+			pos.doNull() catch std.debug.panic("invalid null move", .{});
+			defer pos.undoNull();
+
+			const nd = depth -| 4;
+			const ns = -self.ab(.lowerbound, ply + 1, -b, 1 - b, nd);
+
+			if (ns >= b) {
+				return ns;
+			}
+		}
+
 		var best: movegen.Move.Scored = .{
 			.move = .{},
 			.score = evaluation.score.none,

@@ -59,7 +59,6 @@ pub const State = struct {
 	check_mask:	base.types.Square.Set = .all,
 
 	key:	zobrist.Int,
-	corr_keys:	std.EnumArray(search.hist.Correction, zobrist.Int),
 
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
@@ -174,30 +173,7 @@ fn popSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 	}
 
 	const z = zobrist.psq(s, p);
-	// self.ss.top().accumulators.pop(s, p);
 	self.ss.top().key ^= z;
-
-	switch (pt) {
-		.pawn => {
-			self.ss.top().corr_keys.getPtr(.pawn).* ^= z;
-		},
-
-		.knight, .bishop => {
-			self.ss.top().corr_keys.getPtr(.minor).* ^= z;
-		},
-
-		.rook, .queen => {
-			self.ss.top().corr_keys.getPtr(.major).* ^= z;
-		},
-
-		.king => {
-			self.ss.top().corr_keys.getPtr(.pawn).* ^= z;
-			self.ss.top().corr_keys.getPtr(.minor).* ^= z;
-			self.ss.top().corr_keys.getPtr(.major).* ^= z;
-		},
-
-		else => unreachable,
-	}
 
 	const psqt = params.evaluation.psqt
 	  .getPtrConst(pt)
@@ -226,30 +202,7 @@ fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 	}
 
 	const z = zobrist.psq(s, p);
-	// self.ss.top().accumulators.set(s, p);
 	self.ss.top().key ^= z;
-
-	switch (pt) {
-		.pawn => {
-			self.ss.top().corr_keys.getPtr(.pawn).* ^= z;
-		},
-
-		.knight, .bishop => {
-			self.ss.top().corr_keys.getPtr(.minor).* ^= z;
-		},
-
-		.rook, .queen => {
-			self.ss.top().corr_keys.getPtr(.major).* ^= z;
-		},
-
-		.king => {
-			self.ss.top().corr_keys.getPtr(.pawn).* ^= z;
-			self.ss.top().corr_keys.getPtr(.minor).* ^= z;
-			self.ss.top().corr_keys.getPtr(.major).* ^= z;
-		},
-
-		else => unreachable,
-	}
 
 	const psqt = params.evaluation.psqt
 	  .getPtrConst(pt)
@@ -339,7 +292,6 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		.rule50 = self.ss.top().rule50 + 1,
 
 		.key = self.ss.top().key,
-		.corr_keys = self.ss.top().corr_keys,
 	}));
 
 	self.popSquare(true, s, sp);
@@ -443,6 +395,28 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	}
 }
 
+pub fn doNull(self: *Self) MoveError!void {
+	if (self.isChecked()) {
+		return error.InvalidMove;
+	}
+
+	self.ss.top().move = .{};
+	self.ss.top().src_piece = .nul;
+	self.ss.top().dst_piece = .nul;
+	self.ss.push(std.mem.zeroInit(State, .{
+		.castle = self.ss.top().castle,
+
+		.key = self.ss.top().key
+		  ^ zobrist.stm()
+		  ^ zobrist.enp(self.ss.top().en_pas),
+
+		.psqt = self.ss.top().psqt,
+		.ptsc = self.ss.top().ptsc,
+	}));
+
+	self.stm = self.stm.flip();
+}
+
 pub fn undoMove(self: *Self) void {
 	const move = self.ss.top().down(1).move;
 	const sp = self.ss.top().down(1).src_piece;
@@ -491,6 +465,11 @@ pub fn undoMove(self: *Self) void {
 	self.popSquare(false, d, sp);
 	self.setSquare(false, d, dp);
 	self.setSquare(false, s, sp);
+	self.ss.pop();
+}
+
+pub fn undoNull(self: *Self) void {
+	self.stm = self.stm.flip();
 	self.ss.pop();
 }
 
