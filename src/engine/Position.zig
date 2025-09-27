@@ -693,6 +693,10 @@ pub fn isChecked(self: *const Self) bool {
 	return self.ss.top().check_mask != .all;
 }
 
+pub fn isDrawn(self: *const Self) bool {
+	return self.ss.top().rule50 >= 100 or self.is3peat();
+}
+
 pub fn isMoveNoisy(self: *const Self, move: movegen.Move) bool {
 	const dp = self.getSquare(move.dst);
 	const is_capt = dp.color() != self.stm and dp.ptype() != .nul and dp.ptype() != .all;

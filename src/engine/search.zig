@@ -100,9 +100,8 @@ pub const Info = struct {
 		const b = beta;
 		var a = alpha;
 
-		if (d == 0) {
-			const nodes = &self.instance.nodes;
-			_ = @atomicRmw(u64, @constCast(nodes), .Add, 1, .monotonic);
+		if (d <= 0) {
+			_ = @atomicRmw(u64, @constCast(&self.instance.nodes), .Add, 1, .monotonic);
 			return self.qs(node, ply, a, b);
 		}
 
@@ -118,6 +117,11 @@ pub const Info = struct {
 		const lose
 		  = @as(evaluation.score.Int, evaluation.score.lose)
 		  + @as(evaluation.score.Int, @intCast(ply));
+
+		if (pos.isDrawn()) {
+			@branchHint(.unlikely);
+			return draw;
+		}
 
 		const ttf = transposition.table.fetch(key);
 		const tte = ttf[0];
@@ -261,6 +265,11 @@ pub const Info = struct {
 		const lose
 		  = @as(evaluation.score.Int, evaluation.score.lose)
 		  + @as(evaluation.score.Int, @intCast(ply));
+
+		if (pos.isDrawn()) {
+			@branchHint(.unlikely);
+			return draw;
+		}
 
 		const ttf = transposition.table.fetch(key);
 		const tte = ttf[0];
