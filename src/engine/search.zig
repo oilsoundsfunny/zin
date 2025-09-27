@@ -100,9 +100,8 @@ pub const Info = struct {
 		const b = beta;
 		var a = alpha;
 
-		if (d == 0) {
-			const nodes = &self.instance.nodes;
-			_ = @atomicRmw(u64, @constCast(nodes), .Add, 1, .monotonic);
+		if (d <= 0) {
+			_ = @atomicRmw(u64, @constCast(&self.instance.nodes), .Add, 1, .monotonic);
 			return self.qs(node, ply, a, b);
 		}
 
@@ -118,6 +117,11 @@ pub const Info = struct {
 		const lose
 		  = @as(evaluation.score.Int, evaluation.score.lose)
 		  + @as(evaluation.score.Int, @intCast(ply));
+
+		if (pos.isDrawn()) {
+			@branchHint(.unlikely);
+			return draw;
+		}
 
 		const ttf = transposition.table.fetch(key);
 		const tte = ttf[0];
@@ -141,6 +145,16 @@ pub const Info = struct {
 		if (self.instance.hardStop()) {
 			return if (corr_eval != evaluation.score.none) corr_eval
 			  else draw + evaluation.score.fromPosition(pos);
+		}
+
+		if (!is_checked
+		  and node == .lowerbound
+		  and !(tth and tte.was_pv)
+		  and !(tth and tte.move == movegen.Move.zero)
+		  and !(tth and pos.isMoveNoisy(tte.move))
+		  and corr_eval >= b
+		  and stat_eval >= b + d * 256) {
+			return @divTrunc(stat_eval + b, 2);
 		}
 
 		if (!is_checked
@@ -261,6 +275,11 @@ pub const Info = struct {
 		const lose
 		  = @as(evaluation.score.Int, evaluation.score.lose)
 		  + @as(evaluation.score.Int, @intCast(ply));
+
+		if (pos.isDrawn()) {
+			@branchHint(.unlikely);
+			return draw;
+		}
 
 		const ttf = transposition.table.fetch(key);
 		const tte = ttf[0];
