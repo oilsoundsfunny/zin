@@ -145,7 +145,6 @@ pub const Info = struct {
 
 		if (!is_checked
 		  and node == .lowerbound
-		  and depth >= 4
 		  and corr_eval >= b
 		  and stat_eval >= b + d * 128) {
 			pos.doNull() catch std.debug.panic("invalid null move", .{});
