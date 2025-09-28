@@ -378,31 +378,29 @@ pub const Instance = struct {
 	infos:	[]Info = &.{},
 	options:	Options = std.mem.zeroInit(Options, .{}),
 
-	nodes:	u64 = 0,
-	tbhits:	u64 = 0,
-	tthits:	u64 = 0,
+	is_searching:	bool = false,
+	last_checked:	u64,
+
+	nodes:	u64,
+	tbhits:	u64,
+	tthits:	u64,
 
 	fn hardStop(self: *const Instance) bool {
-		const options = &self.options;
-		if (!@atomicLoad(bool, &options.is_searching, .monotonic)) {
+		if (!@atomicLoad(bool, &self.is_searching, .monotonic)) {
 			return true;
 		}
 
+		const options = &self.options;
 		if (@atomicLoad(bool, &options.infinite, .monotonic)) {
 			return false;
 		}
 
 		// TODO: proper periodic tm
-		// const last_checked = self.options.last_checked;
 		const nodes = @atomicLoad(u64, &self.nodes, .monotonic);
-		// if (nodes - last_checked < 16) {
-			// return false;
-		// }
-		// @constCast(self).options.last_checked = nodes;
 
 		if (options.nodes) |lim| {
 			if (nodes >= lim) {
-				@atomicStore(bool, &@constCast(options).is_searching, false, .monotonic);
+				@atomicStore(bool, &@constCast(self).is_searching, false, .monotonic);
 				return true;
 			}
 		}
@@ -410,7 +408,7 @@ pub const Instance = struct {
 		if (options.stop) |lim| {
 			const time = base.time.read(.ms);
 			if (time >= lim) {
-				@atomicStore(bool, &@constCast(options).is_searching, false, .monotonic);
+				@atomicStore(bool, &@constCast(self).is_searching, false, .monotonic);
 				return true;
 			}
 		}
@@ -487,8 +485,8 @@ pub const Instance = struct {
 		self.nodes = 0;
 		self.tbhits = 0;
 		self.tthits = 0;
-		@atomicStore(bool, &self.options.is_searching, true, .monotonic);
-		defer @atomicStore(bool, &self.options.is_searching, false, .monotonic);
+		@atomicStore(bool, &self.is_searching, true, .monotonic);
+		defer @atomicStore(bool, &self.is_searching, false, .monotonic);
 
 		if (self.infos.len == 0) {
 			return;
@@ -567,8 +565,6 @@ pub const Options = struct {
 	stop:	?u64,
 
 	infinite:		bool = true,
-	is_searching:	bool = false,
-	last_checked:	u64,
 
 	pub fn reset(self: *Options) void {
 		self.* = std.mem.zeroInit(Options, .{
