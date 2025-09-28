@@ -153,14 +153,14 @@ pub const Info = struct {
 		  and !(tth and tte.move == movegen.Move.zero)
 		  and !(tth and pos.isMoveNoisy(tte.move))
 		  and corr_eval >= b
-		  and stat_eval >= b + d * 256) {
+		  and stat_eval >= b + d * 384) {
 			return @divTrunc(stat_eval + b, 2);
 		}
 
 		if (!is_checked
 		  and node == .lowerbound
 		  and corr_eval >= b
-		  and stat_eval >= b + d * 128) {
+		  and stat_eval >= b) {
 			pos.doNull() catch std.debug.panic("invalid null move", .{});
 			defer pos.undoNull();
 
