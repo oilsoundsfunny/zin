@@ -388,22 +388,33 @@ pub const Instance = struct {
 			return true;
 		}
 
-		// TODO: proper periodic time-checking
-		// if (@atomicLoad(u64, &self.nodes, .monotonic) % 1024 != 0) {
-			// return false;
-		// }
-
 		if (@atomicLoad(bool, &options.infinite, .monotonic)) {
 			return false;
 		}
 
-		const stop = options.stop orelse return false;
-		const time = base.time.read(.ms);
-		if (time > stop) {
-			@atomicStore(bool, @constCast(&options.is_searching), false, .monotonic);
+		const last_checked = self.options.last_checked;
+		const nodes = @atomicLoad(u64, &self.nodes, .monotonic);
+		if ((nodes - last_checked) < 1024) {
+			return false;
+		}
+		defer @constCast(self).options.last_checked = nodes;
+
+		if (options.nodes) |lim| {
+			if (nodes >= lim) {
+				@atomicStore(bool, &@constCast(options).is_searching, false, .monotonic);
+				return true;
+			}
 		}
 
-		return !@atomicLoad(bool, &options.is_searching, .monotonic);
+		if (options.stop) |lim| {
+			const time = base.time.read(.ms);
+			if (time >= lim) {
+				@atomicStore(bool, &@constCast(options).is_searching, false, .monotonic);
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	fn printBest(self: Instance) !void {
@@ -556,6 +567,7 @@ pub const Options = struct {
 
 	infinite:		bool = true,
 	is_searching:	bool = false,
+	last_checked:	u64,
 
 	pub fn reset(self: *Options) void {
 		self.* = std.mem.zeroInit(Options, .{
