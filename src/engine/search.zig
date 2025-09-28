@@ -96,10 +96,10 @@ pub const Info = struct {
 	  alpha: evaluation.score.Int,
 	  beta:  evaluation.score.Int,
 	  depth: Depth) evaluation.score.Int {
-		const d = depth;
 		const b = beta;
 		var a = alpha;
 
+		var d = depth;
 		if (d <= 0) {
 			_ = @atomicRmw(u64, @constCast(&self.instance.nodes), .Add, 1, .monotonic);
 			return self.qs(node, ply, a, b);
@@ -131,6 +131,12 @@ pub const Info = struct {
 			return tte.score;
 		}
 
+		// internal iterative reduction (iir)
+		const has_ttm = tth and tte.move != movegen.Move.zero;
+		if (!has_ttm and d > 3) {
+			d -= 2;
+		}
+
 		if (is_checked) {
 			pos.ss.top().stat_eval = evaluation.score.none;
 			pos.ss.top().corr_eval = evaluation.score.none;
@@ -147,6 +153,8 @@ pub const Info = struct {
 			  else draw + evaluation.score.fromPosition(pos);
 		}
 
+		// reverse futility pruning (rfp)
+		// stc: ~4.5 +- 4.3
 		if (!is_checked
 		  and node == .lowerbound
 		  and !(tth and tte.was_pv)
@@ -157,6 +165,8 @@ pub const Info = struct {
 			return @divTrunc(stat_eval + b, 2);
 		}
 
+		// null move pruning (nmr)
+		// stc: ~9.8 +- i forgot
 		if (!is_checked
 		  and node == .lowerbound
 		  and corr_eval >= b
@@ -164,8 +174,8 @@ pub const Info = struct {
 			pos.doNull() catch std.debug.panic("invalid null move", .{});
 			defer pos.undoNull();
 
-			const nd = depth -| 4;
-			const ns = -self.ab(.lowerbound, ply + 1, -b, 1 - b, nd);
+			const nd = d - 4;
+			const ns = -self.ab(.lowerbound, ply + 1, -b, 1 - b, nd - 1);
 
 			if (ns >= b) {
 				return ns;
@@ -186,11 +196,12 @@ pub const Info = struct {
 				break;
 			}
 
+			var r: Depth = 0;
+
 			const m = sm.move;
 			const is_noisy = pos.isMoveNoisy(m);
 			const is_quiet = !is_noisy;
 			const is_ttm = m == tte.move;
-			var loop_d = d;
 
 			if (is_ttm and !pos.isMovePseudoLegal(m)) {
 				// @branchHint(.unlikely);
@@ -216,10 +227,11 @@ pub const Info = struct {
 				const clamped_d: usize = @intCast(@min(d, 31));
 				const clamped_i: usize = @min(mi, 31);
 
-				loop_d -= (&params.search.lmr)[clamped_d][clamped_i][@intFromBool(is_quiet)];
+				r += (&params.search.lmr)[clamped_d][clamped_i][@intFromBool(is_quiet)];
 			}
 
-			const s = -self.ab(child, ply + 1, if (child == .exact) -b else -a - 1, -a, d - 1);
+			r = @max(r, 0);
+			const s = -self.ab(child, ply + 1, if (child == .exact) -b else -a - 1, -a, d - r - 1);
 
 			if (s > best.score) {
 				best.score = @intCast(s);
