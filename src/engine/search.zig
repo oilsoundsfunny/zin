@@ -392,12 +392,13 @@ pub const Instance = struct {
 			return false;
 		}
 
-		const last_checked = self.options.last_checked;
+		// TODO: proper periodic tm
+		// const last_checked = self.options.last_checked;
 		const nodes = @atomicLoad(u64, &self.nodes, .monotonic);
-		if ((nodes - last_checked) < 1024) {
-			return false;
-		}
-		defer @constCast(self).options.last_checked = nodes;
+		// if (nodes - last_checked < 16) {
+			// return false;
+		// }
+		// @constCast(self).options.last_checked = nodes;
 
 		if (options.nodes) |lim| {
 			if (nodes >= lim) {
