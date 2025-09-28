@@ -147,10 +147,12 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 	}
 
 	if (!opt.infinite) {
+		var timeset = false;
 		opt.stop = std.math.maxInt(u64);
 
 		if (opt.movetime) |movetime| {
 			opt.stop = @min(opt.stop.?, opt.start + movetime - options.overhead);
+			timeset = true;
 		}
 
 		const stm = instance.infos[0].pos.stm;
@@ -160,10 +162,11 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 
 			opt.stop = @min(opt.stop.?,
 			  opt.start + incr / 2 + time / 20 - options.overhead);
+			timeset = true;
 		}
 
 		if (opt.stop.? <= opt.start) {
-			opt.stop = null;
+			opt.stop = if (timeset) opt.start + 1 else null;
 		}
 	}
 
