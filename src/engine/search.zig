@@ -132,6 +132,7 @@ pub const Info = struct {
 		}
 
 		// internal iterative reduction (iir)
+		// stc: ~2.8 +- good enough
 		const has_ttm = tth and tte.move != movegen.Move.zero;
 		if (!has_ttm and d > 3) {
 			d -= 2;
