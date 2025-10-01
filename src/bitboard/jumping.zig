@@ -1,8 +1,8 @@
 const base = @import("base");
 const std = @import("std");
 
-const n_atk align(8) = @embedFile("n_atk.bin");
-const k_atk align(8) = @embedFile("k_atk.bin");
+const n_atk align(64) = @embedFile("n_atk.bin");
+const k_atk align(64) = @embedFile("k_atk.bin");
 
 pub fn prefetch() void {
 	@prefetch(&n_atk, .{});

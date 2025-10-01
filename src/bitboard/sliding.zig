@@ -15,7 +15,7 @@ const atk = init: {
 	}
 
 	const bin = @embedFile("sliding_atk.bin");
-	var tbl: [87988]base.types.Square.Set = undefined;
+	var tbl: [87988]base.types.Square.Set align(64) = undefined;
 	@memcpy(std.mem.sliceAsBytes(tbl[0 ..]), bin[0 ..]);
 	break :init tbl;
 };
@@ -30,7 +30,7 @@ const b_atk = b_init: {
 	var nmask: std.EnumArray(base.types.Square, base.types.Square.Set) = undefined;
 	var offset: std.EnumArray(base.types.Square, u32) = undefined;
 
-	var tbl = std.EnumArray(base.types.Square, Magic).initFill(std.mem.zeroInit(Magic, .{
+	var tbl align(64) = std.EnumArray(base.types.Square, Magic).initFill(std.mem.zeroInit(Magic, .{
 		.ptr = (&atk)[0 ..].ptr,
 	}));
 
@@ -59,7 +59,7 @@ const r_atk = r_init: {
 	var nmask: std.EnumArray(base.types.Square, base.types.Square.Set) = undefined;
 	var offset: std.EnumArray(base.types.Square, u32) = undefined;
 
-	var tbl = std.EnumArray(base.types.Square, Magic).initFill(std.mem.zeroInit(Magic, .{
+	var tbl align(64) = std.EnumArray(base.types.Square, Magic).initFill(std.mem.zeroInit(Magic, .{
 		.ptr = (&atk)[0 ..].ptr,
 	}));
 
