@@ -196,14 +196,13 @@ pub fn build(bld: *std.Build) !void {
 		test_step.dependOn(&bld.addRunArtifact(test_unit).step);
 	}
 
-	inline for (Generators.values) |g| {
+	for (Generators.values) |g| {
 		const dependant = Modules.array.get(Generators.dependant.get(g));
 
 		const name = Generators.names.get(g);
 		const src = Generators.src_files.get(g);
 
 		const generator = bld.addExecutable(.{
-			.name = name,
 			.root_module = bld.createModule(.{
 				.root_source_file = bld.path(src),
 				.imports = &.{
@@ -211,14 +210,18 @@ pub fn build(bld: *std.Build) !void {
 				},
 				.target = bld.graph.host,
 			}),
+			.name = name,
 		});
 		const step = bld.addRunArtifact(generator);
 
 		const outputs = Generators.outputs.get(g);
 		for (outputs) |output| {
-			step.addArg(output[0]);
-			dependant.addAnonymousImport(output[1], .{
-				.root_source_file = step.addOutputFileArg(output[1]),
+			const arg = output[0];
+			const path = output[1];
+
+			step.addArg(arg);
+			dependant.addAnonymousImport(path, .{
+				.root_source_file = step.addOutputFileArg(path),
 			});
 		}
 	}
