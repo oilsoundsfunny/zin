@@ -363,7 +363,6 @@ pub const Move = packed struct(u16) {
 			.buffer = .{zero} ** capacity,
 			.len = 0,
 		},
-		len:	usize = 0,
 
 		const capacity = 256 - @sizeOf(usize) / @sizeOf(Move);
 
