@@ -322,8 +322,8 @@ const ScoredMoveList = struct {
 pub const Move = packed struct(u16) {
 	flag:	Flag = .none,
 	info:	Info = .{.none = 0},
-	src:	base.types.Square = @enumFromInt(0),
 	dst:	base.types.Square = @enumFromInt(0),
+	src:	base.types.Square = @enumFromInt(0),
 
 	pub const Flag = enum(u2) {
 		none,

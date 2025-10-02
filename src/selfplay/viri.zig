@@ -1,86 +1,104 @@
 const base = @import("base");
+const bounded_array = @import("bounded_array");
 const engine = @import("engine");
 const std = @import("std");
 
+const Piece = enum(u4) {
+	w_pawn = 0,
+	w_knight = 1,
+	w_bishop = 2,
+	w_rook = 3,
+	w_queen = 4,
+	w_king = 5,
+	w_castle = 6,
+
+	b_pawn = 8,
+	b_knight = 9,
+	b_bishop = 10,
+	b_rook = 11,
+	b_queen = 12,
+	b_king = 13,
+	b_castle = 14,
+
+	fn fromSquare(pos: *const engine.Position, s: base.types.Square) Piece {
+		var iter = @constCast(pos).castles.iterator();
+
+		return switch (pos.getSquare(s)) {
+			.w_pawn => .w_pawn,
+			.w_knight => .w_knight,
+			.w_bishop => .w_bishop,
+			.w_queen => .w_queen,
+			.w_king => .w_king,
+
+			.w_rook => loop: while (iter.next()) |entry| {
+				const k = entry.key;
+				const v = entry.value;
+
+				if (pos.ss.top().castle.get(k) and v.rs == s) {
+					break :loop Piece.w_castle;
+				}
+			} else Piece.w_rook,
+
+			.b_pawn => .b_pawn,
+			.b_knight => .b_knight,
+			.b_bishop => .b_bishop,
+			.b_queen => .b_queen,
+			.b_king => .b_king,
+
+			.b_rook => loop: while (iter.next()) |entry| {
+				const k = entry.key;
+				const v = entry.value;
+
+				if (pos.ss.top().castle.get(k) and v.rs == s) {
+					break :loop Piece.b_castle;
+				}
+			} else Piece.b_rook,
+
+			else => @enumFromInt(0),
+		};
+	}
+};
+
+pub const Move = engine.movegen.Move;
+
+pub const Result = enum(u8) {
+	black,
+	draw,
+	white,
+	_,
+};
+
 pub const Self = extern struct {
 	occ:	base.types.Square.Set,
-	board:	@Vector(32, u4),
+	pieces:	u128,
 	flag:	u8,
-	rule50:	u8,
+	ply:	u8,
 	length:	u16,
-	score:	engine.evaluation.score.Int,
+	score:	i16,
 	result:	Result,
 	pad:	u8,
 
-	const Result = enum(u8) {
-		black,
-		draw,
-		white,
-		_,
-	};
-
-	fn fromPiece(p: base.types.Piece) u4 {
-		// viriformat requires castle-able rooks
-		return switch (p) {
-			.w_pawn => 0,
-			.w_knight => 1,
-			.w_bishop => 2,
-			.w_rook => 3,
-			.w_queen => 4,
-			.w_king => 5,
-
-			.b_pawn => 8,
-			.b_knight => 9,
-			.b_bishop => 10,
-			.b_rook => 11,
-			.b_queen => 12,
-			.b_king => 13,
-
-			else => std.debug.panic("invalid piece", .{}),
-		};
-	}
+	line:	bounded_array.BoundedArray(Move.Scored, 2048),
 
 	pub fn fromPosition(pos: *const engine.Position) Self {
 		var self = std.mem.zeroInit(Self, .{});
 
+		var i: usize = 0;
 		var occ = pos.ptypeOcc(.all);
-		var si: usize = 0;
 		self.occ = occ;
 		while (occ.lowSquare()) |s| : ({
-			si += 1;
+			i += 1;
 			occ.popLow();
 		}) {
-			const p = pos.getSquare(s);
-			self.board[si] = switch (p) {
-				.w_rook => blk: {
-					var iter = @constCast(pos).castle.iterator();
-					break :blk loop: while (iter.next()) |entry| {
-						if (entry.value.rs == s) {
-							break :loop 6;
-						}
-					} else fromPiece(p);
-				},
-
-				.b_rook => blk: {
-					var iter = @constCast(pos).castle.iterator();
-					break :blk loop: while (iter.next()) |entry| {
-						if (entry.value.rs == s) {
-							break :loop 14;
-						}
-					} else fromPiece(p);
-				},
-
-				else => fromPiece(p),
-			};
+			const p = Piece.fromSquare(pos, s);
+			self.pieces |= std.math.shl(u128, p.tag(),
+			  @as(usize, s.tag() * @typeInfo(Piece.Tag).int.bits));
 		}
 
-		self.flag = if (pos.ss.top().en_pas) |s| s.tag() orelse base.types.Square.cnt;
+		self.flag = if (self.ss.top().en_pas) |s| s.tag() else base.types.Square.cnt;
 		if (pos.stm == .black) {
-			self.flag |= 1 << 8;
+			self.flag |= 1 << 7;
 		}
-
-		self.score = engine.evaluation.score.fromPosition(pos);
-		self.result = .draw;
 
 		return self;
 	}
