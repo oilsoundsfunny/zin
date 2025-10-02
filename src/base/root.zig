@@ -1,3 +1,4 @@
+pub const defs = @import("defs.zig");
 pub const heap = @import("heap.zig");
 pub const time = @import("time.zig");
 pub const types = @import("types.zig");

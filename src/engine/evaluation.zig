@@ -34,7 +34,7 @@ const phase = struct {
 	}
 };
 
-pub const Pair = struct {
+pub const Pair = packed struct {
 	mg:	score.Int,
 	eg:	score.Int,
 
@@ -50,34 +50,20 @@ pub const Pair = struct {
 };
 
 pub const score = struct {
-	const min = std.math.minInt(i16);
-	const max = std.math.maxInt(i16);
+	pub const Int = base.defs.score.Int;
 
-	pub const Int = isize;
+	pub const none = base.defs.score.none;
+	pub const unit = base.defs.score.unit;
 
-	pub const none = min;
-	pub const unit = 256;
+	pub const win  = base.defs.score.win;
+	pub const draw = base.defs.score.draw;
+	pub const lose = base.defs.score.lose;
 
-	pub const win  = 0 + max;
-	pub const draw = 0;
-	pub const lose = 0 - max;
+	pub const tbwin  = base.defs.score.tbwin;
+	pub const tblose = base.defs.score.tblose;
 
-	pub const tbwin  = 0 + (max - 247);
-	pub const tblose = 0 - (max - 247);
-
-	pub fn fromCentipawns(c: Int) Int {
-		const i = std.math.clamp(c, lose, win);
-		const m = i * unit;
-		const d = @divTrunc(m, 100);
-		return @intCast(d);
-	}
-
-	pub fn toCentipawns(s: Int) Int {
-		const i = std.math.clamp(s, lose, win);
-		const m = i * 100;
-		const d = @divTrunc(m, unit);
-		return @intCast(d);
-	}
+	pub const fromCentipawns = base.defs.score.fromCentipawns;
+	pub const toCentipawns = base.defs.score.toCentipawns;
 
 	pub fn fromPosition(pos: *const Position) Int {
 		// const inferred = nnue.net.infer(&pos.ss.top().accumulators);

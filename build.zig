@@ -2,13 +2,16 @@ const std = @import("std");
 
 const Generators = enum {
 	bitboard,
+	params,
 
 	const dependant = std.EnumArray(Generators, Modules).init(.{
 		.bitboard = .bitboard,
+		.params = .params,
 	});
 
 	const names = std.EnumArray(Generators, []const u8).init(.{
 		.bitboard = "bitboard",
+		.params = "params",
 	});
 
 	const outputs = std.EnumArray(Generators, []const [2][]const u8).init(.{
@@ -23,10 +26,17 @@ const Generators = enum {
 			.{ "--r-nmask", "r_nmask.bin" },
 			.{ "--r-offset", "r_offset.bin" },
 		},
+
+		.params = &.{
+			.{ "--lmr-path", "lmr.bin" },
+			.{ "--psqt-path", "psqt.bin" },
+			.{ "--ptsc-path", "ptsc.bin" },
+		},
 	});
 
 	const src_files = std.EnumArray(Generators, []const u8).init(.{
 		.bitboard = "tools/generators/bitboard/root.zig",
+		.params = "tools/generators/params/root.zig",
 	});
 
 	const values = std.enums.values(Generators);
