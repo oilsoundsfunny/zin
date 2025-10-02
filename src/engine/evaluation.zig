@@ -34,7 +34,7 @@ const phase = struct {
 	}
 };
 
-pub const Pair = packed struct {
+pub const Pair = extern struct {
 	mg:	score.Int,
 	eg:	score.Int,
 

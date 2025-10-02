@@ -5,7 +5,7 @@ const lmr = @import("lmr.zig");
 const psqt = @import("psqt.zig");
 const ptsc = @import("ptsc.zig");
 
-pub const Pair = struct {
+pub const Pair = extern struct {
 	mg:	base.defs.score.Int,
 	eg:	base.defs.score.Int,
 };
