@@ -33,11 +33,8 @@ pub const Tourney = struct {
 			player.* = std.mem.zeroInit(Self, .{});
 
 			try player.instance.alloc(1);
-			player.instance.root_moves = std.mem.zeroInit(engine.movegen.Move.Root.List, .{});
-			player.instance.options = std.mem.zeroInit(engine.search.Options, .{
-				.infinite = false,
-				.nodes = nodes,
-			});
+			player.instance.options.infinite = false;
+			player.instance.options.nodes = nodes;
 		}
 
 		return self;
