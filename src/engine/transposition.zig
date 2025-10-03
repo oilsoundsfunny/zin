@@ -20,8 +20,22 @@ pub const Entry = packed struct(u80) {
 	pub const Flag = enum(u2) {
 		none,
 		upperbound,
-		exact,
 		lowerbound,
+		exact,
+
+		const Tag = std.meta.Tag(Flag);
+
+		fn tag(self: Flag) Tag {
+			return @intFromEnum(self);
+		}
+
+		pub fn hasLower(self: Flag) bool {
+			return self.tag() & Flag.lowerbound.tag() != 0;
+		}
+
+		pub fn hasUpper(self: Flag) bool {
+			return self.tag() & Flag.upperbound.tag() != 0;
+		}
 	};
 
 	pub fn shouldTrust(self: Entry,

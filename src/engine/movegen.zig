@@ -16,9 +16,9 @@ const RootMove = struct {
 	},
 	score:	isize = evaluation.score.none,
 
-	const capacity = 256 - @sizeOf(usize) * 2 / @sizeOf(Move);
-
 	pub const List = RootMoveList;
+
+	pub const capacity = 256 - @sizeOf(usize) * 2 / @sizeOf(Move);
 
 	pub fn push(self: *RootMove, m: Move) void {
 		self.line.append(m) catch std.debug.panic("stack overflow", .{});

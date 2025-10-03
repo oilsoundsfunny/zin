@@ -77,7 +77,7 @@ fn parseCommand(command: []const u8) !Command {
 			return error.UnknownCommand;
 		}
 
-		@atomicStore(bool, &instance.options.is_searching, false, .monotonic);
+		instance.options.is_searching.store(false, .monotonic);
 		return .stop;
 	} else if (std.mem.eql(u8, first, "uci")) {
 		if (tokens.peek()) |_| {
@@ -286,8 +286,8 @@ pub fn loop() !void {
 		};
 
 		if (comm == .quit) {
-			if (@atomicLoad(bool, &instance.options.is_searching, .monotonic)) {
-				@atomicStore(bool, &instance.options.is_searching, false, .monotonic);
+			if (instance.options.is_searching.load(.monotonic)) {
+				instance.options.is_searching.store(false, .monotonic);
 				std.Thread.sleep(options.overhead * std.time.ns_per_ms);
 			}
 			break;

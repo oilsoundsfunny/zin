@@ -92,9 +92,9 @@ pub const Tourney = struct {
 };
 
 fn match(self: *Self) !void {
+	std.debug.assert(self.instance.infos.len == 1);
 	const infos = self.instance.infos;
 	const info = &infos[0];
-	std.debug.assert(infos.len == 1);
 
 	const fen = self.opening;
 	const pos = &info.pos;
@@ -112,8 +112,7 @@ fn match(self: *Self) !void {
 			.white => pv.score,
 			.black => -pv.score,
 		};
-		self.line.append(.{ .move = m, .score = @intCast(s) })
-		  catch std.debug.panic("stack overflow", .{});
+		try self.line.append(.{ .move = m, .score = @intCast(s) });
 
 		if (m == viri.Move.zero) {
 			self.data.result = switch (s) {
