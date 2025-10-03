@@ -15,7 +15,9 @@ pub const Node = transposition.Entry.Flag;
 
 pub const Info = struct {
 	pos:	Position,
+
 	depth:	Depth,
+	nodes:	u64,
 
 	instance:	*const Instance,
 	options:	*const Options,
@@ -32,6 +34,7 @@ pub const Info = struct {
 	  alpha: evaluation.score.Int,
 	  beta:  evaluation.score.Int) evaluation.score.Int {
 		self.pos.doMove(rm.line.slice()[0]) catch std.debug.panic("invalid root move", .{});
+		@constCast(self.instance).incNodes();
 		defer self.pos.undoMove();
 
 		const a = alpha;
@@ -102,7 +105,6 @@ pub const Info = struct {
 
 		var d = depth;
 		if (d <= 0) {
-			_ = @atomicRmw(u64, @constCast(&self.instance.nodes), .Add, 1, .monotonic);
 			return self.qs(node, ply, a, b);
 		}
 
@@ -174,6 +176,7 @@ pub const Info = struct {
 		  and corr_eval >= b
 		  and stat_eval >= b) {
 			pos.doNull() catch std.debug.panic("invalid null move", .{});
+			@constCast(self.instance).incNodes();
 			defer pos.undoNull();
 
 			const nd = d - 4;
@@ -211,6 +214,7 @@ pub const Info = struct {
 			}
 
 			pos.doMove(m) catch continue;
+			@constCast(self.instance).incNodes();
 			defer pos.undoMove();
 			defer mi += 1;
 
@@ -342,6 +346,7 @@ pub const Info = struct {
 			}
 
 			pos.doMove(m) catch continue;
+			@constCast(self.instance).incNodes();
 			defer pos.undoMove();
 			defer mi += 1;
 
@@ -408,12 +413,7 @@ pub const Instance = struct {
 		}
 
 		// TODO: proper periodic tm
-		// const last_checked = self.options.last_checked;
 		const nodes = @atomicLoad(u64, &self.nodes, .monotonic);
-		// if (nodes - last_checked < 16) {
-			// return false;
-		// }
-		// @constCast(self).options.last_checked = nodes;
 
 		if (options.nodes) |lim| {
 			if (nodes >= lim) {
@@ -433,18 +433,36 @@ pub const Instance = struct {
 		return false;
 	}
 
-	fn printBest(self: Instance) !void {
+	fn incNodes(self: *Instance) void {
+		_ = @atomicRmw(u64, &self.nodes, .Add, 1, .monotonic);
+	}
+
+	fn printBest(self: *const Instance) !void {
+		if (self != &uci.instance) {
+			return;
+		}
+
 		const pv = self.infos[0].rms.slice()[0];
 		const m = pv.slice()[0];
 		const s = m.toString();
 		const l = m.toStringLen();
+
+		if (m == movegen.Move.zero) {
+			try io.writer.print("bestmove 0000\n", .{});
+			try io.writer.flush();
+			return;
+		}
 
 		try io.writer.print("bestmove {s}", .{s[0 .. l]});
 		try io.writer.print("\n", .{});
 		try io.writer.flush();
 	}
 
-	fn printInfo(self: Instance) !void {
+	fn printInfo(self: *const Instance) !void {
+		if (self != &uci.instance) {
+			return;
+		}
+
 		const info = &self.infos[0];
 		const depth = if (info.depth == 1) info.depth else info.depth - 1;
 		const nodes = @atomicLoad(u64, &self.nodes, .monotonic);
@@ -461,7 +479,24 @@ pub const Instance = struct {
 			const l = m.toStringLen();
 			try io.writer.print(" {s}", .{s[0 .. l]});
 		}
-		try io.writer.print(" score cp {d}", .{evaluation.score.toCentipawns(@intCast(pv.score))});
+		switch (pv.score) {
+			evaluation.score.lose ... evaluation.score.tblose => {
+				const s = pv.score - evaluation.score.tblose;
+				try io.writer.print(" score mate {d}", .{s});
+			},
+
+			evaluation.score.tbwin ... evaluation.score.win => {
+				const s = pv.score - evaluation.score.tbwin;
+				try io.writer.print(" score mate {d}", .{s});
+			},
+
+			evaluation.score.tblose + 1 ... evaluation.score.tbwin - 1 => {
+				const s: i32 = @intCast(pv.score);
+				try io.writer.print(" cp {d}", .{evaluation.score.toCentipawns(s)});
+			},
+
+			else => std.debug.panic("out of bounds", .{}),
+		}
 		try io.writer.print(" nps {d}", .{nodes * std.time.ns_per_s / time});
 		try io.writer.print("\n", .{});
 		try io.writer.flush();
@@ -520,11 +555,8 @@ pub const Instance = struct {
 
 		self.root_moves = movegen.Move.Root.List.init(self);
 		if (self.root_moves.slice().len == 0) {
-			if (self == &uci.instance) {
-				try io.writer.print("info score mate 0\n", .{});
-				try io.writer.print("bestmove 0000\n", .{});
-				try io.writer.flush();
-			}
+			try self.printInfo();
+			try self.printBest();
 			return;
 		}
 		for (self.root_moves.slice(), 0 ..) |*rm, i| {
@@ -558,18 +590,12 @@ pub const Instance = struct {
 			pool.waitAndWork(&wg);
 
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
-			if (self == &uci.instance) {
-				try self.printInfo();
-			}
-
+			try self.printInfo();
 			if (self.hardStop()) {
 				break;
 			}
 		}
-
-		if (self == &uci.instance) {
-			try self.printBest();
-		}
+		try self.printBest();
 	}
 
 	pub fn spawn(self: *Instance) !void {

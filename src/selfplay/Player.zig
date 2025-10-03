@@ -79,7 +79,7 @@ pub const Tourney = struct {
 			  wrapper, .{player});
 
 			self.started += 1;
-			std.debug.print("Games started: {d}\n", .{self.started});
+			std.debug.print("Game {d} started with fen '{s}'\n", .{self.started, opening});
 		}
 
 		for (openings.constSlice(), self.players) |_, *player| {

@@ -222,6 +222,7 @@ pub fn build(bld: *std.Build) !void {
 					.{ .name = "base", .module = Modules.array.get(.base) },
 				},
 				.target = bld.graph.host,
+				.pic = true,
 			}),
 			.name = name,
 		});
