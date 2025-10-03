@@ -37,14 +37,14 @@ const io = struct {
 	const writer = &std_writer.interface;
 };
 
-var instance: search.Instance = .{};
-
 pub const options = struct {
 	pub var frc = false;
 	pub var hash: usize = 64;
 	pub var threads: usize = 1;
 	pub var overhead: u64 = 10;
 };
+
+pub var instance = std.mem.zeroInit(search.Instance, .{});
 
 fn parseCommand(command: []const u8) !Command {
 	var tokens = std.mem.tokenizeAny(u8, command, &std.ascii.whitespace);

@@ -20,6 +20,8 @@ const Piece = enum(u4) {
 	b_king = 13,
 	b_castle = 14,
 
+	const Tag = std.meta.Tag(Piece);
+
 	fn fromSquare(pos: *const engine.Position, s: base.types.Square) Piece {
 		var iter = @constCast(pos).castles.iterator();
 
@@ -57,6 +59,14 @@ const Piece = enum(u4) {
 			else => @enumFromInt(0),
 		};
 	}
+
+	fn fromTag(i: Tag) Piece {
+		return @enumFromInt(i);
+	}
+
+	fn tag(self: Piece) Tag {
+		return @intFromEnum(self);
+	}
 };
 
 pub const Move = engine.movegen.Move;
@@ -78,8 +88,6 @@ pub const Self = extern struct {
 	result:	Result,
 	pad:	u8,
 
-	line:	bounded_array.BoundedArray(Move.Scored, 2048),
-
 	pub fn fromPosition(pos: *const engine.Position) Self {
 		var self = std.mem.zeroInit(Self, .{});
 
@@ -92,10 +100,10 @@ pub const Self = extern struct {
 		}) {
 			const p = Piece.fromSquare(pos, s);
 			self.pieces |= std.math.shl(u128, p.tag(),
-			  @as(usize, s.tag() * @typeInfo(Piece.Tag).int.bits));
+			  @as(usize, s.tag()) * @typeInfo(Piece.Tag).int.bits);
 		}
 
-		self.flag = if (self.ss.top().en_pas) |s| s.tag() else base.types.Square.cnt;
+		self.flag = if (pos.ss.top().en_pas) |s| s.tag() else base.types.Square.cnt;
 		if (pos.stm == .black) {
 			self.flag |= 1 << 7;
 		}

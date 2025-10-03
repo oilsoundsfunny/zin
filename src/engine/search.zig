@@ -23,7 +23,8 @@ pub const Info = struct {
 	ti:	usize,
 	tn:	usize,
 
-	rms:	bounded_array.BoundedArray(*movegen.Move.Root, 256),
+	rms:	bounded_array.BoundedArray(*movegen.Move.Root, 256)
+	  = bounded_array.BoundedArray(*movegen.Move.Root, 256).init(0) catch unreachable,
 	rmi:	usize,
 
 	fn aspiration(self: *Info,
@@ -390,6 +391,7 @@ pub const Info = struct {
 pub const Instance = struct {
 	infos:	[]Info = &.{},
 	options:	Options = std.mem.zeroInit(Options, .{}),
+	root_moves:	movegen.Move.Root.List,
 
 	nodes:	u64 = 0,
 	tbhits:	u64 = 0,
@@ -516,14 +518,16 @@ pub const Instance = struct {
 			info.tn = self.infos.len;
 		}
 
-		var root_moves = movegen.Move.Root.List.init(self);
-		if (root_moves.slice().len == 0) {
-			try io.writer.print("info score mate 0\n", .{});
-			try io.writer.print("bestmove 0000\n", .{});
-			try io.writer.flush();
+		self.root_moves = movegen.Move.Root.List.init(self);
+		if (self.root_moves.slice().len == 0) {
+			if (self == &uci.instance) {
+				try io.writer.print("info score mate 0\n", .{});
+				try io.writer.print("bestmove 0000\n", .{});
+				try io.writer.flush();
+			}
 			return;
 		}
-		for (root_moves.slice(), 0 ..) |*rm, i| {
+		for (self.root_moves.slice(), 0 ..) |*rm, i| {
 			const tn = self.infos.len;
 			const ti = i % tn;
 			const info = &self.infos[ti];
@@ -553,13 +557,19 @@ pub const Instance = struct {
 			}
 			pool.waitAndWork(&wg);
 
-			movegen.Move.Root.sortSlice(root_moves.slice());
-			try self.printInfo();
+			movegen.Move.Root.sortSlice(self.root_moves.slice());
+			if (self == &uci.instance) {
+				try self.printInfo();
+			}
+
 			if (self.hardStop()) {
 				break;
 			}
 		}
-		try self.printBest();
+
+		if (self == &uci.instance) {
+			try self.printBest();
+		}
 	}
 
 	pub fn spawn(self: *Instance) !void {

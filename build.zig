@@ -144,6 +144,9 @@ pub fn build(bld: *std.Build) !void {
 	const selfplay_b = bld.step("selfplay", "Build the selfplay manager");
 	const selfplay_m = bld.createModule(.{
 		.root_source_file = bld.path("src/selfplay/root.zig"),
+		.imports = &.{
+			.{.name = "bounded_array", .module = bounded_array.module("bounded_array")},
+		},
 		.target = target,
 		.optimize = optimize,
 		.link_libc = false,

@@ -7,25 +7,105 @@ const viri = @import("viri.zig");
 
 const Self = @This();
 
+err:	?anyerror,
+handle:	?std.Thread,
+
 instance:	engine.search.Instance,
+opening:	[]const u8 = &.{},
+
 data:	viri.Self,
+line:	bounded_array.BoundedArray(viri.Move.Scored, 2048),
 
-pub fn init() !Self {
-	var self = std.mem.zeroInit(Self, .{});
-	try self.instance.alloc(1);
-	return self;
-}
+pub const Tourney = struct {
+	players:	[]Self = &.{},
 
-pub fn match(self: *Self, fen: []const u8) !void {
+	started:	u64,
+	played:		u64,
+	max:	?u64,
+
+	pub fn alloc(n: usize, games: ?u64, nodes: u64) !Tourney {
+		var self = std.mem.zeroInit(Tourney, .{
+			.players = try base.heap.allocator.alloc(Self, n),
+			.max = games,
+		});
+
+		for (self.players) |*player| {
+			player.* = std.mem.zeroInit(Self, .{});
+
+			try player.instance.alloc(1);
+			player.instance.root_moves = std.mem.zeroInit(engine.movegen.Move.Root.List, .{});
+			player.instance.options = std.mem.zeroInit(engine.search.Options, .{
+				.infinite = false,
+				.nodes = nodes,
+			});
+		}
+
+		return self;
+	}
+
+	pub fn round(self: *Tourney, book: std.fs.File) !void {
+		var buffer = std.mem.zeroes([4096]u8);
+		var reader = book.reader(&buffer);
+
+		var openings: bounded_array.BoundedArray([]u8, 256) = .{
+			.buffer = .{&.{}} ** 256,
+			.len = 0,
+		};
+		while (reader.interface.takeDelimiterExclusive('\n')) |line| {
+			const copy = try base.heap.allocator.dupe(u8, line);
+			try openings.append(copy);
+
+			if (openings.constSlice().len >= self.players.len) {
+				break;
+			} else if (self.max) |max| {
+				if (openings.constSlice().len + self.started >= max) {
+					break;
+				}
+			}
+		} else |err| {
+			if (openings.constSlice().len == 0) {
+				return err;
+			}
+		}
+
+		defer for (openings.constSlice()) |opening| {
+			base.heap.allocator.free(opening);
+		};
+
+		for (openings.constSlice(), self.players) |opening, *player| {
+			player.err = null;
+			player.opening = opening;
+			player.handle = try std.Thread.spawn(.{ .allocator = base.heap.allocator },
+			  wrapper, .{player});
+
+			self.started += 1;
+			std.debug.print("Games started: {d}\n", .{self.started});
+		}
+
+		for (openings.constSlice(), self.players) |_, *player| {
+			std.Thread.join(player.handle orelse break);
+			if (player.err) |err| {
+				return err;
+			}
+
+			self.played += 1;
+			std.debug.print("Games played: {d}\n", .{self.played});
+		}
+	}
+};
+
+fn match(self: *Self) !void {
 	const infos = self.instance.infos;
-	const pos = &infos[0].pos;
+	const info = &infos[0];
 	std.debug.assert(infos.len == 1);
 
+	const fen = self.opening;
+	const pos = &info.pos;
 	try pos.parseFen(fen);
 	self.data = viri.Self.fromPosition(pos);
 
 	while (true) {
-		self.instance.think();
+		try self.instance.think();
 
 		const pv = &self.instance.root_moves.slice()[0];
 		const stm = pos.stm;
@@ -35,7 +115,7 @@ pub fn match(self: *Self, fen: []const u8) !void {
 			.white => pv.score,
 			.black => -pv.score,
 		};
-		self.data.line.append(.{ .move = m, .score = @intCast(s) })
+		self.line.append(.{ .move = m, .score = @intCast(s) })
 		  catch std.debug.panic("stack overflow", .{});
 
 		if (m == viri.Move.zero) {
@@ -49,4 +129,11 @@ pub fn match(self: *Self, fen: []const u8) !void {
 		}
 		try pos.doMove(m);
 	}
+}
+
+fn wrapper(self: *Self) !void {
+	return self.match() catch |err| blk: {
+		self.err = err;
+		break :blk err;
+	};
 }
