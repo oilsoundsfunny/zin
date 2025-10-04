@@ -8,6 +8,37 @@ const Player = @import("Player.zig");
 pub const author = "oilsoundsfunny";
 pub const name = "selfplay";
 
+pub const io = struct {
+	var inp: std.fs.File = undefined;
+	var out: std.fs.File = undefined;
+
+	var reader_buf = std.mem.zeroes([4096]u8);
+	var writer_buf = std.mem.zeroes([4096]u8);
+
+	var std_reader: std.fs.File.Reader = undefined;
+	var std_writer: std.fs.File.Writer = undefined;
+
+	pub var reader: *std.Io.Reader = undefined;
+	pub var writer: *std.Io.Writer = undefined;
+
+	fn deinit() void {
+		inp.close();
+		out.close();
+	}
+
+	fn init(inp_path: []const u8, out_path: []const u8) !void {
+		const cwd = std.fs.cwd();
+		inp = try cwd.openFile(inp_path, .{});
+		out = try cwd.createFile(out_path, .{});
+
+		std_reader = inp.reader(&reader_buf);
+		std_writer = out.writer(&writer_buf);
+
+		reader = &std_reader.interface;
+		writer = &std_writer.interface;
+	}
+};
+
 pub fn main() !void {
 	try base.init();
 	defer base.deinit();
@@ -58,13 +89,17 @@ pub fn main() !void {
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
 
-	const book = try std.fs
-	  .cwd()
-	  .openFile(book_path orelse std.process.fatal("missing arg '--book'", .{}), .{});
-	defer book.close();
+	try io.init(book_path orelse std.process.fatal("missing arg '--book'", .{}), "selfgen.data");
+	defer io.deinit();
 
-	var tourney = try Player.Tourney.alloc(4, games,
+	var tourney = try Player.Tourney.alloc(1, games,
 	  nodes orelse std.process.fatal("missing arg '--nodes'", .{}));
-	while (tourney.round(book)) {
-	} else |_| return;
+	while (true) {
+		try tourney.round();
+		if (tourney.max) |lim| {
+			if (tourney.played >= lim) {
+				break;
+			}
+		}
+	}
 }

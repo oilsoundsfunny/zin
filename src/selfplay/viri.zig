@@ -22,6 +22,8 @@ const Piece = enum(u4) {
 
 	const Tag = std.meta.Tag(Piece);
 
+	const tag_info = @typeInfo(Tag).int;
+
 	fn fromSquare(pos: *const engine.Position, s: base.types.Square) Piece {
 		var iter = @constCast(pos).castles.iterator();
 
@@ -80,15 +82,25 @@ pub const Result = enum(u8) {
 
 pub const Self = extern struct {
 	occ:	base.types.Square.Set,
-	pieces:	u128,
+	pieces0:	u64,
+	pieces1:	u64,
+
 	flag:	u8,
+
 	ply:	u8,
 	length:	u16,
 	score:	i16,
+
 	result:	Result,
 	pad:	u8,
 
 	pub fn fromPosition(pos: *const engine.Position) Self {
+		switch (@sizeOf(Self)) {
+			32 => {},
+			else => |s| @compileError(
+			  std.fmt.comptimePrint("expected size {d}, found size {d}", .{32, s})),
+		}
+
 		var self = std.mem.zeroInit(Self, .{});
 
 		var i: usize = 0;
@@ -98,9 +110,9 @@ pub const Self = extern struct {
 			i += 1;
 			occ.popLow();
 		}) {
-			const p = Piece.fromSquare(pos, s);
-			self.pieces |= std.math.shl(u128, p.tag(),
-			  @as(usize, s.tag()) * @typeInfo(Piece.Tag).int.bits);
+			const t = Piece.fromSquare(pos, s).tag();
+			const p = @as(*align(8) u128, @ptrCast(&self.pieces0));
+			p.* |= std.math.shl(u128, t, 128 - i * Piece.tag_info.bits);
 		}
 
 		self.flag = if (pos.ss.top().en_pas) |s| s.tag() else base.types.Square.cnt;

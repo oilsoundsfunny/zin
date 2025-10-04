@@ -62,17 +62,22 @@ const RootMoveList = struct {
 
 	pub fn init(instance: *search.Instance) RootMoveList {
 		const info = &instance.infos[0];
+		const pos = &info.pos;
 
 		var rml = std.mem.zeroInit(RootMoveList, .{});
 		var sml = std.mem.zeroInit(Move.Scored.List, .{});
 
-		_ = sml.genNoisy(&info.pos);
-		_ = sml.genQuiet(&info.pos);
+		if (pos.isDrawn()) {
+			return rml;
+		}
+
+		_ = sml.genNoisy(pos);
+		_ = sml.genQuiet(pos);
 
 		for (sml.slice()) |sm| {
 			const m = sm.move;
-			info.pos.doMove(m) catch continue;
-			defer info.pos.undoMove();
+			pos.doMove(m) catch continue;
+			defer pos.undoMove();
 
 			var rm: RootMove = .{
 				.score = evaluation.score.draw,

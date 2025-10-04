@@ -1,17 +1,18 @@
 const base = @import("base");
 const bounded_array = @import("bounded_array");
 const engine = @import("engine");
+const root = @import("root");
 const std = @import("std");
 
 const viri = @import("viri.zig");
 
 const Self = @This();
 
-err:	?anyerror,
-handle:	?std.Thread,
-
 instance:	engine.search.Instance,
 opening:	[]const u8 = &.{},
+
+err:	?anyerror,
+handle:	?std.Thread,
 
 data:	viri.Self,
 line:	bounded_array.BoundedArray(viri.Move.Scored, 2048),
@@ -40,56 +41,50 @@ pub const Tourney = struct {
 		return self;
 	}
 
-	pub fn round(self: *Tourney, book: std.fs.File) !void {
-		var buffer = std.mem.zeroes([4096]u8);
-		var reader = book.reader(&buffer);
+	pub fn round(self: *Tourney) !void {
+		var openings = bounded_array.BoundedArray([]const u8, 256).init(0) catch unreachable;
 
-		var openings: bounded_array.BoundedArray([]u8, 256) = .{
-			.buffer = .{&.{}} ** 256,
-			.len = 0,
-		};
-		while (reader.interface.takeDelimiterExclusive('\n')) |line| {
+		while (root.io.reader.takeDelimiterExclusive('\n')) |line| {
 			const copy = try base.heap.allocator.dupe(u8, line);
 			try openings.append(copy);
 
 			if (openings.constSlice().len >= self.players.len) {
 				break;
-			} else if (self.max) |max| {
-				if (openings.constSlice().len + self.started >= max) {
-					break;
-				}
 			}
-		} else |err| {
-			if (openings.constSlice().len == 0) {
-				return err;
-			}
+		} else |_| if (openings.constSlice().len == 0) {
+			return;
 		}
 
-		defer for (openings.constSlice()) |opening| {
+		defer while (openings.pop()) |opening| {
 			base.heap.allocator.free(opening);
 		};
 
 		for (openings.constSlice(), self.players) |opening, *player| {
-			player.err = null;
 			player.opening = opening;
 			player.handle = try std.Thread.spawn(.{ .allocator = base.heap.allocator },
 			  wrapper, .{player});
-
 			self.started += 1;
-			std.debug.print("Game {d} started with fen '{s}'\n", .{self.started, opening});
 		}
 
 		for (openings.constSlice(), self.players) |_, *player| {
-			std.Thread.join(player.handle orelse break);
+			std.Thread.join(player.handle orelse unreachable);
 			if (player.err) |err| {
 				return err;
 			}
-
 			self.played += 1;
-			std.debug.print("Games played: {d}\n", .{self.played});
+
+			try player.dump();
 		}
 	}
 };
+
+fn dump(self: *Self) !void {
+		try root.io.writer.writeAll(std.mem.asBytes(&self.data));
+		for (self.line.constSlice()) |sm| {
+			try root.io.writer.writeAll(std.mem.asBytes(&sm));
+		}
+		try root.io.writer.flush();
+}
 
 fn match(self: *Self) !void {
 	std.debug.assert(self.instance.infos.len == 1);
@@ -99,7 +94,9 @@ fn match(self: *Self) !void {
 	const fen = self.opening;
 	const pos = &info.pos;
 	try pos.parseFen(fen);
+
 	self.data = viri.Self.fromPosition(pos);
+	self.line = std.mem.zeroInit(@TypeOf(self.line), .{});
 
 	while (true) {
 		try self.instance.think();
@@ -129,6 +126,7 @@ fn match(self: *Self) !void {
 
 fn wrapper(self: *Self) !void {
 	return self.match() catch |err| blk: {
+		@breakpoint();
 		self.err = err;
 		break :blk err;
 	};
