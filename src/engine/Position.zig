@@ -66,13 +66,14 @@ pub const State = struct {
 	ptsc:	std.EnumArray(base.types.Color, evaluation.Pair),
 
 	pub const Stack = struct {
-		array:	bounded_array.BoundedArray(State, capacity) = .{
-			.buffer = .{std.mem.zeroInit(State, .{})} ** capacity,
+		array:	bounded_array.BoundedArray(State, capacity + offset) = .{
+			.buffer = .{std.mem.zeroInit(State, .{})} ** (capacity + offset),
 			.len = offset + 1,
 		},
 
-		const capacity = 1024;
 		const offset = 8;
+
+		pub const capacity = 1024 - offset;
 
 		pub fn push(self: *Stack, st: State) void {
 			self.array.append(st) catch std.debug.panic("stack overflow", .{});

@@ -71,7 +71,28 @@ const Piece = enum(u4) {
 	}
 };
 
-pub const Move = engine.movegen.Move;
+pub const Move = packed struct(u16) {
+	src:	base.types.Square = @enumFromInt(0),
+	dst:	base.types.Square = @enumFromInt(0),
+	info:	engine.movegen.Move.Info = .{.none = 0},
+	flag:	engine.movegen.Move.Flag = .none,
+
+	pub const Scored = extern struct {
+		move:	Move = .{},
+		score:	i16 = engine.evaluation.score.draw,
+	};
+
+	pub const zero: Move = .{};
+
+	pub fn fromMove(move: engine.movegen.Move) Move {
+		return .{
+			.flag = move.flag,
+			.info = if (move.flag == .promote) move.info else .{.none = 0},
+			.src = move.src,
+			.dst = move.dst,
+		};
+	}
+};
 
 pub const Result = enum(u8) {
 	black,
@@ -82,8 +103,7 @@ pub const Result = enum(u8) {
 
 pub const Self = extern struct {
 	occ:	base.types.Square.Set,
-	pieces0:	u64,
-	pieces1:	u64,
+	pieces:	u128 align(8),
 
 	flag:	u8,
 
@@ -106,13 +126,11 @@ pub const Self = extern struct {
 		var i: usize = 0;
 		var occ = pos.ptypeOcc(.all);
 		self.occ = occ;
-		while (occ.lowSquare()) |s| : ({
-			i += 1;
-			occ.popLow();
-		}) {
+		while (occ.lowSquare()) |s| : (occ.popLow()) {
 			const t = Piece.fromSquare(pos, s).tag();
-			const p = @as(*align(8) u128, @ptrCast(&self.pieces0));
-			p.* |= std.math.shl(u128, t, 128 - i * Piece.tag_info.bits);
+
+			i += 1;
+			self.pieces |= std.math.shl(u128, t, 128 - i * Piece.tag_info.bits);
 		}
 
 		self.flag = if (pos.ss.top().en_pas) |s| s.tag() else base.types.Square.cnt;

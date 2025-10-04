@@ -15,7 +15,7 @@ err:	?anyerror,
 handle:	?std.Thread,
 
 data:	viri.Self,
-line:	bounded_array.BoundedArray(viri.Move.Scored, 2048),
+line:	bounded_array.BoundedArray(viri.Move.Scored, engine.Position.State.Stack.capacity),
 
 pub const Tourney = struct {
 	players:	[]Self = &.{},
@@ -104,29 +104,40 @@ fn match(self: *Self) !void {
 		const pv = &self.instance.root_moves.slice()[0];
 		const stm = pos.stm;
 
-		const m = pv.line.slice()[0];
-		const s = switch (stm) {
+		const pvm = pv.line.slice()[0];
+		const m = viri.Move.fromMove(pvm);
+		const s = @as(i32, @intCast(switch (stm) {
 			.white => pv.score,
 			.black => -pv.score,
-		};
-		try self.line.append(.{ .move = m, .score = @intCast(s) });
+		}));
 
-		if (m == viri.Move.zero) {
+		const centipawns = engine.evaluation.score.toCentipawns(s);
+		const has_move = m != viri.Move.zero;
+		try self.line.append(.{
+			.move = m,
+			.score = @intCast(centipawns),
+		});
+
+		if (!has_move) {
 			self.data.result = switch (s) {
 				engine.evaluation.score.win  => .white,
 				engine.evaluation.score.draw => .draw,
 				engine.evaluation.score.lose => .black,
 				else => std.debug.panic("invalid bestscore", .{}),
 			};
+
+			_ = self.line.pop();
+			self.line.append(.{}) catch unreachable;
+
 			break;
 		}
-		try pos.doMove(m);
+
+		try pos.doMove(pvm);
 	}
 }
 
 fn wrapper(self: *Self) !void {
 	return self.match() catch |err| blk: {
-		@breakpoint();
 		self.err = err;
 		break :blk err;
 	};

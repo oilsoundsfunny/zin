@@ -52,6 +52,7 @@ pub fn main() !void {
 	var book_path: ?[]const u8 = null;
 	var games: ?u64 = null;
 	var nodes: ?u64 = null;
+	var threads: ?usize = null;
 
 	while (i < args.len) : (i += 1) {
 		const arg = args[i];
@@ -86,13 +87,23 @@ pub fn main() !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			nodes = try std.fmt.parseUnsigned(u64, args[i], 10);
+		} else if (std.mem.eql(u8, arg, "--threads")) {
+			i += 1;
+			if (i > args.len) {
+				std.process.fatal("expected arg after '{s}'", .{arg});
+			}
+
+			if (threads) |_| {
+				std.process.fatal("duplicated arg '{s}'", .{arg});
+			}
+			threads = try std.fmt.parseUnsigned(usize, args[i], 10);
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
 
-	try io.init(book_path orelse std.process.fatal("missing arg '--book'", .{}), "selfgen.data");
+	try io.init(book_path orelse std.process.fatal("missing arg '--book'", .{}), "baseline.data");
 	defer io.deinit();
 
-	var tourney = try Player.Tourney.alloc(1, games,
+	var tourney = try Player.Tourney.alloc(threads orelse 1, games,
 	  nodes orelse std.process.fatal("missing arg '--nodes'", .{}));
 	while (true) {
 		try tourney.round();
