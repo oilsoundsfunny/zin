@@ -121,7 +121,11 @@ pub const Self = extern struct {
 			  std.fmt.comptimePrint("expected size {d}, found size {d}", .{32, s})),
 		}
 
-		var self = std.mem.zeroInit(Self, .{});
+		var self = std.mem.zeroInit(Self, .{
+			.ply = pos.ss.top().rule50,
+		});
+		self.length = @truncate(pos.len);
+		self.score = @intCast(engine.evaluation.score.fromPosition(pos));
 
 		var i: usize = 0;
 		var occ = pos.ptypeOcc(.all);
