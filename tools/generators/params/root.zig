@@ -2,7 +2,6 @@ const base = @import("base");
 const std = @import("std");
 
 const lmr = @import("lmr.zig");
-const psqt = @import("psqt.zig");
 const ptsc = @import("ptsc.zig");
 
 pub const Pair = extern struct {
@@ -26,7 +25,6 @@ pub fn main() !void {
 	defer base.deinit();
 
 	var lmr_path: ?[]const u8 = null;
-	var psqt_path: ?[]const u8 = null;
 	var ptsc_path: ?[]const u8 = null;
 
 	const args = try std.process.argsAlloc(base.heap.allocator);
@@ -45,16 +43,6 @@ pub fn main() !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			lmr_path = args[i];
-		} else if (std.mem.eql(u8, arg, "--psqt-path")) {
-			i += 1;
-			if (i > args.len) {
-				std.process.fatal("expected arg after '{s}'", .{arg});
-			}
-
-			if (psqt_path) |_| {
-				std.process.fatal("duplicated arg '{s}'", .{arg});
-			}
-			psqt_path = args[i];
 		} else if (std.mem.eql(u8, arg, "--ptsc-path")) {
 			i += 1;
 			if (i > args.len) {
@@ -70,10 +58,6 @@ pub fn main() !void {
 
 	lmr.init();
 	try dump(lmr.tbl[0 ..], lmr_path orelse std.process.fatal("missing arg '--lmr-path'", .{}));
-
-	psqt.init();
-	try dump(psqt.tbl.values[0 ..],
-	  psqt_path orelse std.process.fatal("missing arg '--psqt-path'", .{}));
 
 	ptsc.init();
 	try dump(ptsc.tbl.values[0 ..],

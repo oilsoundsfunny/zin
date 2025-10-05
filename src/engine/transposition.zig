@@ -118,7 +118,7 @@ pub const Table = struct {
 		};
 
 		for (entries) |tte| {
-			if (tte.key != @as(@TypeOf(tte.key), @truncate(key))) {
+			if (tte.key != @as(@TypeOf(tte.key), @truncate(key)) or tte.flag == .none) {
 				continue;
 			}
 			return .{tte, true};

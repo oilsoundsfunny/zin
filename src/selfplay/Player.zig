@@ -60,10 +60,15 @@ pub const Tourney = struct {
 		};
 
 		for (openings.constSlice(), self.players) |opening, *player| {
+			defer self.started += 1;
+
+			player.err = null;
+			player.data = std.mem.zeroInit(@TypeOf(player.data), .{});
+			player.line = std.mem.zeroInit(@TypeOf(player.line), .{});
+
 			player.opening = opening;
 			player.handle = try std.Thread.spawn(.{ .allocator = base.heap.allocator },
 			  wrapper, .{player});
-			self.started += 1;
 		}
 
 		for (openings.constSlice(), self.players) |_, *player| {
@@ -71,8 +76,8 @@ pub const Tourney = struct {
 			if (player.err) |err| {
 				return err;
 			}
-			self.played += 1;
 
+			defer self.played += 1;
 			try player.dump();
 		}
 	}

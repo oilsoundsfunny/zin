@@ -1,6 +1,7 @@
 const base = @import("base");
 const bitboard = @import("bitboard");
 const bounded_array = @import("bounded_array");
+const nnue = @import("nnue");
 const params = @import("params");
 const std = @import("std");
 
@@ -60,10 +61,10 @@ pub const State = struct {
 
 	key:	zobrist.Int,
 
+	accumulators:	nnue.Accumulator.Pair = nnue.Accumulator.Pair.default,
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
-	psqt:	std.EnumArray(base.types.Color, evaluation.Pair),
-	ptsc:	std.EnumArray(base.types.Color, evaluation.Pair),
+	ptsc:	evaluation.Pair,
 
 	pub const Stack = struct {
 		array:	bounded_array.BoundedArray(State, capacity + offset) = .{
@@ -176,15 +177,10 @@ fn popSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 	const z = zobrist.psq(s, p);
 	self.ss.top().key ^= z;
 
-	const psqt = params.evaluation.psqt
-	  .getPtrConst(pt)
-	  .getPtrConst(if (c == .white) s else s.flipRank());
-	self.ss.top().psqt.getPtr(c).mg -= psqt.mg;
-	self.ss.top().psqt.getPtr(c).eg -= psqt.eg;
-
 	const ptsc = params.evaluation.ptsc.getPtrConst(pt);
-	self.ss.top().ptsc.getPtr(c).mg -= ptsc.mg;
-	self.ss.top().ptsc.getPtr(c).eg -= ptsc.eg;
+	self.ss.top().ptsc.mg -= if (c == .white) ptsc.mg else -ptsc.mg;
+	self.ss.top().ptsc.eg -= if (c == .white) ptsc.eg else -ptsc.eg;
+	self.ss.top().accumulators.pop(s, p);
 }
 
 fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.types.Piece) void {
@@ -205,15 +201,10 @@ fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 	const z = zobrist.psq(s, p);
 	self.ss.top().key ^= z;
 
-	const psqt = params.evaluation.psqt
-	  .getPtrConst(pt)
-	  .getPtrConst(if (c == .white) s else s.flipRank());
-	self.ss.top().psqt.getPtr(c).mg += psqt.mg;
-	self.ss.top().psqt.getPtr(c).eg += psqt.eg;
-
 	const ptsc = params.evaluation.ptsc.getPtrConst(pt);
-	self.ss.top().ptsc.getPtr(c).mg += ptsc.mg;
-	self.ss.top().ptsc.getPtr(c).eg += ptsc.eg;
+	self.ss.top().ptsc.mg -= if (c == .white) ptsc.mg else -ptsc.mg;
+	self.ss.top().ptsc.eg -= if (c == .white) ptsc.eg else -ptsc.eg;
+	self.ss.top().accumulators.set(s, p);
 }
 
 fn popCastle(self: *Self, c: base.types.Castle) void {
@@ -411,7 +402,8 @@ pub fn doNull(self: *Self) MoveError!void {
 		  ^ zobrist.stm()
 		  ^ zobrist.enp(self.ss.top().en_pas),
 
-		.psqt = self.ss.top().psqt,
+		// .corr_eval = self.ss.top().corr_eval,
+		// .stat_eval = self.ss.top().stat_eval,
 		.ptsc = self.ss.top().ptsc,
 	}));
 

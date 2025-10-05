@@ -35,6 +35,13 @@ pub const Pair = struct {
 	white:	Self,
 	black:	Self,
 
+	pub const default = init: {
+		var pair = std.mem.zeroInit(Pair, .{});
+		@memcpy(std.mem.asBytes(&pair.white.values), std.mem.sliceAsBytes(root.net.hl0_b[0 ..]));
+		@memcpy(std.mem.asBytes(&pair.black.values), std.mem.sliceAsBytes(root.net.hl0_b[0 ..]));
+		break :init pair;
+	};
+
 	pub fn pop(self: *Pair, s: base.types.Square, p: base.types.Piece) void {
 		const vecs = std.EnumArray(base.types.Color, *align(64) Vec).init(.{
 			.white = &self.white.values,

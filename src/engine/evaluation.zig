@@ -66,22 +66,9 @@ pub const score = struct {
 	pub const toCentipawns = base.defs.score.toCentipawns;
 
 	pub fn fromPosition(pos: *const Position) Int {
-		// const inferred = nnue.net.infer(&pos.ss.top().accumulators);
-		// return std.math.clamp(inferred, score.tblose, score.tbwin);
+		const inferred = nnue.net.infer(&pos.ss.top().accumulators);
 
-		const stm = pos.stm;
-		const psqt = &pos.ss.top().psqt;
-		const ptsc = &pos.ss.top().ptsc;
-
-		const accumulator: Pair = .{
-			.mg = psqt.getPtrConst(stm).mg - psqt.getPtrConst(stm.flip()).mg
-			 + ptsc.getPtrConst(stm).mg - ptsc.getPtrConst(stm.flip()).mg,
-			.eg = psqt.getPtrConst(stm).eg - psqt.getPtrConst(stm.flip()).eg
-			 + ptsc.getPtrConst(stm).eg - ptsc.getPtrConst(stm.flip()).eg,
-		};
-		const game_phase = phase.fromPosition(pos);
-
-		var ev = accumulator.taper(game_phase) + 16;
+		var ev = inferred + 16;
 		ev *= 100 - pos.ss.top().rule50;
 		ev = @divTrunc(ev, 100);
 		ev = std.math.clamp(ev, score.tblose, score.tbwin);
