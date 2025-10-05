@@ -44,6 +44,7 @@ pub fn main() !void {
 	defer base.deinit();
 
 	try engine.init();
+	engine.uci.options.frc = true;
 	defer engine.deinit();
 
 	const args = try std.process.argsAlloc(base.heap.allocator);
