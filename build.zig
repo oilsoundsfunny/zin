@@ -29,7 +29,6 @@ const Generators = enum {
 
 		.params = &.{
 			.{ "--lmr-path", "lmr.bin" },
-			.{ "--psqt-path", "psqt.bin" },
 			.{ "--ptsc-path", "ptsc.bin" },
 		},
 	});
@@ -240,6 +239,7 @@ pub fn build(bld: *std.Build) !void {
 		}
 	}
 
+	// by-module dep resolution
 	for (Modules.values) |m| {
 		const deps = Modules.dependencies.get(m);
 		const module = Modules.array.get(m);
@@ -252,6 +252,14 @@ pub fn build(bld: *std.Build) !void {
 			module.addImport(dep_name, dep_module);
 			perft_module.addImport(dep_name, dep_module);
 			test_module.addImport(dep_name, dep_module);
+		}
+
+		// unautomata(-yet) cases
+		switch (m) {
+			.nnue => module.addAnonymousImport("embed.nn", .{
+				.root_source_file = bld.path("zin-nets/default.nnue"),
+			}),
+			else => {},
 		}
 	}
 
