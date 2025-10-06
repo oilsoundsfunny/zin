@@ -60,15 +60,11 @@ pub const Tourney = struct {
 		};
 
 		for (openings.constSlice(), self.players) |opening, *player| {
-			defer self.started += 1;
-
 			player.err = null;
-			player.data = std.mem.zeroInit(@TypeOf(player.data), .{});
-			player.line = std.mem.zeroInit(@TypeOf(player.line), .{});
-
 			player.opening = opening;
 			player.handle = try std.Thread.spawn(.{ .allocator = base.heap.allocator },
 			  wrapper, .{player});
+			defer self.started += 1;
 		}
 
 		for (openings.constSlice(), self.players) |_, *player| {
@@ -107,9 +103,9 @@ fn match(self: *Self) !void {
 		try self.instance.think();
 
 		const pv = &self.instance.root_moves.slice()[0];
+		const pvm = pv.line.slice()[0];
 		const stm = pos.stm;
 
-		const pvm = pv.line.slice()[0];
 		const m = viri.Move.fromMove(pvm);
 		const s = @as(i32, @intCast(switch (stm) {
 			.white => pv.score,
@@ -117,7 +113,7 @@ fn match(self: *Self) !void {
 		}));
 
 		const centipawns = engine.evaluation.score.toCentipawns(s);
-		const has_move = m != viri.Move.zero;
+		const has_move = pvm != engine.movegen.Move.zero;
 		try self.line.append(.{
 			.move = m,
 			.score = @intCast(centipawns),
@@ -131,8 +127,8 @@ fn match(self: *Self) !void {
 				else => std.debug.panic("invalid bestscore", .{}),
 			};
 
-			_ = self.line.pop();
-			self.line.append(.{}) catch unreachable;
+			_ = self.line.pop() orelse std.debug.panic("stack underflow", .{});
+			try self.line.append(.{});
 
 			break;
 		}

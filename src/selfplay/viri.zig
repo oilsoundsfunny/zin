@@ -85,6 +85,15 @@ pub const Move = packed struct(u16) {
 	pub const zero: Move = .{};
 
 	pub fn fromMove(move: engine.movegen.Move) Move {
+		if (@sizeOf(Move) != 2) {
+			const s = @sizeOf(Move);
+			@compileError(std.fmt.comptimePrint("expected size {d}, found size {d}", .{2, s}));
+		}
+		if (@sizeOf(Scored) != 4) {
+			const s = @sizeOf(Scored);
+			@compileError(std.fmt.comptimePrint("expected size {d}, found size {d}", .{4, s}));
+		}
+
 		return .{
 			.flag = move.flag,
 			.info = if (move.flag == .promote) move.info else .{.none = 0},
@@ -115,26 +124,26 @@ pub const Self = extern struct {
 	pad:	u8,
 
 	pub fn fromPosition(pos: *const engine.Position) Self {
-		switch (@sizeOf(Self)) {
-			32 => {},
-			else => |s| @compileError(
-			  std.fmt.comptimePrint("expected size {d}, found size {d}", .{32, s})),
+		if (@sizeOf(Self) != 32) {
+			const s = @sizeOf(Self);
+			@compileError(std.fmt.comptimePrint("expected size {d}, found size {d}", .{32, s}));
 		}
 
-		var self = std.mem.zeroInit(Self, .{
-			.ply = pos.ss.top().rule50,
-		});
+		var self = std.mem.zeroInit(Self, .{});
+		self.ply = pos.ss.top().rule50;
 		self.length = @truncate(pos.len);
 		self.score = @intCast(engine.evaluation.score.fromPosition(pos));
 
 		var i: usize = 0;
 		var occ = pos.ptypeOcc(.all);
 		self.occ = occ;
-		while (occ.lowSquare()) |s| : (occ.popLow()) {
+		while (occ.lowSquare()) |s| : ({
+			i += 1;
+			occ.popLow();
+		}) {
 			const t = Piece.fromSquare(pos, s).tag();
 
-			i += 1;
-			self.pieces |= std.math.shl(u128, t, 128 - i * Piece.tag_info.bits);
+			self.pieces |= std.math.shl(u128, t, i * Piece.tag_info.bits);
 		}
 
 		self.flag = if (pos.ss.top().en_pas) |s| s.tag() else base.types.Square.cnt;
