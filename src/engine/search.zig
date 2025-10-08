@@ -135,7 +135,12 @@ pub const Info = struct {
 			pos.ss.top().corr_eval = evaluation.score.none;
 		} else {
 			pos.ss.top().stat_eval = if (tth) tte.eval else evaluation.score.fromPosition(pos);
+			pos.ss.top().stat_eval = std.math.clamp(pos.ss.top().stat_eval,
+			  evaluation.score.tblose, evaluation.score.tbwin);
+
 			pos.ss.top().corr_eval = pos.ss.top().stat_eval;
+			pos.ss.top().corr_eval = std.math.clamp(pos.ss.top().corr_eval,
+			  evaluation.score.tblose, evaluation.score.tbwin);
 		}
 
 		const corr_eval = pos.ss.top().corr_eval;
@@ -299,7 +304,12 @@ pub const Info = struct {
 			pos.ss.top().corr_eval = evaluation.score.none;
 		} else {
 			pos.ss.top().stat_eval = if (tth) tte.eval else evaluation.score.fromPosition(pos);
+			pos.ss.top().stat_eval = std.math.clamp(pos.ss.top().stat_eval,
+			  evaluation.score.tblose, evaluation.score.tbwin);
+
 			pos.ss.top().corr_eval = pos.ss.top().stat_eval;
+			pos.ss.top().corr_eval = std.math.clamp(pos.ss.top().corr_eval,
+			  evaluation.score.tblose, evaluation.score.tbwin);
 		}
 
 		const corr_eval = pos.ss.top().corr_eval;

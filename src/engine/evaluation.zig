@@ -1,11 +1,11 @@
 const base = @import("base");
 const bitboard = @import("bitboard");
-const nnue = @import("nnue");
 const params = @import("params");
 const std = @import("std");
 
 const Position = @import("Position.zig");
 
+// TODO: weigh in more evaluation features
 const Features = struct {
 };
 
@@ -66,9 +66,6 @@ pub const score = struct {
 	pub const toCentipawns = base.defs.score.toCentipawns;
 
 	pub fn fromPosition(pos: *const Position) Int {
-		// const inferred = nnue.net.infer(&pos.ss.top().accumulators);
-		// return std.math.clamp(inferred, score.tblose, score.tbwin);
-
 		const stm = pos.stm;
 		const psqt = &pos.ss.top().psqt;
 		const ptsc = &pos.ss.top().ptsc;

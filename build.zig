@@ -46,14 +46,12 @@ const Modules = enum {
 	base,
 	bitboard,
 	engine,
-	nnue,
 	params,
 
 	const dependencies = std.EnumArray(Modules, []const Modules).init(.{
 		.base = &.{},
 		.bitboard = &.{.base},
-		.engine = &.{.base, .bitboard, .nnue, .params},
-		.nnue = &.{.base},
+		.engine = &.{.base, .bitboard, .params},
 		.params = &.{.base, .bitboard, .engine},
 	});
 
@@ -61,7 +59,6 @@ const Modules = enum {
 		.base = "base",
 		.bitboard = "bitboard",
 		.engine = "engine",
-		.nnue = "nnue",
 		.params = "params",
 	});
 
@@ -69,7 +66,6 @@ const Modules = enum {
 		.base = "src/base/root.zig",
 		.bitboard = "src/bitboard/root.zig",
 		.engine = "src/engine/root.zig",
-		.nnue = "src/nnue/root.zig",
 		.params = "src/params/root.zig",
 	});
 
@@ -77,7 +73,6 @@ const Modules = enum {
 		.base = "tests/base/root.zig",
 		.bitboard = "tests/bitboard/root.zig",
 		.engine = "tests/engine/root.zig",
-		.nnue = "tests/nnue/root.zig",
 		.params = "tests/params/root.zig",
 	});
 
