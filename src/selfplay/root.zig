@@ -51,6 +51,7 @@ pub fn main() !void {
 	var i: usize = 1;
 
 	var book_path: ?[]const u8 = null;
+	var data_path: ?[]const u8 = null;
 	var games: ?u64 = null;
 	var nodes: ?u64 = null;
 	var threads: ?usize = null;
@@ -68,6 +69,16 @@ pub fn main() !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			book_path = args[i];
+		} else if (std.mem.eql(u8, arg, "--data")) {
+			i += 1;
+			if (i > args.len) {
+				std.process.fatal("expected arg after '{s}'", .{arg});
+			}
+
+			if (data_path) |_| {
+				std.process.fatal("duplicated arg '{s}'", .{arg});
+			}
+			data_path = args[i];
 		} else if (std.mem.eql(u8, arg, "--games")) {
 			i += 1;
 			if (i > args.len) {
@@ -101,17 +112,20 @@ pub fn main() !void {
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
 
-	try io.init(book_path orelse std.process.fatal("missing arg '--book'", .{}), "baseline.data");
+	try io.init(book_path orelse std.process.fatal("missing arg '--book'", .{}),
+	  data_path orelse std.process.fatal("missing arg '--data'", .{}));
 	defer io.deinit();
 
 	var tourney = try Player.Tourney.alloc(threads orelse 1, games,
 	  nodes orelse std.process.fatal("missing arg '--nodes'", .{}));
-	while (true) {
-		try tourney.round();
+	while (tourney.round()) {
 		if (tourney.max) |lim| {
 			if (tourney.played >= lim) {
 				break;
 			}
 		}
+	} else |err| switch (err) {
+		error.EndOfStream => {},
+		else => return err,
 	}
 }

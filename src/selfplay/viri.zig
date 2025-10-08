@@ -121,20 +121,20 @@ pub const Self = extern struct {
 			  std.fmt.comptimePrint("expected size {d}, found size {d}", .{32, s})),
 		}
 
-		var self = std.mem.zeroInit(Self, .{
-			.ply = pos.ss.top().rule50,
-		});
+		var self = std.mem.zeroInit(Self, .{});
+		self.ply = pos.ss.top().rule50;
 		self.length = @truncate(pos.len);
 		self.score = @intCast(engine.evaluation.score.fromPosition(pos));
 
 		var i: usize = 0;
 		var occ = pos.ptypeOcc(.all);
 		self.occ = occ;
-		while (occ.lowSquare()) |s| : (occ.popLow()) {
-			const t = Piece.fromSquare(pos, s).tag();
-
+		while (occ.lowSquare()) |s| : ({
 			i += 1;
-			self.pieces |= std.math.shl(u128, t, 128 - i * Piece.tag_info.bits);
+			occ.popLow();
+		}) {
+			const t = Piece.fromSquare(pos, s).tag();
+			self.pieces |= std.math.shl(u128, t, i * Piece.tag_info.bits);
 		}
 
 		self.flag = if (pos.ss.top().en_pas) |s| s.tag() else base.types.Square.cnt;

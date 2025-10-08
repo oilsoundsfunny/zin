@@ -51,8 +51,8 @@ pub const Tourney = struct {
 			if (openings.constSlice().len >= self.players.len) {
 				break;
 			}
-		} else |_| if (openings.constSlice().len == 0) {
-			return;
+		} else |err| if (openings.constSlice().len == 0) {
+			return err;
 		}
 
 		defer while (openings.pop()) |opening| {
@@ -63,7 +63,7 @@ pub const Tourney = struct {
 			player.opening = opening;
 			player.handle = try std.Thread.spawn(.{ .allocator = base.heap.allocator },
 			  wrapper, .{player});
-			self.started += 1;
+			defer self.started += 1;
 		}
 
 		for (openings.constSlice(), self.players) |_, *player| {
@@ -71,8 +71,8 @@ pub const Tourney = struct {
 			if (player.err) |err| {
 				return err;
 			}
-			self.played += 1;
 
+			defer self.played += 1;
 			try player.dump();
 		}
 	}
@@ -98,13 +98,15 @@ fn match(self: *Self) !void {
 	self.data = viri.Self.fromPosition(pos);
 	self.line = std.mem.zeroInit(@TypeOf(self.line), .{});
 
+
 	while (true) {
+		self.instance.root_moves = std.mem.zeroInit(@TypeOf(self.instance.root_moves), .{});
 		try self.instance.think();
 
 		const pv = &self.instance.root_moves.slice()[0];
+		const pvm = pv.line.slice()[0];
 		const stm = pos.stm;
 
-		const pvm = pv.line.slice()[0];
 		const m = viri.Move.fromMove(pvm);
 		const s = @as(i32, @intCast(switch (stm) {
 			.white => pv.score,
@@ -112,7 +114,7 @@ fn match(self: *Self) !void {
 		}));
 
 		const centipawns = engine.evaluation.score.toCentipawns(s);
-		const has_move = m != viri.Move.zero;
+		const has_move = pvm != engine.movegen.Move.zero;
 		try self.line.append(.{
 			.move = m,
 			.score = @intCast(centipawns),
@@ -137,6 +139,7 @@ fn match(self: *Self) !void {
 }
 
 fn wrapper(self: *Self) !void {
+	self.err = null;
 	return self.match() catch |err| blk: {
 		self.err = err;
 		break :blk err;
