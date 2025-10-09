@@ -8,6 +8,33 @@ const Player = @import("Player.zig");
 pub const author = "oilsoundsfunny";
 pub const name = "selfplay";
 
+pub const io = struct {
+	var book: std.fs.File = undefined;
+	var data: std.fs.File = undefined;
+
+	var reader_buf align(64) = std.mem.zeroes([4096]u8);
+	var writer_buf align(64) = std.mem.zeroes([4096]u8);
+
+	pub var book_reader: std.fs.File.Reader = undefined;
+	pub var data_writer: std.fs.File.Writer = undefined;
+
+	pub var reader_mtx: std.Thread.Mutex = .{};
+	pub var writer_mtx: std.Thread.Mutex = .{};
+
+	pub fn deinit() void {
+		book.close();
+		data.close();
+	}
+
+	pub fn init(book_path: []const u8, data_path: []const u8) !void {
+		book = try std.fs.cwd().openFile(book_path, .{});
+		data = try std.fs.cwd().createFile(data_path, .{});
+
+		book_reader = book.reader(&reader_buf);
+		data_writer = data.writer(&writer_buf);
+	}
+};
+
 pub fn main() !void {
 	try base.init();
 	defer base.deinit();
@@ -19,8 +46,8 @@ pub fn main() !void {
 	const args = try std.process.argsAlloc(base.heap.allocator);
 	var i: usize = 1;
 
-	var book_paths = try bounded_array.BoundedArray([]const u8, 256).init(0);
-	var data_paths = try bounded_array.BoundedArray([]const u8, 256).init(0);
+	var book_path: ?[]const u8 = null;
+	var data_path: ?[]const u8 = null;
 	var games: ?u64 = null;
 	var nodes: ?u64 = null;
 	var threads: ?usize = null;
@@ -34,14 +61,20 @@ pub fn main() !void {
 				std.process.fatal("expected arg after '{s}'", .{arg});
 			}
 
-			try book_paths.append(args[i]);
+			if (book_path) |_| {
+				std.process.fatal("duplicated arg '{s}'", .{arg});
+			}
+			book_path = args[i];
 		} else if (std.mem.eql(u8, arg, "--data")) {
 			i += 1;
 			if (i > args.len) {
 				std.process.fatal("expected arg after '{s}'", .{arg});
 			}
 
-			try data_paths.append(args[i]);
+			if (data_path) |_| {
+				std.process.fatal("duplicated arg '{s}'", .{arg});
+			}
+			data_path = args[i];
 		} else if (std.mem.eql(u8, arg, "--games")) {
 			i += 1;
 			if (i > args.len) {
@@ -75,19 +108,11 @@ pub fn main() !void {
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
 
-	threads = threads orelse 1;
-	if (book_paths.len < threads.?) {
-		std.process.fatal("too few books", .{});
-	} else if (book_paths.len > threads.?) {
-		std.process.fatal("too many books", .{});
-	}
-	if (data_paths.len < threads.?) {
-		std.process.fatal("too few files", .{});
-	} else if (data_paths.len > threads.?) {
-		std.process.fatal("too many files", .{});
-	}
+	try io.init(book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}),
+	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}));
+	defer io.deinit();
 
-	var tourney = try Player.Tourney.alloc(threads.?, book_paths, data_paths,
+	var tourney = try Player.Tourney.alloc(threads orelse 1,
 	  games, nodes orelse std.process.fatal("missing arg '--nodes'", .{}));
 	try tourney.start();
 }
