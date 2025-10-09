@@ -525,9 +525,9 @@ pub const Instance = struct {
 	}
 
 	pub fn think(self: *Instance) !void {
-		self.nodes = .{ .raw = 0 };
-		self.tbhits = .{ .raw = 0 };
-		self.tthits = .{ .raw = 0 };
+		self.nodes = @TypeOf(self.nodes).init(0);
+		self.tbhits = @TypeOf(self.tbhits).init(0);
+		self.tthits = @TypeOf(self.tthits).init(0);
 		self.options.is_searching.store(true, .monotonic);
 		defer self.options.is_searching.store(false, .monotonic);
 
