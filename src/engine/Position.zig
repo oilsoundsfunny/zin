@@ -61,7 +61,7 @@ pub const State = struct {
 
 	key:	zobrist.Int,
 
-	accumulators:	nnue.Accumulator.Pair = nnue.Accumulator.Pair.default,
+	accumulators:	nnue.Accumulator.Pair = .{},
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
 	ptsc:	evaluation.Pair,
@@ -718,75 +718,70 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 	const sp = self.getSquare(s);
 	const dp = self.getSquare(d);
 
-	switch (move.flag) {
-		.none => {},
-
-		.en_passant => return eblk: {
-			const enp = self.ss.top().en_pas orelse break :eblk false;
-			if (d != enp or !bitboard.pAtk(s.toSet(), stm).get(enp)) {
-				break :eblk false;
+	return switch (move.flag) {
+		.en_passant => en_passant: {
+			if (sp != base.types.Piece.init(stm, .pawn)) {
+				break :en_passant false;
+			}
+			if (dp != .nul) {
+				break :en_passant false;
 			}
 
-			const our_pawn = base.types.Piece.init(stm, .pawn);
-			const their_pawn = base.types.Piece.init(stm.flip(), .pawn);
-			const enp_target = enp.shift(stm.forward().flip(), 1);
-
-			if (sp != our_pawn or dp != .nul or self.getSquare(enp_target) != their_pawn) {
-				break :eblk false;
+			const enp = self.ss.top().en_pas orelse return false;
+			if (self.getSquare(enp) != base.types.Piece.init(stm.flip(), .pawn)) {
+				break :en_passant false;
 			}
 
-			break :eblk true;
+			if (!bitboard.pAtk(s.toSet(), stm).get(enp)) {
+				break :en_passant false;
+			}
+
+			break :en_passant true;
 		},
 
-		.promote => {
-			const our_pawn = base.types.Piece.init(stm, .pawn);
-			if (sp != our_pawn or d.rank() != stm.promotionRank()) {
-				return false;
-			}
-		},
-
-		.castle => return cblk: {
-			const our_king = base.types.Piece.init(stm, .king);
+		.castle => castle: {
+			const info = self.castles.getPtrConst(move.info.castle) orelse return false;
 			const our_rook = base.types.Piece.init(stm, .rook);
+			const our_king = base.types.Piece.init(stm, .king);
 
-			if (sp != our_king
-			  or (!uci.options.frc and dp != .nul)
-			  or ( uci.options.frc and dp != our_rook)) {
-				break :cblk false;
-			}
-
-			const cas = move.info.castle;
-			const info = self.castles.getPtrConst(cas) orelse break :cblk false;
-
-			if (s != info.ks
+			const illegal = !self.ss.top().castle.get(move.info.castle)
+			  or s != info.ks or sp != our_king
+			  or (uci.options.frc and d != info.rs)
+			  or (uci.options.frc and dp != our_rook)
 			  or (!uci.options.frc and d != info.kd)
-			  or ( uci.options.frc and d != info.rs)
-			  or (self.getSquare(info.kd) != our_king and self.getSquare(info.kd) != our_rook)
-			  or (self.getSquare(info.rd) != our_king and self.getSquare(info.rd) != our_rook)) {
-				break :cblk false;
+			  or (!uci.options.frc and dp != .nul);
+			break :castle !illegal;
+		},
+
+		.promote => promote: {
+			const noisy = bitboard.pAtk(s.toSet(), stm).bwa(self.colorOcc(stm.flip()));
+			const quiet = base.types.Square.Set.nul
+			  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
+			  .bwo(bitboard.pPush2(s.toSet(), occ, stm));
+
+			break :promote sp == base.types.Piece.init(stm, .pawn)
+			  and d.rank() == stm.promotionRank()
+			  and (dp.ptype() == .nul and quiet.get(d))
+			  and (dp.ptype() != .nul and noisy.get(d));
+		},
+
+		else => none: {
+			if (sp.color() != stm or sp.ptype() == .nul) {
+				break :none false;
 			}
 
-			break :cblk true;
+			const noisy = switch (sp.ptype()) {
+				.pawn => bitboard.pAtk(s.toSet(), stm).bwa(self.colorOcc(stm.flip())),
+				else => |pt| bitboard.ptAtk(pt, s, occ).bwa(self.colorOcc(stm.flip())),
+			};
+			const quiet = switch (sp.ptype()) {
+				.pawn => base.types.Square.Set.nul
+				  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
+				  .bwo(bitboard.pPush2(s.toSet(), occ, stm)),
+				else => |pt| bitboard.ptAtk(pt, s, occ).bwa(occ.flip()),
+			};
+			break :none (dp.ptype() == .nul and quiet.get(d))
+			  or (dp.ptype() != .nul and noisy.get(d));
 		},
-	}
-
-	if (sp.color() != stm or sp.ptype() == .nul) {
-		return false;
-	}
-
-	if (dp.color() == stm and dp.ptype() != .nul) {
-		return false;
-	}
-
-	const atk = switch (sp.ptype()) {
-		.pawn => if (dp.ptype() != .nul) bitboard.pAtk(s.toSet(), stm)
-		  else bitboard.pPush1(s.toSet(), occ, stm).bwo(bitboard.pPush2(s.toSet(), occ, stm)),
-		.knight, .bishop, .rook, .queen, .king => |pt| bitboard.ptAtk(pt, s, occ),
-		else => std.debug.panic("invalid sp.ptype()", .{}),
 	};
-	if (!atk.get(d)) {
-		return false;
-	}
-
-	return true;
 }
