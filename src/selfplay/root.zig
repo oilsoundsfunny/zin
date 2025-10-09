@@ -12,8 +12,8 @@ pub const io = struct {
 	var book: std.fs.File = undefined;
 	var data: std.fs.File = undefined;
 
-	var reader_buf align(64) = std.mem.zeroes([4096]u8);
-	var writer_buf align(64) = std.mem.zeroes([4096]u8);
+	var reader_buf align(64) = std.mem.zeroes([65536]u8);
+	var writer_buf align(64) = std.mem.zeroes([65536]u8);
 
 	pub var book_reader: std.fs.File.Reader = undefined;
 	pub var data_writer: std.fs.File.Writer = undefined;
