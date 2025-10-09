@@ -35,7 +35,7 @@ pub const Tourney = struct {
 	  data_paths: bounded_array.BoundedArray([]const u8, 256),
 	  games: ?u64, nodes: u64) !Tourney {
 		var self: Tourney = .{
-			.players = try base.heap.allocator.alloc(Self, n),
+			.players = try base.heap.allocator.alignedAlloc(Self, .@"64", n),
 		};
 
 		std.debug.assert(book_paths.len == n);
@@ -95,6 +95,7 @@ fn playout(self: *Self, fen: []const u8) !void {
 	const pos = &info.pos;
 	try pos.parseFen(fen);
 
+	self.instance.root_moves = std.mem.zeroInit(@TypeOf(self.instance.root_moves), .{});
 	self.data = viri.Self.fromPosition(pos);
 	try self.line.resize(0);
 

@@ -571,26 +571,38 @@ pub const Instance = struct {
 			info.rmi = 0;
 		}
 
+		const is_threaded = self.infos[0].tn > 1;
 		var pool: std.Thread.Pool = undefined;
 		var wg: std.Thread.WaitGroup = .{};
 
-		try pool.init(.{
-			.allocator = base.heap.allocator,
-			.n_jobs = self.infos[0].tn,
-		});
-		defer pool.deinit();
+		if (is_threaded) {
+			try pool.init(.{
+				.allocator = base.heap.allocator,
+				.n_jobs = self.infos[0].tn,
+			});
+		}
+		defer if (is_threaded) {
+			pool.deinit();
+		};
 
 		const max_d: u8 = @intCast(self.options.depth orelse 240);
 		for (1 .. max_d + 1) |d| {
-			wg.reset();
 			for (self.infos) |*info| {
 				info.depth = 0;
 				info.depth += @intCast(d);
 				info.depth += @intFromBool(d > 1 and info.ti % 2 == 0);
 
-				pool.spawnWg(&wg, Info.think, .{info});
+				if (is_threaded) {
+					pool.spawnWg(&wg, Info.think, .{info});
+				} else {
+					info.think();
+				}
 			}
-			pool.waitAndWork(&wg);
+
+			if (is_threaded) {
+				pool.waitAndWork(&wg);
+				wg.reset();
+			}
 
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
 			try self.printInfo();
