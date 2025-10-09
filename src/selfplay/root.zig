@@ -21,12 +21,12 @@ pub const io = struct {
 	pub var reader_mtx: std.Thread.Mutex = .{};
 	pub var writer_mtx: std.Thread.Mutex = .{};
 
-	pub fn deinit() void {
+	fn deinit() void {
 		book.close();
 		data.close();
 	}
 
-	pub fn init(book_path: []const u8, data_path: []const u8) !void {
+	fn init(book_path: []const u8, data_path: []const u8) !void {
 		book = try std.fs.cwd().openFile(book_path, .{});
 		data = try std.fs.cwd().createFile(data_path, .{});
 
