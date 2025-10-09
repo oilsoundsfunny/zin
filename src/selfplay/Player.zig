@@ -11,8 +11,9 @@ const Self = @This();
 instance:	engine.search.Instance,
 opening:	[]const u8 = &.{},
 
-err:	?anyerror,
-handle:	?std.Thread,
+games:	?usize,
+played:	 usize,
+index:	 usize,
 
 data:	viri.Self,
 line:	bounded_array.BoundedArray(viri.Move.Scored, engine.Position.State.Stack.capacity),
@@ -20,18 +21,16 @@ line:	bounded_array.BoundedArray(viri.Move.Scored, engine.Position.State.Stack.c
 pub const Tourney = struct {
 	players:	[]Self = &.{},
 
-	started:	u64,
-	played:		u64,
-	max:	?u64,
-
 	pub fn alloc(n: usize, games: ?u64, nodes: u64) !Tourney {
-		var self = std.mem.zeroInit(Tourney, .{
-			.players = try base.heap.allocator.alloc(Self, n),
-			.max = games,
-		});
+		var self: Tourney = .{
+			.players = try base.heap.allocator.alignedAlloc(Self, .@"64", n),
+		};
 
-		for (self.players) |*player| {
-			player.* = std.mem.zeroInit(Self, .{});
+		for (self.players, 0 ..,) |*player, i| {
+			player.* = std.mem.zeroInit(Self, .{
+				.games = games,
+				.index = i,
+			});
 
 			try player.instance.alloc(1);
 			player.instance.options.infinite = false;
@@ -41,53 +40,43 @@ pub const Tourney = struct {
 		return self;
 	}
 
-	pub fn round(self: *Tourney) !void {
-		var openings = bounded_array.BoundedArray([]const u8, 256).init(0) catch unreachable;
-
-		while (root.io.reader.takeDelimiterExclusive('\n')) |line| {
-			const copy = try base.heap.allocator.dupe(u8, line);
-			try openings.append(copy);
-
-			if (openings.constSlice().len >= self.players.len) {
-				break;
-			}
-		} else |_| if (openings.constSlice().len == 0) {
-			return;
+	pub fn start(self: *Tourney) !void {
+		var threads = try bounded_array.BoundedArray(std.Thread, 256).init(0);
+		for (self.players) |*player| {
+			const id = try std.Thread.spawn(.{ .allocator = base.heap.allocator },
+			  match, .{player});
+			try threads.append(id);
 		}
 
-		defer while (openings.pop()) |opening| {
-			base.heap.allocator.free(opening);
-		};
-
-		for (openings.constSlice(), self.players) |opening, *player| {
-			player.err = null;
-			player.opening = opening;
-			player.handle = try std.Thread.spawn(.{ .allocator = base.heap.allocator },
-			  wrapper, .{player});
-			defer self.started += 1;
-		}
-
-		for (openings.constSlice(), self.players) |_, *player| {
-			std.Thread.join(player.handle orelse unreachable);
-			if (player.err) |err| {
-				return err;
-			}
-
-			defer self.played += 1;
-			try player.dump();
+		for (threads.constSlice()) |thread| {
+			std.Thread.join(thread);
 		}
 	}
 };
 
-fn dump(self: *Self) !void {
-		try root.io.writer.writeAll(std.mem.asBytes(&self.data));
-		for (self.line.constSlice()) |sm| {
-			try root.io.writer.writeAll(std.mem.asBytes(&sm));
-		}
-		try root.io.writer.flush();
+fn readOpening(self: *Self) !void {
+	root.io.reader_mtx.lock();
+	defer root.io.reader_mtx.unlock();
+
+	const reader = &root.io.book_reader.interface;
+	const line = try reader.takeDelimiterExclusive('\n');
+	const copy = try base.heap.allocator.dupe(u8, line);
+	self.opening = copy;
 }
 
-fn match(self: *Self) !void {
+fn writeData(self: *Self) !void {
+	root.io.writer_mtx.lock();
+	defer root.io.writer_mtx.unlock();
+
+	const writer = &root.io.data_writer.interface;
+	try writer.writeAll(std.mem.asBytes(&self.data));
+	for (self.line.constSlice()) |sm| {
+		try writer.writeAll(std.mem.asBytes(&sm));
+	}
+	try writer.flush();
+}
+
+fn playout(self: *Self) !void {
 	std.debug.assert(self.instance.infos.len == 1);
 	const infos = self.instance.infos;
 	const info = &infos[0];
@@ -95,22 +84,25 @@ fn match(self: *Self) !void {
 	const fen = self.opening;
 	const pos = &info.pos;
 	try pos.parseFen(fen);
+	defer base.heap.allocator.free(fen);
 
 	self.data = viri.Self.fromPosition(pos);
-	self.line = std.mem.zeroInit(@TypeOf(self.line), .{});
+	try self.line.resize(0);
 
 	while (true) {
+		try self.instance.root_moves.array.resize(0);
 		try self.instance.think();
 
 		const pv = &self.instance.root_moves.slice()[0];
-		const pvm = pv.line.slice()[0];
 		const stm = pos.stm;
+		const pvm = pv.line.slice()[0];
+		const pvs = switch (stm) {
+			.white => 0 + pv.score,
+			.black => 0 - pv.score,
+		};
 
 		const m = viri.Move.fromMove(pvm);
-		const s = @as(i32, @intCast(switch (stm) {
-			.white => pv.score,
-			.black => -pv.score,
-		}));
+		const s = @as(i32, @intCast(pvs));
 
 		const centipawns = engine.evaluation.score.toCentipawns(s);
 		const has_move = pvm != engine.movegen.Move.zero;
@@ -127,7 +119,7 @@ fn match(self: *Self) !void {
 				else => std.debug.panic("invalid bestscore", .{}),
 			};
 
-			_ = self.line.pop() orelse std.debug.panic("stack underflow", .{});
+			_ = self.line.pop();
 			try self.line.append(.{});
 
 			break;
@@ -137,9 +129,21 @@ fn match(self: *Self) !void {
 	}
 }
 
-fn wrapper(self: *Self) !void {
-	return self.match() catch |err| blk: {
-		self.err = err;
-		break :blk err;
-	};
+fn match(self: *Self) !void {
+	while (self.readOpening()) : (self.played += 1) {
+		if (self.games) |games| {
+			if (self.played >= games) {
+				break;
+			}
+		}
+
+		self.playout() catch |err| {
+			std.debug.print("error: {s} @ player {d}, game {d}",
+			  .{@errorName(err), self.index, self.played});
+		};
+		try self.writeData();
+	} else |err| switch (err) {
+		error.EndOfStream => {},
+		else => return err,
+	}
 }

@@ -1,55 +1,52 @@
 const base = @import("base");
+const engine = @import("engine");
 const std = @import("std");
 
 const arch = @import("arch.zig");
+const net = @import("net.zig");
 const root = @import("root.zig");
 
 const Self = @This();
-const Vec = @Vector(arch.hl0_len, arch.Int);
 
-values:	Vec align(64),
+values:	Vec align(64) = @as(*align(64) const Vec, @ptrCast(&net.default.hl0_b)).*,
+
+pub const Vec = @Vector(arch.hl0_len, arch.Int);
 
 const index = struct {
-	fn fromPiece(comptime c: base.types.Color, p: base.types.Piece) usize {
-		const is_theirs = p.color() != c;
-		const ci: usize = p.color().tag();
-		const pi: usize = p.ptype().tag() - base.types.Ptype.pawn.tag();
-		return if (is_theirs) ci * arch.ptype_n + pi else pi;
-	}
+	fn init(comptime c: base.types.Color, s: base.types.Square, p:base.types.Piece) usize {
+		const is_us = p.color() == c;
 
-	fn fromSquare(comptime c: base.types.Color, s: base.types.Square) usize {
-		return switch (c) {
-			.white => s.tag(),
-			.black => s.flipRank().tag(),
+		const si: usize = if (c == .white) s.tag() else s.flipRank().tag();
+		const ci: usize = if (is_us) 0 else arch.ptype_n;
+		const pi: usize = switch (p.ptype()) {
+			.pawn => 0,
+			.knight => 1,
+			.bishop => 2,
+			.rook => 3,
+			.queen => 4,
+			.king => 5,
+			else => std.debug.panic("invalid ptype", .{}),
 		};
-	}
-
-	fn fromPsq(comptime c: base.types.Color, s: base.types.Square, p: base.types.Piece) usize {
-		const pi = fromPiece(c, p);
-		const si = fromSquare(c, s);
-		return pi * si;
+		return (ci + pi) * arch.square_n + si;
 	}
 };
 
-pub const Pair = struct {
-	white:	Self,
-	black:	Self,
+pub const min: Vec = @splat(0);
+pub const max: Vec = @splat(arch.qa);
 
-	pub const default = init: {
-		var pair = std.mem.zeroInit(Pair, .{});
-		@memcpy(std.mem.asBytes(&pair.white.values), std.mem.sliceAsBytes(root.net.hl0_b[0 ..]));
-		@memcpy(std.mem.asBytes(&pair.black.values), std.mem.sliceAsBytes(root.net.hl0_b[0 ..]));
-		break :init pair;
-	};
+pub const Pair = struct {
+	white:	Self = .{},
+	black:	Self = .{},
 
 	pub fn pop(self: *Pair, s: base.types.Square, p: base.types.Piece) void {
 		const vecs = std.EnumArray(base.types.Color, *align(64) Vec).init(.{
 			.white = &self.white.values,
 			.black = &self.black.values,
 		});
+
 		const wgts = std.EnumArray(base.types.Color, *align(64) const Vec).init(.{
-			.white = @ptrCast(&root.net.hl0_w[index.fromPsq(.white, s, p)]),
-			.black = @ptrCast(&root.net.hl0_w[index.fromPsq(.black, s, p)]),
+			.white = @ptrCast(&net.default.hl0_w[index.init(.white, s, p)]),
+			.black = @ptrCast(&net.default.hl0_w[index.init(.black, s, p)]),
 		});
 
 		vecs.get(.white).* -%= wgts.get(.white).*;
@@ -61,9 +58,10 @@ pub const Pair = struct {
 			.white = &self.white.values,
 			.black = &self.black.values,
 		});
+
 		const wgts = std.EnumArray(base.types.Color, *align(64) const Vec).init(.{
-			.white = @ptrCast(&root.net.hl0_w[index.fromPsq(.white, s, p)]),
-			.black = @ptrCast(&root.net.hl0_w[index.fromPsq(.black, s, p)]),
+			.white = @ptrCast(&net.default.hl0_w[index.init(.white, s, p)]),
+			.black = @ptrCast(&net.default.hl0_w[index.init(.black, s, p)]),
 		});
 
 		vecs.get(.white).* +%= wgts.get(.white).*;

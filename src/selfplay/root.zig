@@ -1,42 +1,37 @@
 const base = @import("base");
-const bitboard = @import("bitboard");
+const bounded_array = @import("bounded_array");
 const engine = @import("engine");
 const std = @import("std");
 
-pub const Player = @import("Player.zig");
-pub const viri = @import("viri.zig");
+const Player = @import("Player.zig");
 
 pub const author = "oilsoundsfunny";
 pub const name = "selfplay";
 
 pub const io = struct {
-	var inp: std.fs.File = undefined;
-	var out: std.fs.File = undefined;
+	var book: std.fs.File = undefined;
+	var data: std.fs.File = undefined;
 
-	var reader_buf = std.mem.zeroes([4096]u8);
-	var writer_buf = std.mem.zeroes([4096]u8);
+	var reader_buf align(64) = std.mem.zeroes([65536]u8);
+	var writer_buf align(64) = std.mem.zeroes([65536]u8);
 
-	var std_reader: std.fs.File.Reader = undefined;
-	var std_writer: std.fs.File.Writer = undefined;
+	pub var book_reader: std.fs.File.Reader = undefined;
+	pub var data_writer: std.fs.File.Writer = undefined;
 
-	pub var reader: *std.Io.Reader = undefined;
-	pub var writer: *std.Io.Writer = undefined;
+	pub var reader_mtx: std.Thread.Mutex = .{};
+	pub var writer_mtx: std.Thread.Mutex = .{};
 
 	fn deinit() void {
-		inp.close();
-		out.close();
+		book.close();
+		data.close();
 	}
 
-	fn init(inp_path: []const u8, out_path: []const u8) !void {
-		const cwd = std.fs.cwd();
-		inp = try cwd.openFile(inp_path, .{});
-		out = try cwd.createFile(out_path, .{});
+	fn init(book_path: []const u8, data_path: []const u8) !void {
+		book = try std.fs.cwd().openFile(book_path, .{});
+		data = try std.fs.cwd().createFile(data_path, .{});
 
-		std_reader = inp.reader(&reader_buf);
-		std_writer = out.writer(&writer_buf);
-
-		reader = &std_reader.interface;
-		writer = &std_writer.interface;
+		book_reader = book.reader(&reader_buf);
+		data_writer = data.writer(&writer_buf);
 	}
 };
 
@@ -113,18 +108,11 @@ pub fn main() !void {
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
 
-	try io.init(book_path orelse std.process.fatal("missing arg '--book'", .{}),
-	  data_path orelse std.process.fatal("missing arg '--data'", .{}));
+	try io.init(book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}),
+	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}));
 	defer io.deinit();
 
-	var tourney = try Player.Tourney.alloc(threads orelse 1, games,
-	  nodes orelse std.process.fatal("missing arg '--nodes'", .{}));
-	while (true) {
-		try tourney.round();
-		if (tourney.max) |lim| {
-			if (tourney.played >= lim) {
-				break;
-			}
-		}
-	}
+	var tourney = try Player.Tourney.alloc(threads orelse 1,
+	  games, nodes orelse std.process.fatal("missing arg '--nodes'", .{}));
+	try tourney.start();
 }

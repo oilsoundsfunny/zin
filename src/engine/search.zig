@@ -39,23 +39,18 @@ pub const Info = struct {
 		const a = alpha;
 		const b = beta;
 		const d = self.depth;
+		const is_pv = self.ti == 0 and rm == self.rms.slice()[0];
 
 		var s: @TypeOf(a) = @intCast(rm.score);
 		defer rm.score = s;
 
-		if (self.instance.hardStop()) {
-			return s;
-		}
-
-		if (self.ti != 0 or rm != self.rms.slice()[0]) {
-			s = -self.ab(.lowerbound, 1, -a - 1, -a, d - 1);
-		}
-
+		var i: usize = 0;
 		var lo = std.math.clamp(s - evaluation.score.unit / 4, a, b);
 		var hi = std.math.clamp(s + evaluation.score.unit / 4, a, b);
 
-		while (!self.instance.hardStop() and s > a and s < b) {
-			s = -self.ab(.exact, 1, -hi, -lo, d - 1);
+		while (!self.instance.hardStop() and s > a and s < b) : (i += 1) {
+			s = if (is_pv or i != 0) -self.ab(.exact, 1, -hi, -lo, d - 1)
+			  else -self.ab(.lowerbound, 1, -a - 1, -a, d - 1);
 
 			if (s <= lo) {
 				lo = std.math.clamp(lo * 2 - s, a, b);
@@ -394,9 +389,9 @@ pub const Instance = struct {
 	options:	Options = std.mem.zeroInit(Options, .{}),
 	root_moves:	movegen.Move.Root.List,
 
-	nodes:	std.atomic.Value(u64) = .{ .raw = 0 },
-	tbhits:	std.atomic.Value(u64) = .{ .raw = 0 },
-	tthits:	std.atomic.Value(u64) = .{ .raw = 0 },
+	nodes:	std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+	tbhits:	std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
+	tthits:	std.atomic.Value(u64) = std.atomic.Value(u64).init(0),
 
 	fn hardStop(self: *const Instance) bool {
 		const options = &self.options;
@@ -481,12 +476,10 @@ pub const Instance = struct {
 				try io.writer.print(" score mate {d}", .{s});
 			},
 
-			evaluation.score.tblose + 1 ... evaluation.score.tbwin - 1 => {
+			else => {
 				const s: i32 = @intCast(pv.score);
 				try io.writer.print(" score cp {d}", .{evaluation.score.toCentipawns(s)});
 			},
-
-			else => std.debug.panic("out of bounds", .{}),
 		}
 		try io.writer.print(" nps {d}", .{nodes * std.time.ns_per_s / time});
 		try io.writer.print("\n", .{});
@@ -525,15 +518,17 @@ pub const Instance = struct {
 	}
 
 	pub fn think(self: *Instance) !void {
-		self.nodes = .{ .raw = 0 };
-		self.tbhits = .{ .raw = 0 };
-		self.tthits = .{ .raw = 0 };
+		self.nodes = @TypeOf(self.nodes).init(0);
+		self.tbhits = @TypeOf(self.tbhits).init(0);
+		self.tthits = @TypeOf(self.tthits).init(0);
 		self.options.is_searching.store(true, .monotonic);
 		defer self.options.is_searching.store(false, .monotonic);
 
-		if (self.infos.len == 0) {
-			return;
-		}
+		const is_threaded = switch (self.infos.len) {
+			0 => return,
+			1 => false,
+			else => true,
+		};
 		for (self.infos, 0 ..) |*info, i| {
 			info.depth = 1;
 
@@ -544,9 +539,10 @@ pub const Instance = struct {
 			info.tn = self.infos.len;
 		}
 
-		self.root_moves = movegen.Move.Root.List.init(self);
+		const pos = &self.infos[0].pos;
+		self.root_moves = movegen.Move.Root.List.init(pos);
 		if (self.root_moves.slice().len == 0) {
-			const is_checked = self.infos[0].pos.isChecked();
+			const is_checked = pos.isChecked();
 
 			try self.root_moves.array.resize(0);
 			try self.root_moves.array.append(.{
@@ -574,23 +570,34 @@ pub const Instance = struct {
 		var pool: std.Thread.Pool = undefined;
 		var wg: std.Thread.WaitGroup = .{};
 
-		try pool.init(.{
-			.allocator = base.heap.allocator,
-			.n_jobs = self.infos[0].tn,
-		});
-		defer pool.deinit();
+		if (is_threaded) {
+			try pool.init(.{
+				.allocator = base.heap.allocator,
+				.n_jobs = self.infos[0].tn,
+			});
+		}
+		defer if (is_threaded) {
+			pool.deinit();
+		};
 
 		const max_d: u8 = @intCast(self.options.depth orelse 240);
 		for (1 .. max_d + 1) |d| {
-			wg.reset();
 			for (self.infos) |*info| {
 				info.depth = 0;
 				info.depth += @intCast(d);
 				info.depth += @intFromBool(d > 1 and info.ti % 2 == 0);
 
-				pool.spawnWg(&wg, Info.think, .{info});
+				if (is_threaded) {
+					pool.spawnWg(&wg, Info.think, .{info});
+				} else {
+					info.think();
+				}
 			}
-			pool.waitAndWork(&wg);
+
+			if (is_threaded) {
+				pool.waitAndWork(&wg);
+				wg.reset();
+			}
 
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
 			try self.printInfo();
@@ -620,7 +627,7 @@ pub const Options = struct {
 	start:	u64,
 	stop:	?u64,
 
-	is_searching:	std.atomic.Value(bool) = .{ .raw = false },
+	is_searching:	std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
 
 	pub fn reset(self: *Options) void {
 		self.* = std.mem.zeroInit(Options, .{

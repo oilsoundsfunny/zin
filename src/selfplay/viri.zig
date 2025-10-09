@@ -85,15 +85,6 @@ pub const Move = packed struct(u16) {
 	pub const zero: Move = .{};
 
 	pub fn fromMove(move: engine.movegen.Move) Move {
-		if (@sizeOf(Move) != 2) {
-			const s = @sizeOf(Move);
-			@compileError(std.fmt.comptimePrint("expected size {d}, found size {d}", .{2, s}));
-		}
-		if (@sizeOf(Scored) != 4) {
-			const s = @sizeOf(Scored);
-			@compileError(std.fmt.comptimePrint("expected size {d}, found size {d}", .{4, s}));
-		}
-
 		return .{
 			.flag = move.flag,
 			.info = if (move.flag == .promote) move.info else .{.none = 0},
@@ -124,9 +115,10 @@ pub const Self = extern struct {
 	pad:	u8,
 
 	pub fn fromPosition(pos: *const engine.Position) Self {
-		if (@sizeOf(Self) != 32) {
-			const s = @sizeOf(Self);
-			@compileError(std.fmt.comptimePrint("expected size {d}, found size {d}", .{32, s}));
+		switch (@sizeOf(Self)) {
+			32 => {},
+			else => |s| @compileError(
+			  std.fmt.comptimePrint("expected size {d}, found size {d}", .{32, s})),
 		}
 
 		var self = std.mem.zeroInit(Self, .{});
@@ -142,7 +134,6 @@ pub const Self = extern struct {
 			occ.popLow();
 		}) {
 			const t = Piece.fromSquare(pos, s).tag();
-
 			self.pieces |= std.math.shl(u128, t, i * Piece.tag_info.bits);
 		}
 

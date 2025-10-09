@@ -66,11 +66,9 @@ pub const score = struct {
 	pub const toCentipawns = base.defs.score.toCentipawns;
 
 	pub fn fromPosition(pos: *const Position) Int {
-		const inferred = nnue.net.infer(&pos.ss.top().accumulators);
-
-		var ev = inferred + 16;
-		ev *= 100 - pos.ss.top().rule50;
-		ev = @divTrunc(ev, 100);
+		var ev = nnue.net.default.infer(pos);
+		// ev *= 100 - pos.ss.top().rule50;
+		// ev = @divTrunc(ev, 100);
 		ev = std.math.clamp(ev, score.tblose, score.tbwin);
 		return ev;
 	}

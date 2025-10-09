@@ -53,7 +53,7 @@ const Modules = enum {
 		.base = &.{},
 		.bitboard = &.{.base},
 		.engine = &.{.base, .bitboard, .nnue, .params},
-		.nnue = &.{.base},
+		.nnue = &.{.base, .engine},
 		.params = &.{.base, .bitboard, .engine},
 		.selfplay = &.{.base, .engine},
 	});
@@ -246,9 +246,14 @@ pub fn build(bld: *std.Build) !void {
 		}
 
 		switch (m) {
-			.nnue => module.addAnonymousImport("embed.nn", .{
-				.root_source_file = bld.path("zin-nets/default.nnue"),
-			}),
+			.nnue => {
+				module.addAnonymousImport("default.nn", .{
+					.root_source_file = bld.path("zin-nets/l1x8-12mdfrc+4mfrc.nn"),
+				});
+				module.addAnonymousImport("test.nn", .{
+					.root_source_file = bld.path("zin-nets/beans.bin"),
+				});
+			},
 			else => {},
 		}
 	}
