@@ -36,6 +36,12 @@ pub const Self = extern struct {
 
 			const vw = clamped *% w;
 			out +%= madd(clamped, vw);
+			// out +%= asm (
+				// "vpmaddwd %[src0], %[src1], %[dst]"
+				// : [dst] "=v" (-> @Vector(arch.hl0_len / 2, i32)),
+				// : [src0] "v" (clamped),
+				  // [src1] "v" (vw),
+			// );
 		}
 
 		ev = @reduce(.Add, out);
@@ -53,17 +59,26 @@ pub const default = init: {
 };
 
 fn MaddReturnType(comptime T: type) type {
-	return switch (@typeInfo(T)) {
-		.vector => |v| @Type(.{.vector = .{
-			.len = if (v.len % 2 == 0) v.len / 2
-			  else @compileError("unexpected vector length " ++ @typeName(v.len)),
-			.child = @Type(.{.int = .{
-				.signedness = @typeInfo(v.child).int.signedness,
-				.bits = @typeInfo(v.child).int.bits * 2,
-			}}),
-		}}),
+	const vec_info = switch (@typeInfo(T)) {
+		.vector => |v| v,
 		else => @compileError("expected vector type, found " ++ @typeName(T)),
 	};
+	const Int = vec_info.child;
+	const len = vec_info.len;
+	if (len % 2 != 0) {
+		@compileError(std.fmt.comptimePrint("unexpected vector length {d}", .{len}));
+	}
+
+	const signedness = @typeInfo(Int).int.signedness;
+	const bits = @typeInfo(Int).int.bits;
+	if (bits > 32) {
+		@compileError("unexpected vector element type " ++ @typeName(Int));
+	}
+
+	return @Type(.{.vector = .{
+		.len = len / 2,
+		.child = std.meta.Int(signedness, bits * 2),
+	}});
 }
 
 fn madd(a: anytype, b: anytype) MaddReturnType(@TypeOf(a, b)) {
@@ -71,17 +86,17 @@ fn madd(a: anytype, b: anytype) MaddReturnType(@TypeOf(a, b)) {
 	const b_deinterlaced = std.simd.deinterlace(2, b);
 
 	const R = MaddReturnType(@TypeOf(a, b));
-	const a0: R = @intCast(a_deinterlaced[0]);
-	const a1: R = @intCast(a_deinterlaced[1]);
-	const b0: R = @intCast(b_deinterlaced[0]);
-	const b1: R = @intCast(b_deinterlaced[1]);
+	const a0: R = a_deinterlaced[0];
+	const a1: R = a_deinterlaced[1];
+	const b0: R = b_deinterlaced[0];
+	const b1: R = b_deinterlaced[1];
 	return a0 *% b0 +% a1 *% b1;
 }
 
-fn crelu(v: anytype) switch (@typeInfo(@TypeOf(v))) {
-	.vector => @TypeOf(v),
-	else => @compileError("expected vector type, found " ++ @typeName(@TypeOf(v))),
-} {
+fn crelu(v: anytype) Return: {const V = @TypeOf(v); break :Return switch (@typeInfo(V)) {
+	.vector => V,
+	else => @compileError("expected vector type, found " ++ @typeName(V)),
+};} {
 	const V = @TypeOf(v);
 	const min: V = @splat(0);
 	const max: V = @splat(arch.qa);
