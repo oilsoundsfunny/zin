@@ -544,9 +544,10 @@ pub const Instance = struct {
 			info.tn = self.infos.len;
 		}
 
-		self.root_moves = movegen.Move.Root.List.init(self);
+		const pos = &self.infos[0].pos;
+		self.root_moves = movegen.Move.Root.List.init(pos);
 		if (self.root_moves.slice().len == 0) {
-			const is_checked = self.infos[0].pos.isChecked();
+			const is_checked = pos.isChecked();
 
 			try self.root_moves.array.resize(0);
 			try self.root_moves.array.append(.{

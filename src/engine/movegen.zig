@@ -53,6 +53,10 @@ const RootMoveList = struct {
 		self.array.append(rm) catch std.debug.panic("stack overflow", .{});
 	}
 
+	pub fn constSlice(self: *const RootMoveList) []const RootMove {
+		return self.slice();
+	}
+
 	pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
 		[]RootMove, []const RootMove => |T| T,
 		else => |T| @compileError("unexpected type " ++ @typeName(T)),
@@ -60,10 +64,7 @@ const RootMoveList = struct {
 		return self.array.slice();
 	}
 
-	pub fn init(instance: *search.Instance) RootMoveList {
-		const info = &instance.infos[0];
-		const pos = &info.pos;
-
+	pub fn init(pos: *Position) RootMoveList {
 		var rml = std.mem.zeroInit(RootMoveList, .{});
 		var sml = std.mem.zeroInit(Move.Scored.List, .{});
 
@@ -73,8 +74,7 @@ const RootMoveList = struct {
 
 		_ = sml.genNoisy(pos);
 		_ = sml.genQuiet(pos);
-
-		for (sml.slice()) |sm| {
+		for (sml.constSlice()) |sm| {
 			const m = sm.move;
 			pos.doMove(m) catch continue;
 			defer pos.undoMove();
@@ -271,6 +271,10 @@ const ScoredMoveList = struct {
 
 	pub fn resize(self: *ScoredMoveList, n: usize) void {
 		self.array.resize(n) catch std.debug.panic("stack overflow", .{});
+	}
+
+	pub fn constSlice(self: *const ScoredMoveList) []const ScoredMove {
+		return self.slice();
 	}
 
 	pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
