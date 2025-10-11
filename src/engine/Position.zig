@@ -61,10 +61,10 @@ pub const State = struct {
 
 	key:	zobrist.Int,
 
-	accumulators:	nnue.Accumulator.Pair = .{},
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
 	ptsc:	evaluation.Pair,
+	accumulators:	nnue.Accumulator.Pair,
 
 	pub const Stack = struct {
 		array:	bounded_array.BoundedArray(State, capacity + offset) = .{
@@ -284,6 +284,9 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		.rule50 = self.ss.top().rule50 + 1,
 
 		.key = self.ss.top().key,
+
+		.ptsc = self.ss.top().ptsc,
+		.accumulators = self.ss.top().accumulators,
 	}));
 
 	self.popSquare(true, s, sp);
@@ -402,9 +405,8 @@ pub fn doNull(self: *Self) MoveError!void {
 		  ^ zobrist.stm()
 		  ^ zobrist.enp(self.ss.top().en_pas),
 
-		// .corr_eval = self.ss.top().corr_eval,
-		// .stat_eval = self.ss.top().stat_eval,
 		.ptsc = self.ss.top().ptsc,
+		.accumulators = self.ss.top().accumulators,
 	}));
 
 	self.stm = self.stm.flip();
@@ -712,13 +714,44 @@ pub fn isMoveQuiet(self: *const Self, move: movegen.Move) bool {
 pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 	const stm = self.stm;
 	const occ = self.ptypeOcc(.all);
+	const them = self.colorOcc(stm.flip());
 
 	const s = move.src;
 	const d = move.dst;
 	const sp = self.getSquare(s);
 	const dp = self.getSquare(d);
 
+	const spc = sp.color();
+	const dpc = dp.color();
+	const spt = sp.ptype();
+	const dpt = dp.ptype();
+
 	return switch (move.flag) {
+		.none => none: {
+			if (spc != stm or spt == .nul) {
+				break :none false;
+			}
+			if (dpc == stm and dpt != .nul) {
+				break :none false;
+			}
+
+			const noisy = switch (spt) {
+				.pawn => bitboard.pAtk(s.toSet(), stm).bwa(them),
+				else => bitboard.ptAtk(spt, s, occ).bwa(them),
+			};
+			const quiet = switch (sp.ptype()) {
+				.pawn => base.types.Square.Set.nul
+				  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
+				  .bwo(bitboard.pPush2(s.toSet(), occ, stm)),
+				else => bitboard.ptAtk(spt, s, occ).bwa(occ.flip()),
+			};
+
+			break :none switch (dpt) {
+				.nul => quiet.get(d),
+				else => noisy.get(d),
+			};
+		},
+
 		.en_passant => en_passant: {
 			if (sp != base.types.Piece.init(stm, .pawn)) {
 				break :en_passant false;
@@ -732,11 +765,7 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 				break :en_passant false;
 			}
 
-			if (!bitboard.pAtk(s.toSet(), stm).get(enp)) {
-				break :en_passant false;
-			}
-
-			break :en_passant true;
+			break :en_passant bitboard.pAtk(s.toSet(), stm).get(enp);
 		},
 
 		.castle => castle: {
@@ -759,29 +788,10 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 			  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
 			  .bwo(bitboard.pPush2(s.toSet(), occ, stm));
 
-			break :promote sp == base.types.Piece.init(stm, .pawn)
+			break :promote spc == stm and spt == .pawn
 			  and d.rank() == stm.promotionRank()
-			  and (dp.ptype() == .nul and quiet.get(d))
-			  and (dp.ptype() != .nul and noisy.get(d));
-		},
-
-		else => none: {
-			if (sp.color() != stm or sp.ptype() == .nul) {
-				break :none false;
-			}
-
-			const noisy = switch (sp.ptype()) {
-				.pawn => bitboard.pAtk(s.toSet(), stm).bwa(self.colorOcc(stm.flip())),
-				else => |pt| bitboard.ptAtk(pt, s, occ).bwa(self.colorOcc(stm.flip())),
-			};
-			const quiet = switch (sp.ptype()) {
-				.pawn => base.types.Square.Set.nul
-				  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
-				  .bwo(bitboard.pPush2(s.toSet(), occ, stm)),
-				else => |pt| bitboard.ptAtk(pt, s, occ).bwa(occ.flip()),
-			};
-			break :none (dp.ptype() == .nul and quiet.get(d))
-			  or (dp.ptype() != .nul and noisy.get(d));
+			  and (dpt == .nul and quiet.get(d))
+			  and (dpt != .nul and noisy.get(d));
 		},
 	};
 }

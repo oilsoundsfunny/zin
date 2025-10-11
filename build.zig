@@ -248,7 +248,7 @@ pub fn build(bld: *std.Build) !void {
 		switch (m) {
 			.nnue => {
 				module.addAnonymousImport("default.nn", .{
-					.root_source_file = bld.path("zin-nets/l1x32-12mdfrc+4mfrc.nn"),
+					.root_source_file = bld.path("zin-nets/l1x32-12m-dfrc.nn"),
 				});
 				module.addAnonymousImport("test.nn", .{
 					.root_source_file = bld.path("zin-nets/beans.bin"),

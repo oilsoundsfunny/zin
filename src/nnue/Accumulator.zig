@@ -8,16 +8,16 @@ const root = @import("root.zig");
 
 const Self = @This();
 
-values:	Vec align(64) = @as(*align(64) const Vec, @ptrCast(&net.default.hl0_b)).*,
-
-pub const Vec = @Vector(arch.hl0_len, arch.Int);
+values:	Vec align(64)
+  = @as(*align(64) const Vec, @ptrCast(&net.default.hl0_b)).*,
 
 const index = struct {
-	fn init(comptime c: base.types.Color, s: base.types.Square, p:base.types.Piece) usize {
+	fn init(comptime c: base.types.Color, s: base.types.Square, p: base.types.Piece) usize {
 		const is_us = p.color() == c;
+		const is_them = !is_us;
 
 		const si: usize = if (c == .white) s.tag() else s.flipRank().tag();
-		const ci: usize = if (is_us) 0 else arch.ptype_n;
+		const ci: usize = arch.ptype_n * @as(usize, @intFromBool(is_them));
 		const pi: usize = switch (p.ptype()) {
 			.pawn => 0,
 			.knight => 1,
@@ -31,8 +31,12 @@ const index = struct {
 	}
 };
 
-pub const min: Vec = @splat(0);
-pub const max: Vec = @splat(arch.qa);
+pub const Vec = @Vector(arch.hl0_len, arch.Int);
+pub const Madd = @Vector(arch.hl0_len / 2, engine.evaluation.score.Int);
+
+pub const Marker = struct {
+	ply:	usize,
+};
 
 pub const Pair = struct {
 	white:	Self = .{},

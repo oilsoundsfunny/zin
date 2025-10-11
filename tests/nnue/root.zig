@@ -7,6 +7,11 @@ test {
 	var pos = std.mem.zeroInit(engine.Position, .{});
 	try pos.parseFen(engine.Position.startpos);
 
+	try pos.doMove(.{.flag = .none, .info = .{.none = 0}, .src = .e2, .dst = .e4});
+	try pos.doMove(.{.flag = .none, .info = .{.none = 0}, .src = .e7, .dst = .e5});
+	pos.undoMove();
+	pos.undoMove();
+
 	const indices = std.EnumArray(base.types.Color, []const usize).init(.{
 		.white = &.{
 			192,  65, 130, 259, 324, 133,  70, 199,   8,   9,  10,  11,  12,  13,  14,  15,
@@ -68,7 +73,9 @@ test {
 
 test {
 	var pos = std.mem.zeroInit(engine.Position, .{});
-	try pos.parseFen(engine.Position.kiwipete);
+	try pos.parseFen("r1b1k2r/p1ppqpb1/1n2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq - 0 1");
+	try pos.doMove(.{.flag = .none, .info = .{.none = 0}, .src = .c8, .dst = .a6});
+	// try pos.parseFen(engine.Position.kiwipete);
 
 	const indices = std.EnumArray(base.types.Color, []const usize).init(.{
 		.white = &.{
@@ -94,9 +101,9 @@ test {
 
 	for (base.types.Color.values) |c| {
 		for (indices.get(c)) |i| {
-			const p = &nnue.net.default.hl0_w[i];
-			accumulators.getPtr(c).values
-			  +%= @as(*align(64) const nnue.Accumulator.Vec, @ptrCast(p)).*;
+			const ap = &nnue.net.default.hl0_w[i];
+			const vp = @as(*align(64) const nnue.Accumulator.Vec, @ptrCast(ap));
+			accumulators.getPtr(c).values +%= vp.*;
 		}
 	}
 
@@ -105,11 +112,9 @@ test {
 
 	var ev: engine.evaluation.score.Int = engine.evaluation.score.draw;
 	for (base.types.Color.values) |c| {
-		inline for (0 .. 16) |i| {
-			const v = values.get(c)[i];
-			const a = accumulators.get(c).values[i];
-			try std.testing.expectEqual(a, v);
-		}
+		const val = values.get(c);
+		const arr = @as([64]i16, accumulators.get(c).values)[0 .. 16].*;
+		try std.testing.expectEqual(arr, val);
 
 		inline for (0 .. nnue.arch.hl0_len) |i| {
 			const a: engine.evaluation.score.Int = accumulators.get(c).values[i];
