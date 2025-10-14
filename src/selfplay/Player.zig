@@ -64,7 +64,7 @@ fn readOpening(self: *Self) !void {
 	defer root.io.reader_mtx.unlock();
 
 	const reader = &root.io.book_reader.interface;
-	const line = try reader.takeDelimiterExclusive('\n');
+	const line = try reader.takeDelimiterInclusive('\n');
 	const copy = try base.heap.allocator.dupe(u8, line);
 	self.opening = copy;
 }
@@ -85,15 +85,16 @@ fn playRandom(self: *Self) !void {
 	std.debug.assert(self.instance.infos.len == 1);
 	const infos = self.instance.infos;
 	const info = &infos[0];
+	try info.pos.parseFen(self.opening);
 
-	var pos = std.mem.zeroInit(engine.Position, .{});
+	var pos = info.pos;
 	var sfc = std.Random.Sfc64.init(self.played);
 
-	find_line: while (true) {
-		const dpos = &pos;
-		const spos = &info.pos;
-		@memcpy(dpos[0 .. 1], spos[0 .. 1]);
-
+	var i: usize = 0;
+	find_line: while (i < random_games) : ({
+		i += 1;
+		pos = info.pos;
+	}) {
 		for (0 .. min_ply) |_| {
 			const rml = engine.movegen.Move.Root.List.init(&pos);
 			const rmn = rml.constSlice().len;
@@ -115,13 +116,10 @@ fn playRandom(self: *Self) !void {
 		if (abs != std.math.clamp(abs, min_cp, max_cp)) {
 			continue :find_line;
 		} else {
+			info.pos = pos;
 			break :find_line;
 		}
 	}
-
-	const dpos = &info.pos;
-	const spos = &pos;
-	@memcpy(dpos[0 .. 1], spos[0 .. 1]);
 }
 
 fn playOut(self: *Self) !void {
