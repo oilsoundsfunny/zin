@@ -24,6 +24,10 @@ const RootMove = struct {
 		self.line.append(m) catch std.debug.panic("stack overflow", .{});
 	}
 
+	pub fn constSlice(self: *const RootMove) []const Move {
+		return self.slice();
+	}
+
 	pub fn slice(self: anytype) switch (@TypeOf(self.line.slice())) {
 		[]Move, []const Move => |T| T,
 		else => |T| @compileError("unexpected type " ++ @typeName(T)),

@@ -7,23 +7,22 @@ const Accumulator = @import("Accumulator.zig");
 const arch = @import("arch.zig");
 
 pub const Self = extern struct {
-	hl0_w:	[arch.inp_len][arch.hl0_len]arch.Int align(64),
-	hl0_b:	[arch.hl0_len]arch.Int align(64),
+	hl0_w:	[arch.inp_len][arch.hl0_len]arch.Int align(32),
+	hl0_b:	[arch.hl0_len]arch.Int align(32),
 
-	out_w:	[arch.color_n][arch.hl0_len]arch.Int align(64),
-	out_b:	arch.Int align(64),
+	out_w:	[arch.color_n][arch.hl0_len]arch.Int align(32),
+	out_b:	arch.Int align(32),
 
 	pub fn infer(self: *const Self, pos: *const engine.Position) engine.evaluation.score.Int {
 		const stm = pos.stm;
 		const accumulators = &pos.ss.top().accumulators;
 
-		const VecPtrConst = *align(64) const Accumulator.Vec;
-		const vecs = std.EnumArray(base.types.Color, VecPtrConst).init(.{
+		const vecs = std.EnumArray(base.types.Color, *align(32) const Accumulator.Vec).init(.{
 			.white = if (stm == .white) &accumulators.white.values else &accumulators.black.values,
 			.black = if (stm == .white) &accumulators.black.values else &accumulators.white.values,
 		});
 
-		const wgts = std.EnumArray(base.types.Color, VecPtrConst).init(.{
+		const wgts = std.EnumArray(base.types.Color, *align(32) const Accumulator.Vec).init(.{
 			.white = @ptrCast(&self.out_w[base.types.Color.white.tag()]),
 			.black = @ptrCast(&self.out_w[base.types.Color.black.tag()]),
 		});
@@ -47,8 +46,8 @@ pub const Self = extern struct {
 
 pub const default = init: {
 	const bin = if (builtin.is_test) @embedFile("test.nn") else @embedFile("default.nn");
-	var net: Self align(64) = undefined;
-	@memcpy(std.mem.asBytes(&net), bin[0 ..]);
+	var net: Self align(32) = undefined;
+	@memcpy(std.mem.asBytes(&net), bin[0 .. @sizeOf(Self)]);
 	break :init net;
 };
 

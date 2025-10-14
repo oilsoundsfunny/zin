@@ -56,6 +56,7 @@ pub const State = struct {
 	castle:	 base.types.Castle.Set,
 	en_pas:	?base.types.Square,
 	rule50:	 u8,
+	qs_ply:	 u8 = std.math.maxInt(u8),
 
 	check_mask:	base.types.Square.Set = .all,
 
@@ -761,11 +762,17 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 			}
 
 			const enp = self.ss.top().en_pas orelse return false;
-			if (self.getSquare(enp) != base.types.Piece.init(stm.flip(), .pawn)) {
+			if (enp != d) {
 				break :en_passant false;
 			}
 
-			break :en_passant bitboard.pAtk(s.toSet(), stm).get(enp);
+			const capt = d.shift(stm.forward().flip(), 1);
+			const their_pawn = base.types.Piece.init(stm.flip(), .pawn);
+			if (self.getSquare(capt) != their_pawn) {
+				break :en_passant false;
+			}
+
+			break :en_passant bitboard.pAtk(s.toSet(), stm).get(d);
 		},
 
 		.castle => castle: {
@@ -783,15 +790,15 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 		},
 
 		.promote => promote: {
-			const noisy = bitboard.pAtk(s.toSet(), stm).bwa(self.colorOcc(stm.flip()));
+			const noisy = bitboard.pAtk(s.toSet(), stm).bwa(them);
 			const quiet = base.types.Square.Set.nul
 			  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
 			  .bwo(bitboard.pPush2(s.toSet(), occ, stm));
 
 			break :promote spc == stm and spt == .pawn
 			  and d.rank() == stm.promotionRank()
-			  and (dpt == .nul and quiet.get(d))
-			  and (dpt != .nul and noisy.get(d));
+			  and !(dpt == .nul and !quiet.get(d))
+			  and !(dpt != .nul and !noisy.get(d));
 		},
 	};
 }

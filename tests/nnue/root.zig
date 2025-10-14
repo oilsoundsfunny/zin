@@ -36,9 +36,7 @@ test {
 
 	for (base.types.Color.values) |c| {
 		for (indices.get(c)) |i| {
-			const p = &nnue.net.default.hl0_w[i];
-			accumulators.getPtr(c).values
-			  +%= @as(*align(64) const nnue.Accumulator.Vec, @ptrCast(p)).*;
+			accumulators.getPtr(c).values +%= nnue.net.default.hl0_w[i];
 		}
 	}
 
@@ -101,9 +99,68 @@ test {
 
 	for (base.types.Color.values) |c| {
 		for (indices.get(c)) |i| {
-			const ap = &nnue.net.default.hl0_w[i];
-			const vp = @as(*align(64) const nnue.Accumulator.Vec, @ptrCast(ap));
-			accumulators.getPtr(c).values +%= vp.*;
+			accumulators.getPtr(c).values +%= nnue.net.default.hl0_w[i];
+		}
+	}
+
+	try std.testing.expectEqual(accumulators.get(.white), pos.ss.top().accumulators.white);
+	try std.testing.expectEqual(accumulators.get(.black), pos.ss.top().accumulators.black);
+
+	var ev: engine.evaluation.score.Int = engine.evaluation.score.draw;
+	for (base.types.Color.values) |c| {
+		const val = values.get(c);
+		const arr = @as([64]i16, accumulators.get(c).values)[0 .. 16].*;
+		try std.testing.expectEqual(arr, val);
+
+		inline for (0 .. nnue.arch.hl0_len) |i| {
+			const a: engine.evaluation.score.Int = accumulators.get(c).values[i];
+			const w: engine.evaluation.score.Int = nnue.net.default.out_w[c.tag()][i];
+			ev += std.math.clamp(a, 0, nnue.arch.qa) * std.math.clamp(a, 0, nnue.arch.qa) * w;
+		}
+	}
+	try std.testing.expectEqual(-1423747, ev);
+
+	ev = @divTrunc(ev, nnue.arch.qa) + nnue.net.default.out_b;
+	ev = @divTrunc(ev * nnue.arch.scale, nnue.arch.qa * nnue.arch.qb);
+	try std.testing.expectEqual(-116, ev);
+	try std.testing.expectEqual(-116, engine.evaluation.score.fromPosition(&pos));
+
+	try pos.doMove(.{.flag = .none, .info = .{.none = 0}, .src = .e1, .dst = .f1});
+	pos.undoMove();
+	try std.testing.expectEqual(-116, engine.evaluation.score.fromPosition(&pos));
+}
+
+test {
+	var pos = std.mem.zeroInit(engine.Position, .{});
+	try pos.parseFen(engine.Position.kiwipete);
+	try pos.doNull();
+	try pos.doNull();
+
+	const indices = std.EnumArray(base.types.Color, []const usize).init(.{
+		.white = &.{
+			192, 324, 199,   8,   9,  10, 139, 140,  13,  14,  15,  82, 277, 407, 409,  28,
+			 35, 100, 552, 489, 428, 493, 430, 432, 434, 435, 692, 437, 566, 632, 764, 639,
+		},
+		.black = &.{
+			632, 764, 639, 432, 433, 434, 563, 564, 437, 438, 439, 490, 685,  47,  33, 420,
+			411, 476, 144,  81,  20,  85,  22,   8,  10,  11, 268,  13, 142, 192, 324, 199,
+		},
+	});
+
+	const values = std.EnumArray(base.types.Color, [16]nnue.arch.Int).init(.{
+		.white = .{
+			-1326, 140, 57, -500, 539, 265, -180, 81, 574, 576, 42,  271, -260, 286, -52, 287,
+		},
+		.black = .{
+			-1296, 138, 83, -485, 511, 229,    7, 97, 575, 565,  2, -174, -279, 285, 153, 303,
+		},
+	});
+
+	var accumulators = std.EnumArray(base.types.Color, nnue.Accumulator).initFill(.{});
+
+	for (base.types.Color.values) |c| {
+		for (indices.get(c)) |i| {
+			accumulators.getPtr(c).values +%= nnue.net.default.hl0_w[i];
 		}
 	}
 

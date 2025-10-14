@@ -33,8 +33,10 @@ pub const Info = struct {
 	  rm: *movegen.Move.Root,
 	  alpha: evaluation.score.Int,
 	  beta:  evaluation.score.Int) evaluation.score.Int {
-		self.pos.doMove(rm.line.slice()[0]) catch std.debug.panic("invalid root move", .{});
-		defer self.pos.undoMove();
+		const pos = &self.pos;
+
+		pos.doMove(rm.line.slice()[0]) catch std.debug.panic("invalid root move", .{});
+		defer pos.undoMove();
 
 		const a = alpha;
 		const b = beta;
@@ -111,8 +113,12 @@ pub const Info = struct {
 		}
 
 		const ttf = transposition.table.fetch(key);
-		const tte = ttf[0];
-		const tth = ttf[1];
+		const tte = ttf[0].*;
+		const tth = ttf[1]
+		  and tte.flag != .none
+		  and (tte.move == movegen.Move.zero or pos.isMovePseudoLegal(tte.move));
+		const ttm = if (tth) tte.move else movegen.Move.zero;
+		const has_ttm = ttm != movegen.Move.zero;
 
 		if (tth and tte.shouldTrust(a, b, d)) {
 			return tte.score;
@@ -120,7 +126,6 @@ pub const Info = struct {
 
 		// internal iterative reduction (iir)
 		// stc: ~2.8 +- good enough
-		const has_ttm = tth and tte.move != movegen.Move.zero;
 		if (!has_ttm and d > 3) {
 			d -= 2;
 		}
@@ -182,7 +187,7 @@ pub const Info = struct {
 		var flag = Node.upperbound;
 
 		var mi: usize = 0;
-		var mp = movegen.Picker.init(self, false, tte.move);
+		var mp = movegen.Picker.init(self, false, if (tth) tte.move else .{});
 
 		while (mp.next()) |sm| {
 			if (self.instance.hardStop()) {
@@ -196,7 +201,7 @@ pub const Info = struct {
 			const is_quiet = !is_noisy;
 			const is_ttm = m == tte.move;
 
-			if (is_ttm and !pos.isMovePseudoLegal(m)) {
+			if (is_ttm and !has_ttm) {
 				// @branchHint(.unlikely);
 				continue;
 			}
@@ -246,7 +251,7 @@ pub const Info = struct {
 			return if (is_checked) lose else draw;
 		}
 
-		tte.* = .{
+		ttf[0].* = .{
 			.was_pv = flag == .exact or (tth and tte.was_pv),
 			.flag = flag,
 			.age = @truncate(transposition.table.age),
@@ -287,8 +292,12 @@ pub const Info = struct {
 		}
 
 		const ttf = transposition.table.fetch(key);
-		const tte = ttf[0];
-		const tth = ttf[1];
+		const tte = ttf[0].*;
+		const tth = ttf[1]
+		  and tte.flag != .none
+		  and (tte.move == movegen.Move.zero or pos.isMovePseudoLegal(tte.move));
+		const ttm = if (tth) tte.move else movegen.Move.zero;
+		const has_ttm = ttm != movegen.Move.zero;
 
 		if (tth and tte.shouldTrust(a, b, 0)) {
 			return tte.score;
@@ -310,7 +319,8 @@ pub const Info = struct {
 		const corr_eval = pos.ss.top().corr_eval;
 		const stat_eval = pos.ss.top().stat_eval;
 
-		if (self.instance.hardStop()) {
+		pos.ss.top().qs_ply = pos.ss.top().down(1).qs_ply +% 1;
+		if (pos.ss.top().qs_ply >= 8 or self.instance.hardStop()) {
 			return if (corr_eval != evaluation.score.none) corr_eval
 			  else draw + evaluation.score.fromPosition(pos);
 		}
@@ -322,7 +332,7 @@ pub const Info = struct {
 		var flag = Node.upperbound;
 
 		var mi: usize = 0;
-		var mp = movegen.Picker.init(self, !is_checked, tte.move);
+		var mp = movegen.Picker.init(self, pos.ss.top().qs_ply < 4 and !is_checked, ttm);
 
 		while (mp.next()) |sm| {
 			if (self.instance.hardStop()) {
@@ -332,7 +342,7 @@ pub const Info = struct {
 			const m = sm.move;
 			const is_ttm = m == tte.move;
 
-			if (is_ttm and !pos.isMovePseudoLegal(m)) {
+			if (is_ttm and !has_ttm) {
 				// @branchHint(.unlikely);
 				continue;
 			}
@@ -369,7 +379,7 @@ pub const Info = struct {
 			return if (is_checked) lose else draw + corr_eval;
 		}
 
-		tte.* = .{
+		ttf[0].* = .{
 			.was_pv = flag == .exact or (tth and tte.was_pv),
 			.flag = flag,
 			.age = @truncate(transposition.table.age),
@@ -652,13 +662,14 @@ pub const hist = struct {
 
 	pub fn bonus(p: *Int, b: evaluation.score.Int) void {
 		const clamped = std.math.clamp(b, min, max);
-		const abs: @TypeOf(clamped) = @intCast(clamped);
+		const abs = switch (clamped) {
+			min ... -1 => -clamped,
+			0 ... max => clamped,
+			else => std.debug.panic("integer overflow: {d}", .{clamped}),
+		};
 
-		const curr = @as(i32, p.*);
-		const next
-		  = curr
-		  + clamped
-		  - @divTrunc(curr * abs, max);
+		const curr: evaluation.score.Int = p.*;
+		const next = curr + clamped - @divTrunc(curr * abs, max);
 		p.* = @intCast(next);
 	}
 
@@ -674,8 +685,8 @@ pub const io = struct {
 	const reader = &std_reader.interface;
 	const writer = &std_writer.interface;
 
-	var reader_buf align(std.heap.page_size_max) = std.mem.zeroes([4096]u8);
-	var writer_buf align(std.heap.page_size_max) = std.mem.zeroes([4096]u8);
+	var reader_buf align(32) = std.mem.zeroes([65536]u8);
+	var writer_buf align(32) = std.mem.zeroes([65536]u8);
 
 	var std_reader = stdin.reader(&reader_buf);
 	var std_writer = stdout.writer(&writer_buf);

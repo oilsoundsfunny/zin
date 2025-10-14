@@ -8,6 +8,11 @@ const viri = @import("viri.zig");
 
 const Self = @This();
 
+const min_ply = 8;
+const random_games = 4;
+const max_cp = 500;
+const min_cp = 20;
+
 instance:	engine.search.Instance,
 opening:	[]const u8 = &.{},
 
@@ -22,13 +27,13 @@ pub const Tourney = struct {
 	players:	[]Self = &.{},
 
 	pub fn alloc(n: usize, games: ?u64, nodes: u64) !Tourney {
-		var self: Tourney = .{
+		const self: Tourney = .{
 			.players = try base.heap.allocator.alignedAlloc(Self, .@"64", n),
 		};
 
 		for (self.players, 0 ..,) |*player, i| {
 			player.* = std.mem.zeroInit(Self, .{
-				.games = games,
+				.games = if (games) |g| g / n + @as(u64, @intFromBool(i < g % n)) else null,
 				.index = i,
 			});
 
@@ -76,18 +81,57 @@ fn writeData(self: *Self) !void {
 	try writer.flush();
 }
 
-fn playout(self: *Self) !void {
+fn playRandom(self: *Self) !void {
 	std.debug.assert(self.instance.infos.len == 1);
 	const infos = self.instance.infos;
 	const info = &infos[0];
 
-	const fen = self.opening;
+	var pos = std.mem.zeroInit(engine.Position, .{});
+	var sfc = std.Random.Sfc64.init(self.played);
+
+	find_line: while (true) {
+		const dpos = &pos;
+		const spos = &info.pos;
+		@memcpy(dpos[0 .. 1], spos[0 .. 1]);
+
+		for (0 .. min_ply) |_| {
+			const rml = engine.movegen.Move.Root.List.init(&pos);
+			const rmn = rml.constSlice().len;
+			if (rmn == 0) {
+				continue :find_line;
+			}
+
+			const r = sfc.random().uintLessThan(usize, rmn);
+			const rm = &rml.constSlice()[r];
+			const m = rm.constSlice()[0];
+
+			try pos.doMove(m);
+		}
+
+		const ev = engine.evaluation.score.fromPosition(&pos);
+		const cp = engine.evaluation.score.toCentipawns(ev);
+		const abs = @abs(cp);
+
+		if (abs != std.math.clamp(abs, min_cp, max_cp)) {
+			continue :find_line;
+		} else {
+			break :find_line;
+		}
+	}
+
+	const dpos = &info.pos;
+	const spos = &pos;
+	@memcpy(dpos[0 .. 1], spos[0 .. 1]);
+}
+
+fn playOut(self: *Self) !void {
+	std.debug.assert(self.instance.infos.len == 1);
+	const infos = self.instance.infos;
+	const info = &infos[0];
 	const pos = &info.pos;
-	try pos.parseFen(fen);
-	defer base.heap.allocator.free(fen);
 
 	self.data = viri.Self.fromPosition(pos);
-	try self.line.resize(0);
+	self.line = try @TypeOf(self.line).init(0);
 
 	while (true) {
 		try self.instance.root_moves.array.resize(0);
@@ -131,17 +175,25 @@ fn playout(self: *Self) !void {
 
 fn match(self: *Self) !void {
 	while (self.readOpening()) : (self.played += 1) {
+		defer base.heap.allocator.free(self.opening);
 		if (self.games) |games| {
 			if (self.played >= games) {
 				break;
 			}
 		}
 
-		self.playout() catch |err| {
-			std.debug.print("error: {s} @ player {d}, game {d}",
-			  .{@errorName(err), self.index, self.played});
-		};
-		try self.writeData();
+		for (0 .. random_games) |_| {
+			self.playRandom() catch |err| {
+				std.debug.panic("error: {s} @ player {d}, game {d}",
+				  .{@errorName(err), self.index, self.played});
+			};
+			self.playOut() catch |err| {
+				std.debug.panic("error: {s} @ player {d}, game {d}",
+				  .{@errorName(err), self.index, self.played});
+			};
+
+			try self.writeData();
+		}
 	} else |err| switch (err) {
 		error.EndOfStream => {},
 		else => return err,

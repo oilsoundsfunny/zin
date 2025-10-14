@@ -27,8 +27,8 @@ const io = struct {
 	const stdin = std.fs.File.stdin();
 	const stdout = std.fs.File.stdout();
 
-	var reader_buf = std.mem.zeroes([4096]u8);
-	var writer_buf = std.mem.zeroes([4096]u8);
+	var reader_buf align(32) = std.mem.zeroes([65536]u8);
+	var writer_buf align(32) = std.mem.zeroes([65536]u8);
 
 	var std_reader = stdin.reader(&reader_buf);
 	var std_writer = stdout.writer(&writer_buf);
@@ -274,8 +274,7 @@ pub fn init() !void {
 }
 
 pub fn loop() !void {
-	while (true) {
-		const read = try io.reader.takeDelimiterExclusive('\n');
+	while (io.reader.takeDelimiterInclusive('\n')) |read| {
 		const comm = parseCommand(read) catch |err| sw: switch (err) {
 			error.UnknownCommand => {
 				try io.writer.print("Unknown command: '{s}'\n", .{read});
@@ -292,5 +291,5 @@ pub fn loop() !void {
 			}
 			break;
 		}
-	}
+	} else |err| return err;
 }
