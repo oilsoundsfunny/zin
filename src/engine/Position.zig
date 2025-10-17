@@ -3,6 +3,7 @@ const bitboard = @import("bitboard");
 const bounded_array = @import("bounded_array");
 const nnue = @import("nnue");
 const params = @import("params");
+const root = @import("root");
 const std = @import("std");
 
 const evaluation = @import("evaluation.zig");
@@ -64,8 +65,8 @@ pub const State = struct {
 
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
-	ptsc:	evaluation.Pair,
-	accumulators:	nnue.Accumulator.Pair,
+	ptsc:	std.EnumArray(base.types.Color, evaluation.Pair),
+	accumulator:	nnue.Accumulator = .{},
 
 	pub const Stack = struct {
 		array:	bounded_array.BoundedArray(State, capacity + offset) = .{
@@ -78,7 +79,7 @@ pub const State = struct {
 		pub const capacity = 1024 - offset;
 
 		pub fn push(self: *Stack, st: State) void {
-			self.array.append(st) catch std.debug.panic("stack overflow", .{});
+			self.array.appendAssumeCapacity(st);
 		}
 
 		pub fn pop(self: *Stack) void {
@@ -179,9 +180,9 @@ fn popSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 	self.ss.top().key ^= z;
 
 	const ptsc = params.evaluation.ptsc.getPtrConst(pt);
-	self.ss.top().ptsc.mg -= if (c == .white) ptsc.mg else -ptsc.mg;
-	self.ss.top().ptsc.eg -= if (c == .white) ptsc.eg else -ptsc.eg;
-	self.ss.top().accumulators.pop(s, p);
+	self.ss.top().ptsc.getPtr(c).mg -= ptsc.mg;
+	self.ss.top().ptsc.getPtr(c).eg -= ptsc.eg;
+	self.ss.top().accumulator.pop(s, p);
 }
 
 fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.types.Piece) void {
@@ -203,9 +204,9 @@ fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 	self.ss.top().key ^= z;
 
 	const ptsc = params.evaluation.ptsc.getPtrConst(pt);
-	self.ss.top().ptsc.mg -= if (c == .white) ptsc.mg else -ptsc.mg;
-	self.ss.top().ptsc.eg -= if (c == .white) ptsc.eg else -ptsc.eg;
-	self.ss.top().accumulators.set(s, p);
+	self.ss.top().ptsc.getPtr(c).mg += ptsc.mg;
+	self.ss.top().ptsc.getPtr(c).eg += ptsc.eg;
+	self.ss.top().accumulator.set(s, p);
 }
 
 fn popCastle(self: *Self, c: base.types.Castle) void {
@@ -271,6 +272,11 @@ pub fn getSquare(self: *const Self, s: base.types.Square) base.types.Piece {
 	return self.squarePtrConst(s).*;
 }
 
+pub fn updateAccumulator(self: *Self) void {
+	// TODO: datagen with psqt first pls
+	_ = self;
+}
+
 pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	const s = move.src;
 	const d = move.dst;
@@ -287,7 +293,7 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		.key = self.ss.top().key,
 
 		.ptsc = self.ss.top().ptsc,
-		.accumulators = self.ss.top().accumulators,
+		.accumulator = self.ss.top().accumulator,
 	}));
 
 	self.popSquare(true, s, sp);
@@ -354,6 +360,28 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		.king => {
 			self.popCastle(if (self.stm == .white) .wk else .bk);
 			self.popCastle(if (self.stm == .white) .wq else .bq);
+
+			const ks = switch (move.flag) {
+				.castle => self.castles.getPtrConstAssertContains(move.info.castle).ks,
+				else => s,
+			};
+			const kd = switch (move.flag) {
+				.castle => self.castles.getPtrConstAssertContains(move.info.castle).kd,
+				else => d,
+			};
+
+			const is_s_mirrored = switch (ks.file()) {
+				.file_e, .file_f, .file_g, .file_h => true,
+				else => false,
+			};
+			const is_d_mirrored = switch (kd.file()) {
+				.file_e, .file_f, .file_g, .file_h => true,
+				else => false,
+			};
+			if (is_s_mirrored != is_d_mirrored) {
+				// TODO: test this
+				self.ss.top().accumulator.mirror(self.stm, &self.pieces_occ);
+			}
 		},
 
 		else => {},
@@ -407,7 +435,7 @@ pub fn doNull(self: *Self) MoveError!void {
 		  ^ zobrist.enp(self.ss.top().en_pas),
 
 		.ptsc = self.ss.top().ptsc,
-		.accumulators = self.ss.top().accumulators,
+		.accumulator = self.ss.top().accumulator,
 	}));
 
 	self.stm = self.stm.flip();
@@ -523,6 +551,15 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 						return error.InvalidPiece;
 					}
 					kings.put(.white, s);
+
+					const mirrored = switch (s.file()) {
+						.file_e, .file_f, .file_g, .file_h => true,
+						else => false,
+					};
+					if (mirrored) {
+						// TODO: test this
+						self.ss.top().accumulator.mirror(.white, &self.pieces_occ);
+					}
 				},
 
 				.b_rook => {
@@ -537,6 +574,15 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 						return error.InvalidPiece;
 					}
 					kings.put(.black, s);
+
+					const mirrored = switch (s.file()) {
+						.file_e, .file_f, .file_g, .file_h => true,
+						else => false,
+					};
+					if (mirrored) {
+						// TODO: test this
+						self.ss.top().accumulator.mirror(.black, &self.pieces_occ);
+					}
 				},
 
 				else => {},

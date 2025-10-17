@@ -40,7 +40,9 @@ pub fn main() !void {
 	defer base.deinit();
 
 	try engine.init();
-	engine.uci.options.frc = true;
+	_ = try engine.uci.parseCommand("setoption name Hash value 128");
+	_ = try engine.uci.parseCommand("setoption name UCI_Chess960 value true");
+	_ = try engine.uci.parseCommand("setoption name Clear Hash");
 	defer engine.deinit();
 
 	const args = try std.process.argsAlloc(base.heap.allocator);

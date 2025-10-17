@@ -8,11 +8,11 @@ const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
 pub const Entry = packed struct(u80) {
+	key:	u16,
+	depth:	u8,
 	was_pv:	bool,
 	flag:	Flag,
 	age:	u5,
-	depth:	u8,
-	key:	u16,
 	eval:	i16,
 	score:	i16,
 	move:	movegen.Move = movegen.Move.zero,
@@ -78,11 +78,12 @@ pub const Table = struct {
 		self.slice = try base.heap.allocator.realloc(self.slice, cnt);
 	}
 
-	pub fn clear(self: Table) !void {
+	pub fn clear(self: *Table) !void {
 		const len = self.slice.len;
 		if (len == 0) {
 			return;
 		}
+		defer self.age = 0;
 
 		const tn = uci.options.threads;
 		const mod = len % tn;

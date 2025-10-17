@@ -190,6 +190,7 @@ fn match(self: *Self) !void {
 				  .{@errorName(err), self.index, self.played});
 			};
 
+			defer _ = @atomicRmw(usize, &engine.transposition.table.age, .Add, 1, .monotonic);
 			try self.writeData();
 		}
 	} else |err| switch (err) {

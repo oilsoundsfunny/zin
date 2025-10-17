@@ -153,7 +153,7 @@ pub fn build(bld: *std.Build) !void {
 		const module = bld.createModule(.{
 			.root_source_file = bld.path(src),
 			.imports = &.{
-				.{ .name = "bounded_array", .module = bounded_array.module("bounded_array" )},
+				.{.name = "bounded_array", .module = bounded_array.module("bounded_array")},
 			},
 			.target = target,
 			.optimize = optimize,
@@ -176,8 +176,8 @@ pub fn build(bld: *std.Build) !void {
 		const test_module = bld.createModule(.{
 			.root_source_file = bld.path(test_src),
 			.imports = &.{
-				.{ .name = "bounded_array", .module = bounded_array.module("bounded_array") },
-				.{ .name = name, .module = module },
+				.{.name = "bounded_array", .module = bounded_array.module("bounded_array")},
+				.{.name = name, .module = module},
 			},
 			.target = target,
 			.optimize = optimize,
@@ -210,7 +210,7 @@ pub fn build(bld: *std.Build) !void {
 			.root_module = bld.createModule(.{
 				.root_source_file = bld.path(src),
 				.imports = &.{
-					.{ .name = "base", .module = Modules.array.get(.base) },
+					.{.name = "base", .module = Modules.array.get(.base)},
 				},
 				.target = bld.graph.host,
 				.pic = true,
@@ -248,7 +248,7 @@ pub fn build(bld: *std.Build) !void {
 		switch (m) {
 			.nnue => {
 				module.addAnonymousImport("default.nn", .{
-					.root_source_file = bld.path("zin-nets/l1x16.nn"),
+					.root_source_file = bld.path("zin-nets/hl16.nn"),
 				});
 				module.addAnonymousImport("test.nn", .{
 					.root_source_file = bld.path("zin-nets/beans.bin"),

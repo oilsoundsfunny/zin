@@ -15,14 +15,14 @@ pub const Self = extern struct {
 
 	pub fn infer(self: *const Self, pos: *const engine.Position) engine.evaluation.score.Int {
 		const stm = pos.stm;
-		const accumulators = &pos.ss.top().accumulators;
+		const accumulator = &pos.ss.top().accumulator;
 
-		const vecs = std.EnumArray(base.types.Color, *align(32) const Accumulator.Vec).init(.{
-			.white = if (stm == .white) &accumulators.white.values else &accumulators.black.values,
-			.black = if (stm == .white) &accumulators.black.values else &accumulators.white.values,
+		const Vec = *align(32) const Accumulator.Vec;
+		const vecs = std.EnumArray(base.types.Color, Vec).init(.{
+			.white = accumulator.perspectives.getPtrConst(if (stm == .white) .white else .black),
+			.black = accumulator.perspectives.getPtrConst(if (stm == .white) .black else .white),
 		});
-
-		const wgts = std.EnumArray(base.types.Color, *align(32) const Accumulator.Vec).init(.{
+		const wgts = std.EnumArray(base.types.Color, Vec).init(.{
 			.white = @ptrCast(&self.out_w[base.types.Color.white.tag()]),
 			.black = @ptrCast(&self.out_w[base.types.Color.black.tag()]),
 		});

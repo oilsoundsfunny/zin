@@ -67,9 +67,7 @@ pub const score = struct {
 
 	pub fn fromPosition(pos: *const Position) Int {
 		var ev = nnue.net.default.infer(pos);
-		// ev *= 100 - pos.ss.top().rule50;
-		// ev = @divTrunc(ev, 100);
-		// ev = fromCentipawns(ev);
+		ev = @divTrunc(ev * (100 - pos.ss.top().rule50), 100);
 		ev = std.math.clamp(ev, score.tblose, score.tbwin);
 		return ev;
 	}

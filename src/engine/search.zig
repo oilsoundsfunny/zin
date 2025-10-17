@@ -115,12 +115,18 @@ pub const Info = struct {
 		const ttf = transposition.table.fetch(key);
 		const tte = ttf[0].*;
 		const tth = ttf[1]
+		  and tte.key == @as(@TypeOf(tte.key), @truncate(key))
 		  and tte.flag != .none
 		  and (tte.move == movegen.Move.zero or pos.isMovePseudoLegal(tte.move));
 		const ttm = if (tth) tte.move else movegen.Move.zero;
-		const has_ttm = ttm != movegen.Move.zero;
 
-		if (tth and tte.shouldTrust(a, b, d)) {
+		const has_ttm = ttm != movegen.Move.zero;
+		const is_pv = node == .exact;
+		const is_ttm_noisy = has_ttm and pos.isMoveNoisy(ttm);
+		const is_ttm_quiet = has_ttm and pos.isMoveQuiet(ttm);
+		const was_pv = tth and tte.was_pv;
+
+		if (tth and (tte.shouldTrust(a, b, d) or self.instance.hardStop())) {
 			return tte.score;
 		}
 
@@ -154,12 +160,10 @@ pub const Info = struct {
 		// reverse futility pruning (rfp)
 		// stc: ~4.5 +- 4.3
 		if (!is_checked
-		  and node == .lowerbound
-		  and !(tth and tte.was_pv)
-		  and !(tth and tte.move == movegen.Move.zero)
-		  and !(tth and pos.isMoveNoisy(tte.move))
+		  and !is_pv and !was_pv and node == .lowerbound
+		  and is_ttm_quiet
 		  and corr_eval >= b
-		  and stat_eval >= b + d * 384) {
+		  and stat_eval >= b + d * 320) {
 			return @divTrunc(stat_eval + b, 2);
 		}
 
@@ -187,49 +191,68 @@ pub const Info = struct {
 		var flag = Node.upperbound;
 
 		var mi: usize = 0;
-		var mp = movegen.Picker.init(self, false, if (tth) tte.move else .{});
+		var mp = movegen.Picker.init(self, false, ttm);
 
-		while (mp.next()) |sm| {
+		move_loop: while (mp.next()) |sm| {
 			if (self.instance.hardStop()) {
 				break;
 			}
 
-			var r: Depth = 0;
-
 			const m = sm.move;
-			const is_noisy = pos.isMoveNoisy(m);
+			const is_noisy = if (has_ttm and m == ttm) is_ttm_noisy else pos.isMoveNoisy(m);
 			const is_quiet = !is_noisy;
-			const is_ttm = m == tte.move;
 
-			if (is_ttm and !has_ttm) {
-				// @branchHint(.unlikely);
-				continue;
-			}
+			var r: Depth = 0;
+			const s = recur: {
+				pos.doMove(m) catch continue :move_loop;
+				defer pos.undoMove();
 
-			pos.doMove(m) catch continue;
-			defer pos.undoMove();
-			defer mi += 1;
+				const is_move_check = pos.isChecked();
 
-			const child: @TypeOf(node) = switch (node) {
-				.upperbound => .lowerbound,
-				.exact => if (mi == 0) .exact else .lowerbound,
-				.lowerbound => if (mi == 0) .upperbound else .lowerbound,
-				else => std.debug.panic("invalid node", .{}),
+				// if (node == .upperbound
+				  // and !is_checked
+				  // and !is_move_check
+				  // and !is_noisy
+				  // and corr_eval <= a
+				  // and stat_eval <= a - 320 * d) {
+					// continue :move_loop;
+				// }
+
+				if (d >= 3 and mi >= 3) {
+					const clamped_d: usize = @intCast(std.math.clamp(d,  0, 31));
+					const clamped_i: usize = @intCast(std.math.clamp(mi, 0, 31));
+
+					r += (&params.search.lmr)[clamped_d][clamped_i][@intFromBool(is_quiet)];
+					r += @intFromBool(node == .lowerbound);
+					r += @intFromBool(is_quiet and is_ttm_noisy);
+
+					r -= @intFromBool(is_pv);
+					r -= @intFromBool(is_checked);
+					r -= @intFromBool(is_move_check);
+				}
+
+				r = @max(r, 0);
+				defer mi += 1;
+
+				const child: @TypeOf(node) = switch (node) {
+					.upperbound => .lowerbound,
+					.exact => if (mi == 0) .exact else .lowerbound,
+					.lowerbound => if (mi == 0) .upperbound else .lowerbound,
+					else => std.debug.panic("invalid node", .{}),
+				};
+				var score = -self.ab(child, ply + 1,
+				  if (child == .exact) -b else -a - 1, -a, d - r - 1);
+				if (is_pv and child != .exact and score > a and score < b) {
+					if (r > 0) {
+						score = -self.ab(.exact, ply + 1, -a - 1, -a, d - 1);
+					}
+					if (score > a and score < b) {
+						score = -self.ab(.exact, ply + 1, -b, -a, d - 1);
+					}
+				}
+
+				break :recur score;
 			};
-
-			if (d >= 3 and mi >= 3
-			  and !is_checked
-			  and !pos.isChecked()
-			  and node != .exact
-			  and child != .exact) {
-				const clamped_d: usize = @intCast(@min(d, 31));
-				const clamped_i: usize = @min(mi, 31);
-
-				r += (&params.search.lmr)[clamped_d][clamped_i][@intFromBool(is_quiet)];
-			}
-
-			r = @max(r, 0);
-			const s = -self.ab(child, ply + 1, if (child == .exact) -b else -a - 1, -a, d - r - 1);
 
 			if (s > best.score) {
 				best.score = @intCast(s);
@@ -252,7 +275,7 @@ pub const Info = struct {
 		}
 
 		ttf[0].* = .{
-			.was_pv = flag == .exact or (tth and tte.was_pv),
+			.was_pv = was_pv or flag == .exact,
 			.flag = flag,
 			.age = @truncate(transposition.table.age),
 			.depth = @intCast(depth),
@@ -294,12 +317,16 @@ pub const Info = struct {
 		const ttf = transposition.table.fetch(key);
 		const tte = ttf[0].*;
 		const tth = ttf[1]
+		  and tte.key == @as(@TypeOf(tte.key), @truncate(key))
 		  and tte.flag != .none
 		  and (tte.move == movegen.Move.zero or pos.isMovePseudoLegal(tte.move));
 		const ttm = if (tth) tte.move else movegen.Move.zero;
-		const has_ttm = ttm != movegen.Move.zero;
 
-		if (tth and tte.shouldTrust(a, b, 0)) {
+		// const has_ttm = ttm != movegen.Move.zero;
+		const is_pv = node == .exact;
+		const was_pv = tth and tte.was_pv;
+
+		if (tth and (tte.shouldTrust(a, b, 0) or self.instance.hardStop())) {
 			return tte.score;
 		}
 
@@ -334,30 +361,31 @@ pub const Info = struct {
 		var mi: usize = 0;
 		var mp = movegen.Picker.init(self, pos.ss.top().qs_ply < 4 and !is_checked, ttm);
 
-		while (mp.next()) |sm| {
+		move_loop: while (mp.next()) |sm| {
 			if (self.instance.hardStop()) {
 				break;
 			}
 
 			const m = sm.move;
-			const is_ttm = m == tte.move;
+			const s = recur: {
+				pos.doMove(m) catch continue :move_loop;
+				defer pos.undoMove();
 
-			if (is_ttm and !has_ttm) {
-				// @branchHint(.unlikely);
-				continue;
-			}
+				const child: @TypeOf(node) = switch (node) {
+					.upperbound => .lowerbound,
+					.exact => if (mi == 0) .exact else .lowerbound,
+					.lowerbound => if (mi == 0) .upperbound else .lowerbound,
+					else => std.debug.panic("invalid node", .{}),
+				};
 
-			pos.doMove(m) catch continue;
-			defer pos.undoMove();
-			defer mi += 1;
+				defer mi += 1;
+				var score = -self.qs(child, ply + 1, if (child == .exact) -b else -a - 1, -a);
+				if (is_pv and child != .exact and score > a and score < b) {
+					score = -self.qs(.exact, ply + 1, -b, -a);
+				}
 
-			const child: @TypeOf(node) = switch (node) {
-				.upperbound => .lowerbound,
-				.exact => if (mi == 0) .exact else .lowerbound,
-				.lowerbound => if (mi == 0) .upperbound else .lowerbound,
-				else => std.debug.panic("invalid node", .{}),
+				break :recur score;
 			};
-			const s = -self.qs(child, ply + 1, if (child == .exact) -b else -a - 1, -a);
 
 			if (s > best.score) {
 				best.score = @intCast(s);
@@ -380,7 +408,7 @@ pub const Info = struct {
 		}
 
 		ttf[0].* = .{
-			.was_pv = flag == .exact or (tth and tte.was_pv),
+			.was_pv = was_pv or flag == .exact,
 			.flag = flag,
 			.age = @truncate(transposition.table.age),
 			.depth = 0,
@@ -592,6 +620,8 @@ pub const Instance = struct {
 
 		const max_d: u8 = @intCast(self.options.depth orelse 240);
 		for (1 .. max_d + 1) |d| {
+			defer _ = @atomicRmw(usize, &transposition.table.age, .Add, 1, .monotonic);
+
 			for (self.infos) |*info| {
 				info.depth = 0;
 				info.depth += @intCast(d);

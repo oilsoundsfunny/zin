@@ -21,7 +21,7 @@ const RootMove = struct {
 	pub const capacity = 256 - @sizeOf(usize) * 2 / @sizeOf(Move);
 
 	pub fn push(self: *RootMove, m: Move) void {
-		self.line.append(m) catch std.debug.panic("stack overflow", .{});
+		self.line.appendAssumeCapacity(m);
 	}
 
 	pub fn constSlice(self: *const RootMove) []const Move {
@@ -54,7 +54,7 @@ const RootMoveList = struct {
 	const capacity = 256;
 
 	fn push(self: *RootMoveList, rm: RootMove) void {
-		self.array.append(rm) catch std.debug.panic("stack overflow", .{});
+		self.array.appendAssumeCapacity(rm);
 	}
 
 	pub fn constSlice(self: *const RootMoveList) []const RootMove {
@@ -120,7 +120,7 @@ const ScoredMoveList = struct {
 	const capacity = 256 - @sizeOf(usize) * 2 / @sizeOf(ScoredMove);
 
 	fn push(self: *ScoredMoveList, sm: ScoredMove) void {
-		self.array.append(sm) catch std.debug.panic("stack overflow", .{});
+		self.array.appendAssumeCapacity(sm);
 	}
 
 	fn genCastle(self: *ScoredMoveList, pos: *const Position, is_k: bool) usize {
@@ -380,7 +380,7 @@ pub const Move = packed struct(u16) {
 		const capacity = 256 - @sizeOf(usize) / @sizeOf(Move);
 
 		pub fn push(self: *List, m: Move) void {
-			self.array.append(m) catch std.debug.panic("stack overflow", .{});
+			self.array.appendAssumeCapacity(m);
 		}
 
 		pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {

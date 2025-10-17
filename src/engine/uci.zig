@@ -46,69 +46,6 @@ pub const options = struct {
 
 pub var instance = std.mem.zeroInit(search.Instance, .{});
 
-fn parseCommand(command: []const u8) !Command {
-	var tokens = std.mem.tokenizeAny(u8, command, &std.ascii.whitespace);
-	const first = tokens.next() orelse return error.UnknownCommand;
-
-	if (std.mem.eql(u8, first, "debug")) {
-		if (tokens.peek()) |_| {
-			return error.UnknownCommand;
-		}
-
-		return .debug;
-	} else if (std.mem.eql(u8, first, "go")) {
-		return parseGo(&tokens);
-	} else if (std.mem.eql(u8, first, "isready")) {
-		if (tokens.peek()) |_| {
-			return error.UnknownCommand;
-		}
-
-		try io.writer.print("readyok\n", .{});
-		try io.writer.flush();
-		return .isready;
-	} else if (std.mem.eql(u8, first, "position")) {
-		return parsePosition(&tokens);
-	} else if (std.mem.eql(u8, first, "quit")) {
-		return if (tokens.peek()) |_| error.UnknownCommand else .quit;
-	} else if (std.mem.eql(u8, first, "setoption")) {
-		return parseOption(&tokens);
-	} else if (std.mem.eql(u8, first, "stop")) {
-		if (tokens.peek()) |_| {
-			return error.UnknownCommand;
-		}
-
-		instance.options.is_searching.store(false, .monotonic);
-		return .stop;
-	} else if (std.mem.eql(u8, first, "uci")) {
-		if (tokens.peek()) |_| {
-			return error.UnknownCommand;
-		}
-
-		try io.writer.print("id author {s}\n", .{@import("root").author});
-		try io.writer.print("id name {s}\n", .{@import("root").name});
-
-		try io.writer.print("option name {s} type {s}\n", .{"Clear Hash", "button"});
-		try io.writer.print("option name {s} type {s} default {d} min {d} max {d}\n",
-		    .{"Hash", "spin", 64, 1, 1 << 38});
-		try io.writer.print("option name {s} type {s} default {d} min {d} max {d}\n",
-		    .{"Threads", "spin", 1, 1, 64});
-		try io.writer.print("option name {s} type {s} default {s}\n",
-		    .{"UCI_Chess960", "check", "false"});
-		try io.writer.print("uciok\n", .{});
-		try io.writer.flush();
-		return .uci;
-	} else if (std.mem.eql(u8, first, "ucinewgame")) {
-		if (tokens.peek()) |_| {
-			return error.UnknownCommand;
-		}
-
-		instance.reset();
-		return .ucinewgame;
-	} else return error.UnknownCommand;
-
-	return error.UnknownCommand;
-}
-
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 	const opt = &instance.options;
 	opt.reset();
@@ -265,6 +202,69 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 	return .position;
 }
 
+pub fn parseCommand(command: []const u8) !Command {
+	var tokens = std.mem.tokenizeAny(u8, command, &std.ascii.whitespace);
+	const first = tokens.next() orelse return error.UnknownCommand;
+
+	if (std.mem.eql(u8, first, "debug")) {
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
+		return .debug;
+	} else if (std.mem.eql(u8, first, "go")) {
+		return parseGo(&tokens);
+	} else if (std.mem.eql(u8, first, "isready")) {
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
+		try io.writer.print("readyok\n", .{});
+		try io.writer.flush();
+		return .isready;
+	} else if (std.mem.eql(u8, first, "position")) {
+		return parsePosition(&tokens);
+	} else if (std.mem.eql(u8, first, "quit")) {
+		return if (tokens.peek()) |_| error.UnknownCommand else .quit;
+	} else if (std.mem.eql(u8, first, "setoption")) {
+		return parseOption(&tokens);
+	} else if (std.mem.eql(u8, first, "stop")) {
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
+		instance.options.is_searching.store(false, .monotonic);
+		return .stop;
+	} else if (std.mem.eql(u8, first, "uci")) {
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
+		try io.writer.print("id author {s}\n", .{@import("root").author});
+		try io.writer.print("id name {s}\n", .{@import("root").name});
+
+		try io.writer.print("option name {s} type {s}\n", .{"Clear Hash", "button"});
+		try io.writer.print("option name {s} type {s} default {d} min {d} max {d}\n",
+		    .{"Hash", "spin", 64, 1, 1 << 38});
+		try io.writer.print("option name {s} type {s} default {d} min {d} max {d}\n",
+		    .{"Threads", "spin", 1, 1, 64});
+		try io.writer.print("option name {s} type {s} default {s}\n",
+		    .{"UCI_Chess960", "check", "false"});
+		try io.writer.print("uciok\n", .{});
+		try io.writer.flush();
+		return .uci;
+	} else if (std.mem.eql(u8, first, "ucinewgame")) {
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
+		instance.reset();
+		return .ucinewgame;
+	} else return error.UnknownCommand;
+
+	return error.UnknownCommand;
+}
+
 pub fn init() !void {
 	_ = try parseCommand("setoption name Hash value 64");
 	_ = try parseCommand("setoption name Threads value 1");
@@ -277,7 +277,7 @@ pub fn loop() !void {
 	while (io.reader.takeDelimiterInclusive('\n')) |read| {
 		const comm = parseCommand(read) catch |err| sw: switch (err) {
 			error.UnknownCommand => {
-				try io.writer.print("Unknown command: '{s}'\n", .{read});
+				try io.writer.print("Unknown command: '{s}'\n", .{read[0 .. read.len - 1]});
 				try io.writer.flush();
 				break :sw Command.none;
 			},
