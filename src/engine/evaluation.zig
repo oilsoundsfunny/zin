@@ -9,46 +9,6 @@ const Position = @import("Position.zig");
 const Features = struct {
 };
 
-const phase = struct {
-	const init_max
-	  = @as(comptime_int, params.evaluation.ptsc.getPtrConst(.pawn).avg()) * 16
-	  + @as(comptime_int, params.evaluation.ptsc.getPtrConst(.knight).avg()) * 4
-	  + @as(comptime_int, params.evaluation.ptsc.getPtrConst(.bishop).avg()) * 4
-	  + @as(comptime_int, params.evaluation.ptsc.getPtrConst(.rook).avg())  * 4
-	  + @as(comptime_int, params.evaluation.ptsc.getPtrConst(.queen).avg()) * 2;
-	const min = init_max *  1 / 16;
-	const max = init_max * 15 / 16;
-
-	fn fromPosition(pos: *const Position) score.Int {
-		const ptsc: Pair = .{
-			.mg = pos.ss.top().ptsc.getPtrConst(.white).mg
-			  + pos.ss.top().ptsc.getPtrConst(.black).mg,
-			.eg = pos.ss.top().ptsc.getPtrConst(.white).eg
-			  + pos.ss.top().ptsc.getPtrConst(.black).eg,
-		};
-		const from_pos = ptsc.avg();
-		const clamped: isize = std.math.clamp(from_pos, min, max);
-		const m = (clamped - min) * score.unit;
-		const d = @divTrunc(m, max - min);
-		return @intCast(d);
-	}
-};
-
-pub const Pair = extern struct {
-	mg:	score.Int,
-	eg:	score.Int,
-
-	pub fn avg(self: Pair) score.Int {
-		return self.taper(score.unit);
-	}
-
-	pub fn taper(self: Pair, p: score.Int) score.Int {
-		const mg = @as(isize, self.mg) * @as(isize, p);
-		const eg = @as(isize, self.eg) * @as(isize, score.unit - p);
-		return @intCast(@divTrunc(mg + eg, score.unit));
-	}
-};
-
 pub const score = struct {
 	pub const Int = base.defs.score.Int;
 
@@ -67,7 +27,8 @@ pub const score = struct {
 
 	pub fn fromPosition(pos: *const Position) Int {
 		var ev = nnue.net.default.infer(pos);
-		ev = @divTrunc(ev * (100 - pos.ss.top().rule50), 100);
+		ev *= 128 - pos.ss.top().rule50;
+		ev = @divTrunc(ev, 128);
 		ev = std.math.clamp(ev, score.tblose, score.tbwin);
 		return ev;
 	}

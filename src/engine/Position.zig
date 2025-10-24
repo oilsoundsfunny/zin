@@ -57,7 +57,7 @@ pub const State = struct {
 	castle:	 base.types.Castle.Set,
 	en_pas:	?base.types.Square,
 	rule50:	 u8,
-	qs_ply:	 u8 = std.math.maxInt(u8),
+	qs_ply:	?u8,
 
 	check_mask:	base.types.Square.Set = .all,
 
@@ -65,12 +65,11 @@ pub const State = struct {
 
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
-	ptsc:	std.EnumArray(base.types.Color, evaluation.Pair),
 	accumulator:	nnue.Accumulator = .{},
 
 	pub const Stack = struct {
-		array:	bounded_array.BoundedArray(State, capacity + offset) = .{
-			.buffer = .{std.mem.zeroInit(State, .{})} ** (capacity + offset),
+		array:	bounded_array.BoundedArray(State, 1024) = .{
+			.buffer = .{std.mem.zeroInit(State, .{})} ** 1024,
 			.len = offset + 1,
 		},
 
@@ -166,9 +165,7 @@ fn popSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 		return;
 	}
 
-	const c  = p.color();
-	const pt = p.ptype();
-
+	const c = p.color();
 	self.mailbox.set(s, .nul);
 	self.colorOccPtr(c).pop(s);
 	self.pieceOccPtr(p).pop(s);
@@ -178,10 +175,6 @@ fn popSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 
 	const z = zobrist.psq(s, p);
 	self.ss.top().key ^= z;
-
-	const ptsc = params.evaluation.ptsc.getPtrConst(pt);
-	self.ss.top().ptsc.getPtr(c).mg -= ptsc.mg;
-	self.ss.top().ptsc.getPtr(c).eg -= ptsc.eg;
 	self.ss.top().accumulator.pop(s, p);
 }
 
@@ -190,9 +183,7 @@ fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 		return;
 	}
 
-	const c  = p.color();
-	const pt = p.ptype();
-
+	const c = p.color();
 	self.mailbox.set(s, p);
 	self.colorOccPtr(c).set(s);
 	self.pieceOccPtr(p).set(s);
@@ -202,10 +193,6 @@ fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 
 	const z = zobrist.psq(s, p);
 	self.ss.top().key ^= z;
-
-	const ptsc = params.evaluation.ptsc.getPtrConst(pt);
-	self.ss.top().ptsc.getPtr(c).mg += ptsc.mg;
-	self.ss.top().ptsc.getPtr(c).eg += ptsc.eg;
 	self.ss.top().accumulator.set(s, p);
 }
 
@@ -272,11 +259,6 @@ pub fn getSquare(self: *const Self, s: base.types.Square) base.types.Piece {
 	return self.squarePtrConst(s).*;
 }
 
-pub fn updateAccumulator(self: *Self) void {
-	// TODO: datagen with psqt first pls
-	_ = self;
-}
-
 pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	const s = move.src;
 	const d = move.dst;
@@ -291,8 +273,6 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		.rule50 = self.ss.top().rule50 + 1,
 
 		.key = self.ss.top().key,
-
-		.ptsc = self.ss.top().ptsc,
 		.accumulator = self.ss.top().accumulator,
 	}));
 
@@ -424,6 +404,7 @@ pub fn doNull(self: *Self) MoveError!void {
 		return error.InvalidMove;
 	}
 
+	self.stm = self.stm.flip();
 	self.ss.top().move = .{};
 	self.ss.top().src_piece = .nul;
 	self.ss.top().dst_piece = .nul;
@@ -433,12 +414,8 @@ pub fn doNull(self: *Self) MoveError!void {
 		.key = self.ss.top().key
 		  ^ zobrist.stm()
 		  ^ zobrist.enp(self.ss.top().en_pas),
-
-		.ptsc = self.ss.top().ptsc,
 		.accumulator = self.ss.top().accumulator,
 	}));
-
-	self.stm = self.stm.flip();
 }
 
 pub fn undoMove(self: *Self) void {
@@ -722,13 +699,21 @@ pub fn squareAtkers(self: *const Self, s: base.types.Square) base.types.Square.S
 	  .bwo(bitboard.qAtk(s, occ).bwa(self.ptypeOcc(.queen)));
 }
 
-pub fn is3peat(self: *const Self) bool {
-	const key = self.ss.top().key;
-	var peat: usize = 0;
-	for (self.ss.slice()) |st| {
-		peat += if (st.key == key) 1 else 0;
+pub fn getRepeat(self: *const Self) usize {
+	const bot = self.ss.bottom();
+	const top = self.ss.top();
+	const key = top.key;
+
+	var peat: usize = 1;
+	var p = bot;
+	while (p != top) : (p = p.up(1)) {
+		peat += if (p.key == key) 1 else 0;
 	}
-	return peat >= 3;
+	return peat;
+}
+
+pub fn is3peat(self: *const Self) bool {
+	return self.getRepeat() >= 3;
 }
 
 pub fn isChecked(self: *const Self) bool {
@@ -736,7 +721,9 @@ pub fn isChecked(self: *const Self) bool {
 }
 
 pub fn isDrawn(self: *const Self) bool {
-	return self.ss.top().rule50 >= 100 or self.is3peat();
+	return self.ss.top().rule50 >= 100
+	  or self.is3peat()
+	  or self.ss.array.len >= self.ss.array.capacity();
 }
 
 pub fn isMoveNoisy(self: *const Self, move: movegen.Move) bool {

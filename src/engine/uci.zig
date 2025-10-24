@@ -27,14 +27,14 @@ const io = struct {
 	const stdin = std.fs.File.stdin();
 	const stdout = std.fs.File.stdout();
 
+	const reader = &std_reader.interface;
+	const writer = &std_writer.interface;
+
 	var reader_buf align(32) = std.mem.zeroes([65536]u8);
 	var writer_buf align(32) = std.mem.zeroes([65536]u8);
 
-	var std_reader = stdin.reader(&reader_buf);
-	var std_writer = stdout.writer(&writer_buf);
-
-	const reader = &std_reader.interface;
-	const writer = &std_writer.interface;
+	var std_reader = stdin.readerStreaming(&reader_buf);
+	var std_writer = stdout.writerStreaming(&writer_buf);
 };
 
 pub const options = struct {
@@ -48,6 +48,8 @@ pub var instance = std.mem.zeroInit(search.Instance, .{});
 
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 	const opt = &instance.options;
+	const stm = instance.infos[0].pos.stm;
+
 	opt.reset();
 	errdefer opt.reset();
 
@@ -83,29 +85,14 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 		opt.infinite = false;
 	}
 
-	if (!opt.infinite) {
-		var timeset = false;
-		opt.stop = std.math.maxInt(u64);
-
-		if (opt.movetime) |movetime| {
-			opt.stop = @min(opt.stop.?, opt.start + movetime - options.overhead);
-			timeset = true;
-		}
-
-		const stm = instance.infos[0].pos.stm;
-		if (opt.incr.get(stm) != null and opt.time.get(stm) != null) {
-			const incr = opt.incr.get(stm).?;
-			const time = opt.time.get(stm).?;
-
-			opt.stop = @min(opt.stop.?,
-			  opt.start + incr / 2 + time / 20 - options.overhead);
-			timeset = true;
-		}
-
-		if (opt.stop.? <= opt.start) {
-			opt.stop = if (timeset) opt.start + 1 else null;
-		}
-	}
+	opt.stop = if (!opt.infinite and opt.movetime != null) movetime: {
+		const mt = opt.movetime.?;
+		break :movetime opt.start +| mt -| options.overhead;
+	} else if (!opt.infinite and opt.incr.get(stm) != null and opt.time.get(stm) != null) time: {
+		const i = opt.incr.get(stm).?;
+		const t = opt.time.get(stm).? -| options.overhead;
+		break :time opt.start + t / 20 + i / 2;
+	} else null;
 
 	try instance.spawn();
 	return .go;

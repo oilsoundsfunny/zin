@@ -29,7 +29,6 @@ const Generators = enum {
 
 		.params = &.{
 			.{ "--lmr-path", "lmr.bin" },
-			.{ "--ptsc-path", "ptsc.bin" },
 		},
 	});
 

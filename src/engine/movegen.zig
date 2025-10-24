@@ -53,10 +53,6 @@ const RootMoveList = struct {
 
 	const capacity = 256;
 
-	fn push(self: *RootMoveList, rm: RootMove) void {
-		self.array.appendAssumeCapacity(rm);
-	}
-
 	pub fn constSlice(self: *const RootMoveList) []const RootMove {
 		return self.slice();
 	}
@@ -66,6 +62,14 @@ const RootMoveList = struct {
 		else => |T| @compileError("unexpected type " ++ @typeName(T)),
 	} {
 		return self.array.slice();
+	}
+
+	pub fn push(self: *RootMoveList, rm: RootMove) void {
+		self.array.appendAssumeCapacity(rm);
+	}
+
+	pub fn resize(self: *RootMoveList, len: usize) !void {
+		try self.array.resize(len);
 	}
 
 	pub fn init(pos: *Position) RootMoveList {
@@ -84,12 +88,13 @@ const RootMoveList = struct {
 			defer pos.undoMove();
 
 			var rm: RootMove = .{
-				.score = evaluation.score.draw,
+				.score = -evaluation.score.fromPosition(pos),
 			};
 			rm.push(m);
 			rml.push(rm);
 		}
 
+		RootMove.sortSlice(rml.slice());
 		return rml;
 	}
 };
@@ -383,6 +388,10 @@ pub const Move = packed struct(u16) {
 			self.array.appendAssumeCapacity(m);
 		}
 
+		pub fn constSlice(self: *const List) []const Move {
+			return self.slice();
+		}
+
 		pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
 			[]Move, []const Move => |T| T,
 			else => |T| @compileError("unexpected type " ++ @typeName(T)),
@@ -421,6 +430,7 @@ pub const Picker = struct {
 	noisy:	bool,
 	stage:	Stage,
 
+	excluded:	Move,
 	ttm:	Move,
 
 	noisy_n:	usize,
@@ -458,26 +468,38 @@ pub const Picker = struct {
 	}
 
 	fn scoreNoisy(self: *const Picker, move: Move) search.hist.Int {
-		if (move == self.ttm) {
-			return search.hist.max + 1;
-		} else {
+		return if (move == self.ttm) search.hist.max + 1
+		  else if (move == self.excluded) search.hist.min - 1
+		  else captures: {
 			const spt = self.pos.getSquare(move.src).ptype();
 			const dpt = self.pos.getSquare(move.dst).ptype();
 
-			const sps = params.evaluation.ptsc.getPtrConst(spt).avg();
-			const dps = params.evaluation.ptsc.getPtrConst(dpt).avg();
+			const s: search.hist.Int = switch (spt) {
+				.pawn => 3640,
+				.knight => 11648,
+				.bishop => 12012,
+				.rook => 18200,
+				.queen => 32760,
+				else => base.defs.score.draw,
+			};
 
-			return @intCast(dps - sps);
-		}
+			const d: search.hist.Int = switch (dpt) {
+				.pawn => 3640,
+				.knight => 11648,
+				.bishop => 12012,
+				.rook => 18200,
+				.queen => 32760,
+				else => base.defs.score.draw,
+			};
+
+			break :captures d - s;
+		};
 	}
 
 	fn scoreQuiet(self: *const Picker, move: Move) search.hist.Int {
-		if (move == self.ttm) {
-			return search.hist.max + 1;
-		} else {
-			// TODO: implement quiet histories
-			return evaluation.score.draw;
-		}
+		return if (move == self.ttm) search.hist.max + 1
+		  else if (move == self.excluded) search.hist.min - 1
+		  else evaluation.score.draw;
 	}
 
 	pub fn init(info: *const search.Info,
@@ -491,6 +513,7 @@ pub const Picker = struct {
 			.noisy = only_noisy,
 			.stage = if (ttm == Move.zero) .gen_noisy else .ttm,
 
+			.excluded = Move.zero,
 			.ttm = ttm,
 
 			.noisy_n = 0,

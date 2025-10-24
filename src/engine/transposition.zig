@@ -60,7 +60,7 @@ pub const Cluster = packed struct(u256) {
 
 pub const Table = struct {
 	slice:	[]Cluster = &.{},
-	age:	usize = 0,
+	age:	std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 
 	fn index(self: Table, key: zobrist.Int) usize {
 		return zobrist.index(key, self.slice.len);
@@ -83,7 +83,7 @@ pub const Table = struct {
 		if (len == 0) {
 			return;
 		}
-		defer self.age = 0;
+		defer self.age.store(0, .monotonic);
 
 		const tn = uci.options.threads;
 		const mod = len % tn;
@@ -118,22 +118,26 @@ pub const Table = struct {
 			@ptrCast(&cluster.et2),
 		};
 
-		for (entries) |tte| {
+		for (entries) |entry| {
+			const tte = entry.*;
 			if (tte.key != @as(@TypeOf(tte.key), @truncate(key)) or tte.flag == .none) {
 				continue;
 			}
-			return .{tte, true};
+			return .{entry, true};
 		}
 
 		var replace = entries[0];
-		for (entries[1 ..]) |tte| {
-			const ra: isize = replace.age;
-			const rd: isize = replace.age;
+		for (entries[1 ..]) |entry| {
+			const rte = replace.*;
+			const tte = entry.*;
+
+			const ra: isize = rte.age;
+			const rd: isize = rte.age;
 			const ta: isize = tte.age;
 			const td: isize = tte.age;
 
 			if (rd - ra > td - ta) {
-				replace = tte;
+				replace = entry;
 			}
 		}
 		return .{replace, false};

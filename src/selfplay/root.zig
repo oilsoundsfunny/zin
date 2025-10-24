@@ -50,8 +50,11 @@ pub fn main() !void {
 
 	var book_path: ?[]const u8 = null;
 	var data_path: ?[]const u8 = null;
-	var games: ?u64 = null;
-	var nodes: ?u64 = null;
+	var filter_draws = false;
+	var depth: ?u8 = null;
+	var games: ?usize = null;
+	var nodes: ?usize = null;
+	var random = false;
 	var threads: ?usize = null;
 
 	while (i < args.len) : (i += 1) {
@@ -77,6 +80,19 @@ pub fn main() !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			data_path = args[i];
+		} else if (std.mem.eql(u8, arg, "--filter-draws")) {
+			filter_draws = if (!filter_draws) true
+			  else std.process.fatal("duplicated arg '{s}'", .{arg});
+		} else if (std.mem.eql(u8, arg, "--depth")) {
+			i += 1;
+			if (i > args.len) {
+				std.process.fatal("expected arg after '{s}'", .{arg});
+			}
+
+			if (depth) |_| {
+				std.process.fatal("duplicated arg '{s}'", .{arg});
+			}
+			depth = try std.fmt.parseUnsigned(u8, args[i], 10);
 		} else if (std.mem.eql(u8, arg, "--games")) {
 			i += 1;
 			if (i > args.len) {
@@ -86,7 +102,7 @@ pub fn main() !void {
 			if (games) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			games = try std.fmt.parseUnsigned(u64, args[i], 10);
+			games = try std.fmt.parseUnsigned(usize, args[i], 10);
 		} else if (std.mem.eql(u8, arg, "--nodes")) {
 			i += 1;
 			if (i > args.len) {
@@ -96,7 +112,9 @@ pub fn main() !void {
 			if (nodes) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			nodes = try std.fmt.parseUnsigned(u64, args[i], 10);
+			nodes = try std.fmt.parseUnsigned(usize, args[i], 10);
+		} else if (std.mem.eql(u8, arg, "--random")) {
+			random = if (!random) true else std.process.fatal("duplicated arg '{s}'", .{arg});
 		} else if (std.mem.eql(u8, arg, "--threads")) {
 			i += 1;
 			if (i > args.len) {
@@ -114,7 +132,15 @@ pub fn main() !void {
 	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}));
 	defer io.deinit();
 
-	var tourney = try Player.Tourney.alloc(threads orelse 1,
-	  games, nodes orelse std.process.fatal("missing arg '--nodes'", .{}));
+	var tourney = try Player.Tourney.alloc(.{
+		.games = games,
+		.depth = depth,
+		.nodes = nodes,
+		.threads = threads orelse 1,
+
+		.filter_draws = filter_draws,
+		.random = random,
+	});
 	try tourney.start();
+	defer tourney.stop();
 }

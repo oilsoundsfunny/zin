@@ -8,52 +8,81 @@ const viri = @import("viri.zig");
 
 const Self = @This();
 
-const min_ply = 8;
+const random_ply = 8;
 const random_games = 4;
-const max_cp = 500;
-const min_cp = 20;
+
+const max_cp = 400;
+const min_cp = 0;
 
 instance:	engine.search.Instance,
 opening:	[]const u8 = &.{},
+
+filter_draws:	bool,
+random:	bool,
+prng:	std.Random.Xoroshiro128 = std.Random.Xoroshiro128.init(0xaaaaaaaaaaaaaaaa),
 
 games:	?usize,
 played:	 usize,
 index:	 usize,
 
 data:	viri.Self,
-line:	bounded_array.BoundedArray(viri.Move.Scored, engine.Position.State.Stack.capacity),
+line:	bounded_array.BoundedArray(viri.Move.Scored, 1024),
 
 pub const Tourney = struct {
-	players:	[]Self = &.{},
+	players:	std.ArrayListAligned(Self, .@"64") = .{},
+	threads:	std.ArrayListAligned(std.Thread, .@"64") = .{},
 
-	pub fn alloc(n: usize, games: ?u64, nodes: u64) !Tourney {
-		const self: Tourney = .{
-			.players = try base.heap.allocator.alignedAlloc(Self, .@"64", n),
-		};
+	pub const Options = struct {
+		games:	?usize,
+		depth:	?u8,
+		nodes:	?usize,
+		threads:	usize,
 
-		for (self.players, 0 ..,) |*player, i| {
+		filter_draws:	bool,
+		random:	 		bool,
+	};
+
+	pub fn alloc(options: Options) !Tourney {
+		if (!options.random
+		  and options.depth == null
+		  and options.nodes == null) {
+			std.process.fatal("missing args '{s}' and '{s}'", .{"--depth", "--nodes"});
+		}
+		if (options.threads == 0) {
+			std.process.fatal("get some real threads vro :wilted_rose:", .{});
+		}
+
+		var self: Tourney = .{};
+		try self.players.appendNTimes(base.heap.allocator, undefined, options.threads);
+		try self.threads.appendNTimes(base.heap.allocator, undefined, options.threads);
+
+		for (self.players.items, 0 ..) |*player, i| {
+			const n = options.threads;
 			player.* = std.mem.zeroInit(Self, .{
-				.games = if (games) |g| g / n + @as(u64, @intFromBool(i < g % n)) else null,
+				.filter_draws = options.filter_draws,
+				.random = options.random,
+
+				.games = if (options.games) |g| g / n + @intFromBool(i < g % n) else null,
 				.index = i,
 			});
 
 			try player.instance.alloc(1);
 			player.instance.options.infinite = false;
-			player.instance.options.nodes = nodes;
+			player.instance.options.depth = if (options.random) options.depth orelse 0 else null;
+			player.instance.options.nodes = if (options.random) options.nodes orelse 0 else null;
 		}
 
 		return self;
 	}
 
 	pub fn start(self: *Tourney) !void {
-		var threads = try bounded_array.BoundedArray(std.Thread, 256).init(0);
-		for (self.players) |*player| {
-			const id = try std.Thread.spawn(.{ .allocator = base.heap.allocator },
-			  match, .{player});
-			try threads.append(id);
+		for (self.players.items, self.threads.items) |*player, *thread| {
+			thread.* = try std.Thread.spawn(.{.allocator = base.heap.allocator}, match, .{player});
 		}
+	}
 
-		for (threads.constSlice()) |thread| {
+	pub fn stop(self: *const Tourney) void {
+		for (self.threads.items) |thread| {
 			std.Thread.join(thread);
 		}
 	}
@@ -87,38 +116,41 @@ fn playRandom(self: *Self) !void {
 	const info = &infos[0];
 	try info.pos.parseFen(self.opening);
 
-	var pos = info.pos;
-	var sfc = std.Random.Sfc64.init(self.played);
+	const original_depth = self.instance.options.depth;
+	self.instance.options.depth = 1;
+	defer self.instance.options.depth = original_depth;
 
-	var i: usize = 0;
-	find_line: while (i < random_games) : ({
-		i += 1;
-		pos = info.pos;
-	}) {
-		for (0 .. min_ply) |_| {
+	var pos = info.pos;
+
+	find_line: while (true) : (pos = info.pos) {
+		for (0 .. random_ply) |_| {
 			const rml = engine.movegen.Move.Root.List.init(&pos);
-			const rmn = rml.constSlice().len;
-			if (rmn == 0) {
+			const rms = rml.constSlice();
+			if (rms.len == 0 or pos.isDrawn()) {
 				continue :find_line;
 			}
 
-			const r = sfc.random().uintLessThan(usize, rmn);
-			const rm = &rml.constSlice()[r];
-			const m = rm.constSlice()[0];
-
+			const r = self.prng.random().uintLessThan(usize, rms.len);
+			const m = rms[r].constSlice()[0];
 			try pos.doMove(m);
 		}
 
 		const ev = engine.evaluation.score.fromPosition(&pos);
 		const cp = engine.evaluation.score.toCentipawns(ev);
-		const abs = @abs(cp);
+		const abs = if (cp < 0) -cp else cp;
 
 		if (abs != std.math.clamp(abs, min_cp, max_cp)) {
 			continue :find_line;
-		} else {
-			info.pos = pos;
-			break :find_line;
 		}
+
+		const rml = engine.movegen.Move.Root.List.init(&pos);
+		const rms = rml.constSlice();
+		if (rms.len == 0 or pos.isDrawn()) {
+			continue :find_line;
+		}
+
+		info.pos = pos;
+		break :find_line;
 	}
 }
 
@@ -132,65 +164,63 @@ fn playOut(self: *Self) !void {
 	self.line = try @TypeOf(self.line).init(0);
 
 	while (true) {
-		try self.instance.root_moves.array.resize(0);
 		try self.instance.think();
 
-		const pv = &self.instance.root_moves.slice()[0];
-		const stm = pos.stm;
-		const pvm = pv.line.slice()[0];
-		const pvs = switch (stm) {
-			.white => 0 + pv.score,
-			.black => 0 - pv.score,
-		};
+		const rml = &self.instance.root_moves;
+		const rms = rml.constSlice();
+		if (rms.len == 0 or pos.isDrawn()) {
+			const is_checked = pos.isChecked();
+			const is_drawn = pos.isDrawn();
+			const stm = pos.stm;
 
-		const m = viri.Move.fromMove(pvm);
-		const s = @as(i32, @intCast(pvs));
-
-		const centipawns = engine.evaluation.score.toCentipawns(s);
-		const has_move = pvm != engine.movegen.Move.zero;
-		try self.line.append(.{
-			.move = m,
-			.score = @intCast(centipawns),
-		});
-
-		if (!has_move) {
-			self.data.result = switch (s) {
-				engine.evaluation.score.win  => .white,
-				engine.evaluation.score.draw => .draw,
-				engine.evaluation.score.lose => .black,
-				else => std.debug.panic("invalid bestscore", .{}),
+			defer self.data.result = if (!is_checked or is_drawn) .draw else switch (stm) {
+				.white => .black,
+				.black => .white,
 			};
-
-			_ = self.line.pop();
 			try self.line.append(.{});
-
 			break;
 		}
 
+		const i = if (!self.random or rms.len <= 2) 0
+		  else self.prng.random().uintLessThan(usize, rms.len / 2);
+		const rm = &rms[i];
+		const pvm = rm.constSlice()[0];
+		const pvs = rm.score;
 		try pos.doMove(pvm);
+
+		const m = viri.Move.fromMove(pvm);
+		const s = engine.evaluation.score.toCentipawns(@intCast(pvs));
+		try self.line.append(.{
+			.move = m,
+			.score = @intCast(s),
+		});
 	}
 }
 
 fn match(self: *Self) !void {
-	while (self.readOpening()) : (self.played += 1) {
+	while (self.readOpening()) {
 		defer base.heap.allocator.free(self.opening);
-		if (self.games) |games| {
-			if (self.played >= games) {
-				break;
-			}
-		}
 
-		for (0 .. random_games) |_| {
+		const played = self.played;
+		const games = if (self.games) |g| g else std.math.maxInt(usize);
+
+		while (self.played - played < random_games and self.played < games) {
 			self.playRandom() catch |err| {
 				std.debug.panic("error: {s} @ player {d}, game {d}",
 				  .{@errorName(err), self.index, self.played});
+				return err;
 			};
 			self.playOut() catch |err| {
 				std.debug.panic("error: {s} @ player {d}, game {d}",
 				  .{@errorName(err), self.index, self.played});
+				return err;
 			};
 
-			defer _ = @atomicRmw(usize, &engine.transposition.table.age, .Add, 1, .monotonic);
+			if (self.filter_draws and self.data.result == .draw) {
+				continue;
+			}
+
+			defer self.played += 1;
 			try self.writeData();
 		}
 	} else |err| switch (err) {
