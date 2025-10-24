@@ -19,10 +19,13 @@ pub const Vec = @Vector(arch.hl0_len, arch.Int);
 
 fn index(self: *const Self, c: base.types.Color, s: base.types.Square, p: base.types.Piece) usize {
 	const mirrored = self.mirrored.get(c);
-	const perceived = if (mirrored) s.flipFile() else s;
+	const kingsided = if (mirrored) s.flipFile() else s;
+	const pov = switch (c) {
+		.white => kingsided,
+		.black => kingsided.flipRank(),
+	};
 
-	const is_us = p.color() == c;
-	const ci: usize = if (is_us) 0 else arch.ptype_n;
+	const ci: usize = if (p.color() == c) 0 else arch.ptype_n;
 	const pi: usize = switch (p.ptype()) {
 		.pawn => 0,
 		.knight => 1,
@@ -32,7 +35,7 @@ fn index(self: *const Self, c: base.types.Color, s: base.types.Square, p: base.t
 		.king => 5,
 		else => |pt| std.debug.panic("invalid ptype @enumFromInt({d})", .{pt.tag()}),
 	};
-	const si: usize = if (c == .white) perceived.tag() else perceived.flipRank().tag();
+	const si: usize = pov.tag();
 	return (ci + pi) * arch.square_n + si;
 }
 
