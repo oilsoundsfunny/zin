@@ -44,7 +44,6 @@ test {
 		for (indices.get(c)) |i| {
 			accumulator.perspectives.getPtr(c).* +%= nnue.net.default.hl0_w[i];
 		}
-		pos.ss.top().accumulator.mirror(c, &pos.pieces_occ);
 	}
 	try std.testing.expectEqual(accumulator, pos.ss.top().accumulator);
 
@@ -111,7 +110,6 @@ test {
 		for (indices.get(c)) |i| {
 			accumulator.perspectives.getPtr(c).* +%= nnue.net.default.hl0_w[i];
 		}
-		// pos.ss.top().accumulator.mirror(c, &pos.pieces_occ);
 	}
 	try std.testing.expectEqual(accumulator, pos.ss.top().accumulator);
 

@@ -94,7 +94,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 		break :time opt.start + t / 20 + i / 2;
 	} else null;
 
-	try instance.spawn();
+	try instance.start();
 	return .go;
 }
 
@@ -220,7 +220,7 @@ pub fn parseCommand(command: []const u8) !Command {
 			return error.UnknownCommand;
 		}
 
-		instance.options.is_searching.store(false, .monotonic);
+		instance.stop();
 		return .stop;
 	} else if (std.mem.eql(u8, first, "uci")) {
 		if (tokens.peek()) |_| {

@@ -6,9 +6,6 @@ const std = @import("std");
 
 const Position = @import("Position.zig");
 
-const Features = struct {
-};
-
 pub const score = struct {
 	pub const Int = base.defs.score.Int;
 
@@ -29,7 +26,7 @@ pub const score = struct {
 		var ev = nnue.net.default.infer(pos);
 		ev *= 128 - pos.ss.top().rule50;
 		ev = @divTrunc(ev, 128);
-		ev = std.math.clamp(ev, score.tblose, score.tbwin);
+		ev = std.math.clamp(ev, score.tblose + 1, score.tbwin - 1);
 		return ev;
 	}
 };

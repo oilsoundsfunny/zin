@@ -42,11 +42,11 @@ pub const Entry = packed struct(u80) {
 	  a: evaluation.score.Int,
 	  b: evaluation.score.Int,
 	  d: search.Depth) bool {
-		return if (self.depth < d) false else switch (self.flag) {
+		return self.depth >= d and switch (self.flag) {
 			.none => false,
 			.upperbound => self.score <= a,
-			.exact => true,
 			.lowerbound => self.score >= b,
+			.exact => true,
 		};
 	}
 };

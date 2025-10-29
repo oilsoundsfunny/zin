@@ -1,6 +1,7 @@
 const base = @import("base");
 const bitboard = @import("bitboard");
 const bounded_array = @import("bounded_array");
+const builtin = @import("builtin");
 const nnue = @import("nnue");
 const params = @import("params");
 const root = @import("root");
@@ -67,6 +68,8 @@ pub const State = struct {
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
 	accumulator:	nnue.Accumulator = .{},
 
+	pv:	movegen.Move.Root,
+
 	pub const Stack = struct {
 		array:	bounded_array.BoundedArray(State, 1024) = .{
 			.buffer = .{std.mem.zeroInit(State, .{})} ** 1024,
@@ -111,6 +114,10 @@ pub const State = struct {
 			else => |T| @compileError("unexpected type " ++ @typeName(T)),
 		} {
 			return &self.slice()[0];
+		}
+
+		pub fn isFull(self: *const Stack) bool {
+			return self.top() == &self.array.buffer[self.array.buffer.len - 1];
 		}
 	};
 
@@ -358,8 +365,7 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 				.file_e, .file_f, .file_g, .file_h => true,
 				else => false,
 			};
-			if (is_s_mirrored != is_d_mirrored) {
-				// TODO: test this
+			if (!builtin.is_test and is_s_mirrored != is_d_mirrored) {
 				self.ss.top().accumulator.mirror(self.stm, &self.pieces_occ);
 			}
 		},
@@ -533,8 +539,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 						.file_e, .file_f, .file_g, .file_h => true,
 						else => false,
 					};
-					if (mirrored) {
-						// TODO: test this
+					if (!builtin.is_test and mirrored) {
 						self.ss.top().accumulator.mirror(.white, &self.pieces_occ);
 					}
 				},
@@ -556,8 +561,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 						.file_e, .file_f, .file_g, .file_h => true,
 						else => false,
 					};
-					if (mirrored) {
-						// TODO: test this
+					if (!builtin.is_test and mirrored) {
 						self.ss.top().accumulator.mirror(.black, &self.pieces_occ);
 					}
 				},
@@ -834,4 +838,8 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 			  and !(dpt != .nul and !noisy.get(d));
 		},
 	};
+}
+
+pub fn evaluate(self: *const Self) evaluation.score.Int {
+	return evaluation.score.fromPosition(self);
 }
