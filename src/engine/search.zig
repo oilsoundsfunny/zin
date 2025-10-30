@@ -109,6 +109,7 @@ pub const Info = struct {
 	}
 
 	fn iid(self: *Info) !void {
+		const has_moves = self.root_moves.constSlice().len > 0;
 		const is_main = self.ti == 0;
 		const is_threaded = self.tn > 1;
 
@@ -119,7 +120,7 @@ pub const Info = struct {
 		const min_depth = 1;
 		var depth: Depth = min_depth;
 
-		while (self.root_moves.constSlice().len > 0 and depth <= max_depth) : (depth += 1) {
+		while (has_moves and depth <= max_depth) : (depth += 1) {
 			self.depth = depth + @intFromBool(is_threaded
 			  and self.ti % 2 == 1
 			  and depth > min_depth
@@ -571,13 +572,11 @@ pub const Instance = struct {
 	}
 
 	pub fn start(self: *Instance) !void {
+		self.options.is_searching.store(true, .release);
+
 		const pos = &self.infos[0].pos;
 		const rml = movegen.Move.Root.List.init(pos);
 
-		const config: std.Thread.SpawnConfig = .{
-			.stack_size = 16 * 1024 * 1024,
-			.allocator = base.heap.allocator,
-		};
 		for (self.infos, 0 ..) |*info, i| {
 			info.* = std.mem.zeroInit(Info, .{
 				.pos = info.pos,
@@ -590,6 +589,10 @@ pub const Instance = struct {
 				.root_moves = rml,
 			});
 
+			const config: std.Thread.SpawnConfig = .{
+				.stack_size = 16 * 1024 * 1024,
+				.allocator = base.heap.allocator,
+			};
 			const thread = try std.Thread.spawn(config, Info.iid, .{info});
 			std.Thread.detach(thread);
 		}
