@@ -3,10 +3,9 @@
 ## features
 - uci-compatible
 - evaluation:
-	- simple psqts
+	- smallnet
 - search:
 	- aspiration windows
-	- null move pruning
 
 ## requisites
 - git
@@ -16,6 +15,7 @@
 ```
 $ git clone --depth 1 https://github.com/oilsoundsfunny/zin.git
 $ cd zin/
+$ git submodule update --init --depth 1 --remote
 $ zig build --prefix PREFIX --release=safe
 ```
 
