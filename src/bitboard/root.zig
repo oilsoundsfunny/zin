@@ -14,8 +14,8 @@ pub fn deinit() void {
 }
 
 pub fn init() !void {
-	jumping.prefetch();
-	sliding.prefetch();
+	try jumping.init();
+	try sliding.init();
 }
 
 pub fn pAtkEast(pawns: base.types.Square.Set, stm: base.types.Color) base.types.Square.Set {

@@ -10,6 +10,7 @@ pub fn deinit() void {
 }
 
 pub fn init() !void {
+	try search.io.init();
 	try uci.init();
 	try zobrist.init();
 }

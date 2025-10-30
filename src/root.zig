@@ -1,7 +1,6 @@
 const base = @import("base");
 const bitboard = @import("bitboard");
 const engine = @import("engine");
-const params = @import("params");
 const std = @import("std");
 
 pub const author = "oilsoundsfunny";

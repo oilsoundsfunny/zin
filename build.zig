@@ -1,60 +1,18 @@
 const std = @import("std");
 
-const Generators = enum {
-	bitboard,
-	params,
-
-	const dependant = std.EnumArray(Generators, Modules).init(.{
-		.bitboard = .bitboard,
-		.params = .params,
-	});
-
-	const names = std.EnumArray(Generators, []const u8).init(.{
-		.bitboard = "bitboard",
-		.params = "params",
-	});
-
-	const outputs = std.EnumArray(Generators, []const [2][]const u8).init(.{
-		.bitboard = &.{
-			.{ "--n-atk", "n_atk.bin" },
-			.{ "--k-atk", "k_atk.bin" },
-			.{ "--sliding-atk", "sliding_atk.bin" },
-			.{ "--b-magic", "b_magic.bin" },
-			.{ "--b-nmask", "b_nmask.bin" },
-			.{ "--b-offset", "b_offset.bin" },
-			.{ "--r-magic", "r_magic.bin" },
-			.{ "--r-nmask", "r_nmask.bin" },
-			.{ "--r-offset", "r_offset.bin" },
-		},
-
-		.params = &.{
-			.{ "--lmr-path", "lmr.bin" },
-		},
-	});
-
-	const src_files = std.EnumArray(Generators, []const u8).init(.{
-		.bitboard = "tools/generators/bitboard/root.zig",
-		.params = "tools/generators/params/root.zig",
-	});
-
-	const values = std.enums.values(Generators);
-};
-
 const Modules = enum {
 	base,
 	bitboard,
 	engine,
 	nnue,
-	params,
 	selfplay,
 
 	const dependencies = std.EnumArray(Modules, []const Modules).init(.{
 		.base = &.{},
 		.bitboard = &.{.base},
-		.engine = &.{.base, .bitboard, .nnue, .params},
-		.nnue = &.{.base, .engine},
-		.params = &.{.base, .bitboard, .engine},
-		.selfplay = &.{.base, .engine},
+		.engine = &.{.base, .bitboard, .nnue},
+		.nnue = &.{.base, .bitboard, .engine},
+		.selfplay = &.{.base, .bitboard, .engine},
 	});
 
 	const names = std.EnumArray(Modules, []const u8).init(.{
@@ -62,7 +20,6 @@ const Modules = enum {
 		.bitboard = "bitboard",
 		.engine = "engine",
 		.nnue = "nnue",
-		.params = "params",
 		.selfplay = "selfplay",
 	});
 
@@ -71,7 +28,6 @@ const Modules = enum {
 		.bitboard = "src/bitboard/root.zig",
 		.engine = "src/engine/root.zig",
 		.nnue = "src/nnue/root.zig",
-		.params = "src/params/root.zig",
 		.selfplay = "src/selfplay/root.zig",
 	});
 
@@ -80,7 +36,6 @@ const Modules = enum {
 		.bitboard = "tests/bitboard/root.zig",
 		.engine = "tests/engine/root.zig",
 		.nnue = "tests/nnue/root.zig",
-		.params = "tests/params/root.zig",
 		.selfplay = "tests/selfplay/root.zig",
 	});
 
@@ -197,37 +152,6 @@ pub fn build(bld: *std.Build) !void {
 
 		Modules.tests.set(m, test_unit);
 		test_step.dependOn(&bld.addRunArtifact(test_unit).step);
-	}
-
-	for (Generators.values) |g| {
-		const dependant = Modules.array.get(Generators.dependant.get(g));
-
-		const name = Generators.names.get(g);
-		const src = Generators.src_files.get(g);
-
-		const generator = bld.addExecutable(.{
-			.root_module = bld.createModule(.{
-				.root_source_file = bld.path(src),
-				.imports = &.{
-					.{.name = "base", .module = Modules.array.get(.base)},
-				},
-				.target = bld.graph.host,
-				.pic = true,
-			}),
-			.name = name,
-		});
-		const step = bld.addRunArtifact(generator);
-
-		const outputs = Generators.outputs.get(g);
-		for (outputs) |output| {
-			const arg = output[0];
-			const path = output[1];
-
-			step.addArg(arg);
-			dependant.addAnonymousImport(path, .{
-				.root_source_file = step.addOutputFileArg(path),
-			});
-		}
 	}
 
 	for (Modules.values) |m| {

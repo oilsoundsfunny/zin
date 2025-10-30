@@ -650,15 +650,29 @@ pub const hist = struct {
 };
 
 pub const io = struct {
-	const stdin = std.fs.File.stdin();
-	const stdout = std.fs.File.stdout();
+	// var undefined bc windows sucks ass
+	// i hope you all die
 
-	const reader = &std_reader.interface;
-	const writer = &std_writer.interface;
+	var stdin: std.fs.File = undefined;
+	var stdout: std.fs.File = undefined;
 
-	var reader_buf align(32) = std.mem.zeroes([65536]u8);
-	var writer_buf align(32) = std.mem.zeroes([65536]u8);
+	var reader: *std.Io.Reader = undefined;
+	var writer: *std.Io.Writer = undefined;
 
-	var std_reader = stdin.readerStreaming(&reader_buf);
-	var std_writer = stdout.writerStreaming(&writer_buf);
+	var reader_buf align(64) = std.mem.zeroes([65536]u8);
+	var writer_buf align(64) = std.mem.zeroes([65536]u8);
+
+	var std_reader: std.fs.File.Reader = undefined;
+	var std_writer: std.fs.File.Writer = undefined;
+
+	pub fn init() !void {
+		stdin = std.fs.File.stdin();
+		stdout = std.fs.File.stdout();
+
+		std_reader = stdin.readerStreaming(reader_buf[0 ..]);
+		std_writer = stdout.writerStreaming(writer_buf[0 ..]);
+
+		reader = &std_reader.interface;
+		writer = &std_writer.interface;
+	}
 };

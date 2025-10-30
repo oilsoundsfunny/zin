@@ -24,17 +24,20 @@ const Command = enum {
 };
 
 const io = struct {
-	const stdin = std.fs.File.stdin();
-	const stdout = std.fs.File.stdout();
+	// var undefined bc windows sucks ass
+	// i hope you all die
 
-	const reader = &std_reader.interface;
-	const writer = &std_writer.interface;
+	var stdin: std.fs.File = undefined;
+	var stdout: std.fs.File = undefined;
 
-	var reader_buf align(32) = std.mem.zeroes([65536]u8);
-	var writer_buf align(32) = std.mem.zeroes([65536]u8);
+	var reader: *std.Io.Reader = undefined;
+	var writer: *std.Io.Writer = undefined;
 
-	var std_reader = stdin.readerStreaming(&reader_buf);
-	var std_writer = stdout.writerStreaming(&writer_buf);
+	var reader_buf align(64) = std.mem.zeroes([65536]u8);
+	var writer_buf align(64) = std.mem.zeroes([65536]u8);
+
+	var std_reader: std.fs.File.Reader = undefined;
+	var std_writer: std.fs.File.Writer = undefined;
 };
 
 pub const options = struct {
@@ -253,6 +256,15 @@ pub fn parseCommand(command: []const u8) !Command {
 }
 
 pub fn init() !void {
+	io.stdin = std.fs.File.stdin();
+	io.stdout = std.fs.File.stdout();
+
+	io.std_reader = io.stdin.readerStreaming(io.reader_buf[0 ..]);
+	io.std_writer = io.stdout.writerStreaming(io.writer_buf[0 ..]);
+
+	io.reader = &io.std_reader.interface;
+	io.writer = &io.std_writer.interface;
+
 	_ = try parseCommand("setoption name Hash value 64");
 	_ = try parseCommand("setoption name Threads value 1");
 	_ = try parseCommand("setoption name UCI_Chess960 value false");

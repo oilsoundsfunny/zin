@@ -1,9 +1,16 @@
 const base = @import("base");
+const bitboard = @import("bitboard");
 const engine = @import("engine");
 const nnue = @import("nnue");
 const std = @import("std");
 
 test {
+	try base.init();
+	defer base.deinit();
+
+	try bitboard.init();
+	defer bitboard.deinit();
+
 	var pos = std.mem.zeroInit(engine.Position, .{});
 	try pos.parseFen(engine.Position.startpos);
 
@@ -70,6 +77,12 @@ test {
 }
 
 test {
+	try base.init();
+	defer base.deinit();
+
+	try bitboard.init();
+	defer bitboard.deinit();
+
 	var pos = std.mem.zeroInit(engine.Position, .{});
 	try pos.parseFen(engine.Position.kiwipete);
 
