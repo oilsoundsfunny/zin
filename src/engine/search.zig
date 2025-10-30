@@ -527,26 +527,6 @@ pub const Instance = struct {
 	infos:	[]Info = &.{},
 	options:	Options = std.mem.zeroInit(Options, .{}),
 
-	fn prep(self: *Instance) void {
-		defer self.options.is_searching.store(true, .release);
-
-		const pos = &self.infos[0].pos;
-		const rml = movegen.Move.Root.List.init(pos);
-
-		for (self.infos, 0 ..) |*info, i| {
-			info.* = std.mem.zeroInit(Info, .{
-				.pos = info.pos,
-				.instance = self,
-				.options = &self.options,
-
-				.ti = i,
-				.tn = self.infos.len,
-
-				.root_moves = rml,
-			});
-		}
-	}
-
 	pub fn alloc(self: *Instance, num: usize) !void {
 		var pos = std.mem.zeroInit(Position, .{});
 		if (self.infos.len == 0) {
@@ -579,19 +559,37 @@ pub const Instance = struct {
 		}
 	}
 
+	pub fn waitStop(self: *const Instance) void {
+		const cond = &self.options.is_searching;
+		while (cond.load(.acquire)) {
+		}
+	}
+
 	pub fn stop(self: *Instance) void {
 		self.options.is_searching.store(false, .release);
 		std.Thread.sleep(uci.options.overhead * std.time.ns_per_ms);
 	}
 
 	pub fn start(self: *Instance) !void {
-		self.prep();
+		const pos = &self.infos[0].pos;
+		const rml = movegen.Move.Root.List.init(pos);
 
 		const config: std.Thread.SpawnConfig = .{
 			.stack_size = 16 * 1024 * 1024,
 			.allocator = base.heap.allocator,
 		};
-		for (self.infos) |*info| {
+		for (self.infos, 0 ..) |*info, i| {
+			info.* = std.mem.zeroInit(Info, .{
+				.pos = info.pos,
+				.instance = self,
+				.options = &self.options,
+
+				.ti = i,
+				.tn = self.infos.len,
+
+				.root_moves = rml,
+			});
+
 			const thread = try std.Thread.spawn(config, Info.iid, .{info});
 			std.Thread.detach(thread);
 		}

@@ -165,8 +165,7 @@ fn playOut(self: *Self) !void {
 
 	while (true) {
 		try self.instance.start();
-		while (self.instance.options.is_searching.load(.acquire)) {
-		}
+		self.instance.waitStop();
 
 		const rml = info.result.pv;
 		const rms = rml.constSlice();
