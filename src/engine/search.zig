@@ -55,39 +55,39 @@ pub const Info = struct {
 			return;
 		}
 
-		try io.writer.print("info", .{});
-		try io.writer.print(" depth {d}", .{depth});
-		try io.writer.print(" seldepth {d}", .{seldepth});
+		try io.writer().print("info", .{});
+		try io.writer().print(" depth {d}", .{depth});
+		try io.writer().print(" seldepth {d}", .{seldepth});
 
-		try io.writer.print(" nodes {d}", .{nodes});
-		try io.writer.print(" time {d}", .{mtime});
-		try io.writer.print(" nps {d}", .{nodes * std.time.ns_per_s / ntime});
+		try io.writer().print(" nodes {d}", .{nodes});
+		try io.writer().print(" time {d}", .{mtime});
+		try io.writer().print(" nps {d}", .{nodes * std.time.ns_per_s / ntime});
 
-		try io.writer.print(" score", .{});
+		try io.writer().print(" score", .{});
 		switch (pv.score) {
 			evaluation.score.lose ... evaluation.score.tblose => |pvs| {
 				const s = @divTrunc(pvs - evaluation.score.lose + 1, 2);
-				try io.writer.print(" mate {d}", .{-s});
+				try io.writer().print(" mate {d}", .{-s});
 			},
 			evaluation.score.tbwin ... evaluation.score.win => |pvs| {
 				const s = @divTrunc(evaluation.score.win - pvs + 1, 2);
-				try io.writer.print(" mate {d}", .{s});
+				try io.writer().print(" mate {d}", .{s});
 			},
 			else => |pvs| {
 				const s = evaluation.score.toCentipawns(@intCast(pvs));
-				try io.writer.print(" cp {d}", .{s});
+				try io.writer().print(" cp {d}", .{s});
 			},
 		}
 
-		try io.writer.print(" pv", .{});
+		try io.writer().print(" pv", .{});
 		for (pv.constSlice()) |m| {
 			const s = m.toString();
 			const l = m.toStringLen();
-			try io.writer.print(" {s}", .{s[0 .. l]});
+			try io.writer().print(" {s}", .{s[0 .. l]});
 		}
 
-		try io.writer.print("\n", .{});
-		try io.writer.flush();
+		try io.writer().print("\n", .{});
+		try io.writer().flush();
 	}
 
 	fn printBest(self: *const Info) !void {
@@ -97,15 +97,15 @@ pub const Info = struct {
 
 		const m = self.bestMove();
 		if (m == movegen.Move.zero) {
-			try io.writer.print("bestmove 0000\n", .{});
-			try io.writer.flush();
+			try io.writer().print("bestmove 0000\n", .{});
+			try io.writer().flush();
 			return;
 		}
 
 		const s = m.toString();
 		const l = m.toStringLen();
-		try io.writer.print("bestmove {s}\n", .{s[0 .. l]});
-		try io.writer.flush();
+		try io.writer().print("bestmove {s}\n", .{s[0 .. l]});
+		try io.writer().flush();
 	}
 
 	fn iid(self: *Info) !void {
@@ -623,12 +623,12 @@ pub const Options = struct {
 pub const hist = struct {
 	pub const Int = i16;
 
-	pub const Correction = enum {
+	pub const Corr = enum {
 		pawn,
 		minor,
 		major,
 
-		pub const values = std.enums.values(Correction);
+		pub const values = std.enums.values(Corr);
 	};
 
 	pub const min = std.math.minInt(Int) / 2;
@@ -652,30 +652,4 @@ pub const hist = struct {
 	}
 };
 
-pub const io = struct {
-	// var undefined bc windows sucks ass
-	// i hope you all die
-
-	var stdin: std.fs.File = undefined;
-	var stdout: std.fs.File = undefined;
-
-	var reader: *std.Io.Reader = undefined;
-	var writer: *std.Io.Writer = undefined;
-
-	var reader_buf align(64) = std.mem.zeroes([65536]u8);
-	var writer_buf align(64) = std.mem.zeroes([65536]u8);
-
-	var std_reader: std.fs.File.Reader = undefined;
-	var std_writer: std.fs.File.Writer = undefined;
-
-	pub fn init() !void {
-		stdin = std.fs.File.stdin();
-		stdout = std.fs.File.stdout();
-
-		std_reader = stdin.readerStreaming(reader_buf[0 ..]);
-		std_writer = stdout.writerStreaming(writer_buf[0 ..]);
-
-		reader = &std_reader.interface;
-		writer = &std_writer.interface;
-	}
-};
+pub var io: base.Io = undefined;

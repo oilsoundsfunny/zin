@@ -23,22 +23,6 @@ const Command = enum {
 	ucinewgame,
 };
 
-const io = struct {
-	// var undefined bc windows sucks ass
-	// i hope you all die
-
-	var stdin: std.fs.File = undefined;
-	var stdout: std.fs.File = undefined;
-
-	var reader: *std.Io.Reader = undefined;
-	var writer: *std.Io.Writer = undefined;
-
-	var reader_buf align(64) = std.mem.zeroes([65536]u8);
-	var writer_buf align(64) = std.mem.zeroes([65536]u8);
-
-	var std_reader: std.fs.File.Reader = undefined;
-	var std_writer: std.fs.File.Writer = undefined;
-};
 
 pub const options = struct {
 	pub var frc = false;
@@ -48,6 +32,7 @@ pub const options = struct {
 };
 
 pub var instance = std.mem.zeroInit(search.Instance, .{});
+pub var io: base.Io = undefined;
 
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 	const opt = &instance.options;
@@ -209,8 +194,8 @@ pub fn parseCommand(command: []const u8) !Command {
 			return error.UnknownCommand;
 		}
 
-		try io.writer.print("readyok\n", .{});
-		try io.writer.flush();
+		try io.writer().print("readyok\n", .{});
+		try io.writer().flush();
 		return .isready;
 	} else if (std.mem.eql(u8, first, "position")) {
 		return parsePosition(&tokens);
@@ -230,18 +215,18 @@ pub fn parseCommand(command: []const u8) !Command {
 			return error.UnknownCommand;
 		}
 
-		try io.writer.print("id author {s}\n", .{@import("root").author});
-		try io.writer.print("id name {s}\n", .{@import("root").name});
+		try io.writer().print("id author {s}\n", .{@import("root").author});
+		try io.writer().print("id name {s}\n", .{@import("root").name});
 
-		try io.writer.print("option name {s} type {s}\n", .{"Clear Hash", "button"});
-		try io.writer.print("option name {s} type {s} default {d} min {d} max {d}\n",
+		try io.writer().print("option name {s} type {s}\n", .{"Clear Hash", "button"});
+		try io.writer().print("option name {s} type {s} default {d} min {d} max {d}\n",
 		    .{"Hash", "spin", 64, 1, 1 << 38});
-		try io.writer.print("option name {s} type {s} default {d} min {d} max {d}\n",
+		try io.writer().print("option name {s} type {s} default {d} min {d} max {d}\n",
 		    .{"Threads", "spin", 1, 1, 64});
-		try io.writer.print("option name {s} type {s} default {s}\n",
+		try io.writer().print("option name {s} type {s} default {s}\n",
 		    .{"UCI_Chess960", "check", "false"});
-		try io.writer.print("uciok\n", .{});
-		try io.writer.flush();
+		try io.writer().print("uciok\n", .{});
+		try io.writer().flush();
 		return .uci;
 	} else if (std.mem.eql(u8, first, "ucinewgame")) {
 		if (tokens.peek()) |_| {
@@ -256,14 +241,7 @@ pub fn parseCommand(command: []const u8) !Command {
 }
 
 pub fn init() !void {
-	io.stdin = std.fs.File.stdin();
-	io.stdout = std.fs.File.stdout();
-
-	io.std_reader = io.stdin.readerStreaming(io.reader_buf[0 ..]);
-	io.std_writer = io.stdout.writerStreaming(io.writer_buf[0 ..]);
-
-	io.reader = &io.std_reader.interface;
-	io.writer = &io.std_writer.interface;
+	io = try base.Io.init(null, null);
 
 	_ = try parseCommand("setoption name Hash value 64");
 	_ = try parseCommand("setoption name Threads value 1");
@@ -273,11 +251,11 @@ pub fn init() !void {
 }
 
 pub fn loop() !void {
-	while (io.reader.takeDelimiterInclusive('\n')) |read| {
+	while (io.reader().takeDelimiterInclusive('\n')) |read| {
 		const comm = parseCommand(read) catch |err| sw: switch (err) {
 			error.UnknownCommand => {
-				try io.writer.print("Unknown command: '{s}'\n", .{read[0 .. read.len - 1]});
-				try io.writer.flush();
+				try io.writer().print("Unknown command: '{s}'\n", .{read[0 .. read.len - 1]});
+				try io.writer().flush();
 				break :sw Command.none;
 			},
 			else => return err,
