@@ -9,7 +9,7 @@
 
 ## requisites
 - git
-- zig master
+- zig 0.15.2
 
 ## building
 ```
