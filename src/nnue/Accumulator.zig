@@ -26,15 +26,7 @@ fn index(self: *const Self, c: base.types.Color, s: base.types.Square, p: base.t
 	};
 
 	const ci: usize = if (p.color() == c) 0 else arch.ptype_n;
-	const pi: usize = switch (p.ptype()) {
-		.pawn => 0,
-		.knight => 1,
-		.bishop => 2,
-		.rook => 3,
-		.queen => 4,
-		.king => 5,
-		else => |pt| std.debug.panic("invalid ptype @enumFromInt({d})", .{pt.tag()}),
-	};
+	const pi: usize = p.ptype().tag();
 	const si: usize = pov.tag();
 	return (ci + pi) * arch.square_n + si;
 }
@@ -59,14 +51,12 @@ pub fn set(self: *Self, s: base.types.Square, p: base.types.Piece) void {
 	}
 }
 
-pub fn mirror(self: *Self,
-  stm: base.types.Color,
-  occ: *const std.EnumArray(base.types.Piece, base.types.Square.Set)) void {
+pub fn mirror(self: *Self, pos: *const engine.Position, stm: base.types.Color) void {
 	const ptr = self.perspectives.getPtr(stm);
 	ptr.* = net.default.hl0_b;
 
 	for (base.types.Piece.w_pieces ++ base.types.Piece.b_pieces) |p| {
-		var pieces = occ.getPtrConst(p).*;
+		var pieces = pos.pieceOcc(p);
 		while (pieces.lowSquare()) |s| : (pieces.popLow()) {
 			ptr.* +%= net.default.hl0_w[self.index(stm, s, p)];
 		}

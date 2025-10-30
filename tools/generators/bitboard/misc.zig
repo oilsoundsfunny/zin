@@ -29,7 +29,7 @@ pub fn genAtk(comptime pt: base.types.Ptype,
 		.bishop, .rook => base.types.Square.cnt,
 		else => @compileError("unexpected tag" ++ @tagName(pt)),
 	};
-	var atk = base.types.Square.Set.nul;
+	var atk = base.types.Square.Set.none;
 
 	for (dirs) |d| {
 		for (1 .. max + 1) |i| {

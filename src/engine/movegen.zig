@@ -43,6 +43,16 @@ const RootMove = struct {
 		}.inner;
 		std.sort.insertion(RootMove, s, {}, desc);
 	}
+
+	pub fn update(self: *RootMove,
+	  score: evaluation.score.Int,
+	  move: Move,
+	  line: []const Move) void {
+		self.score = score;
+		self.line.resize(0) catch unreachable;
+		self.line.appendAssumeCapacity(move);
+		self.line.appendSliceAssumeCapacity(line);
+	}
 };
 
 const RootMoveList = struct {
@@ -131,7 +141,7 @@ const ScoredMoveList = struct {
 	fn genCastle(self: *ScoredMoveList, pos: *const Position, is_k: bool) usize {
 		const len = self.slice().len;
 		const stm = pos.stm;
-		const occ = pos.ptypeOcc(.all);
+		const occ = pos.bothOcc();
 
 		const cas: base.types.Castle = switch (stm) {
 			.white => if (is_k) .wk else .wq,
@@ -141,7 +151,7 @@ const ScoredMoveList = struct {
 
 		if (!pos.ss.top().castle.get(cas)
 		  or pos.isChecked()
-		  or occ.bwa(info.occ) != .nul) {
+		  or occ.bwa(info.occ) != .none) {
 			return self.slice().len - len;
 		}
 
@@ -149,7 +159,7 @@ const ScoredMoveList = struct {
 		while (am.lowSquare()) |s| : (am.popLow()) {
 			const atkers = pos.squareAtkers(s);
 			const theirs = pos.colorOcc(stm.flip());
-			if (atkers.bwa(theirs) != .nul) {
+			if (atkers.bwa(theirs) != .none) {
 				return self.slice().len - len;
 			}
 		}
@@ -192,20 +202,17 @@ const ScoredMoveList = struct {
 		return self.slice().len - len;
 	}
 
-	fn genPawnMoves(self: *ScoredMoveList, pos: *const Position, promo: base.types.Ptype,
+	fn genPawnMoves(self: *ScoredMoveList, pos: *const Position,
+	  comptime promo: ?base.types.Ptype,
 	  comptime noisy: bool) usize {
-		const is_promote = switch (promo) {
-			.nul => false,
-			.knight, .bishop, .rook, .queen => true,
-			else => std.debug.panic("invalid promotion", .{}),
-		};
+		const is_promote = promo != null;
 		const flag: Move.Flag = if (!is_promote) .none else .promote;
 		const info: Move.Info = if (!is_promote) .{.none = 0}
-		  else .{.promote = Move.Promotion.fromPtype(promo)};
+		  else .{.promote = Move.Promotion.fromPtype(promo.?)};
 
 		const len = self.slice().len;
 		const stm = pos.stm;
-		const occ = pos.ptypeOcc(.all);
+		const occ = pos.bothOcc();
 		const promotion_bb = stm.promotionRank().toSet();
 
 		const src = pos.pieceOcc(base.types.Piece.init(stm, .pawn));
@@ -254,19 +261,20 @@ const ScoredMoveList = struct {
 		return self.slice().len - len;
 	}
 
-	fn genPtMoves(self: *ScoredMoveList, pos: *const Position, pt: base.types.Ptype,
+	fn genPtMoves(self: *ScoredMoveList, pos: *const Position,
+	  comptime ptype: base.types.Ptype,
 	  comptime noisy: bool) usize {
 		const len = self.slice().len;
 		const stm = pos.stm;
-		const occ = pos.ptypeOcc(.all);
+		const occ = pos.bothOcc();
 		const target = base.types.Square.Set
-		  .all
-		  .bwa(if (pt != .king) pos.ss.top().check_mask else .all)
+		  .full
+		  .bwa(if (ptype != .king) pos.ss.top().check_mask else .full)
 		  .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
-		var src = pos.pieceOcc(base.types.Piece.init(stm, pt));
+		var src = pos.pieceOcc(base.types.Piece.init(stm, ptype));
 		while (src.lowSquare()) |s| : (src.popLow()) {
-			var dst = bitboard.ptAtk(pt, s, occ).bwa(target);
+			var dst = bitboard.ptAtk(ptype, s, occ).bwa(target);
 			while (dst.lowSquare()) |d| : (dst.popLow()) {
 				self.push(.{
 					.move = .{.flag = .none, .info = .{.none = 0}, .src = s, .dst = d},
@@ -304,7 +312,7 @@ const ScoredMoveList = struct {
 		cnt += self.genPawnMoves(pos, .queen,  false);
 		cnt += self.genPawnMoves(pos, .knight, false);
 
-		cnt += self.genPawnMoves(pos, .nul, true);
+		cnt += self.genPawnMoves(pos, null, true);
 		cnt += self.genEnPas(pos);
 
 		cnt += self.genPtMoves(pos, .knight, true);
@@ -322,7 +330,7 @@ const ScoredMoveList = struct {
 		cnt += self.genPawnMoves(pos, .rook,   false);
 		cnt += self.genPawnMoves(pos, .bishop, false);
 
-		cnt += self.genPawnMoves(pos, .nul, false);
+		cnt += self.genPawnMoves(pos, null, false);
 
 		cnt += self.genCastle(pos, false);
 		cnt += self.genCastle(pos, true);
@@ -407,12 +415,12 @@ pub const Move = packed struct(u16) {
 
 	pub fn toString(self: Move) [8]u8 {
 		var buf = std.mem.zeroes([8]u8);
-		buf[0] = self.src.file().char(); 
-		buf[1] = self.src.rank().char(); 
-		buf[2] = self.dst.file().char(); 
-		buf[3] = self.dst.rank().char(); 
+		buf[0] = self.src.file().char();
+		buf[1] = self.src.rank().char();
+		buf[2] = self.dst.file().char();
+		buf[3] = self.dst.rank().char();
 		if (self.flag == .promote) {
-			buf[4] = self.info.promote.toPtype().char() orelse std.debug.panic("invalid move", .{});
+			buf[4] = self.info.promote.toPtype().char();
 		}
 		return buf;
 	}
@@ -427,7 +435,7 @@ pub const Picker = struct {
 	pos:	*const Position,
 	info:	*const search.Info,
 
-	noisy:	bool,
+	skip_quiets:	bool,
 	stage:	Stage,
 
 	excluded:	Move,
@@ -439,7 +447,7 @@ pub const Picker = struct {
 	bad_noisy_n:	usize,
 	bad_quiet_n:	usize,
 
-	const Stage = enum(u8) {
+	pub const Stage = enum(u8) {
 		ttm,
 		gen_noisy, good_noisy,
 		gen_quiet, good_quiet,
@@ -452,6 +460,22 @@ pub const Picker = struct {
 		fn inc(self: *Stage) void {
 			const i = @intFromEnum(self.*);
 			self.* = @enumFromInt(i + 1);
+		}
+
+		pub fn isNoisy(self: Stage) bool {
+			return self == .good_noisy or self == .bad_noisy;
+		}
+
+		pub fn isQuiet(self: Stage) bool {
+			return self == .good_quiet or self == .bad_quiet;
+		}
+
+		pub fn isGood(self: Stage) bool {
+			return self == .good_noisy or self == .good_quiet;
+		}
+
+		pub fn isBad(self: Stage) bool {
+			return self == .bad_noisy or self == .bad_quiet;
 		}
 	};
 
@@ -471,28 +495,12 @@ pub const Picker = struct {
 		return if (move == self.ttm) search.hist.max + 1
 		  else if (move == self.excluded) search.hist.min - 1
 		  else captures: {
-			const spt = self.pos.getSquare(move.src).ptype();
-			const dpt = self.pos.getSquare(move.dst).ptype();
+			const sp = self.pos.getSquare(move.src);
+			const dp = self.pos.getSquare(move.dst);
 
-			const s: search.hist.Int = switch (spt) {
-				.pawn => 3640,
-				.knight => 11648,
-				.bishop => 12012,
-				.rook => 18200,
-				.queen => 32760,
-				else => base.defs.score.draw,
-			};
-
-			const d: search.hist.Int = switch (dpt) {
-				.pawn => 3640,
-				.knight => 11648,
-				.bishop => 12012,
-				.rook => 18200,
-				.queen => 32760,
-				else => base.defs.score.draw,
-			};
-
-			break :captures d - s;
+			const s = if (sp == .none) evaluation.score.draw else sp.ptype().score();
+			const d = if (dp == .none) evaluation.score.draw else dp.ptype().score();
+			break :captures @intCast(d - s);
 		};
 	}
 
@@ -502,15 +510,13 @@ pub const Picker = struct {
 		  else evaluation.score.draw;
 	}
 
-	pub fn init(info: *const search.Info,
-	  only_noisy: bool,
-	  ttm: Move) Picker {
+	pub fn init(info: *const search.Info, ttm: Move) Picker {
 		return .{
 			.list = .{},
 			.pos  = &info.pos,
 			.info = info,
 
-			.noisy = only_noisy,
+			.skip_quiets = false,
 			.stage = if (ttm == Move.zero) .gen_noisy else .ttm,
 
 			.excluded = Move.zero,
@@ -561,7 +567,7 @@ pub const Picker = struct {
 
 		if (self.stage == .gen_quiet) gen_quiet: {
 			self.stage.inc();
-			if (self.noisy) {
+			if (self.skip_quiets) {
 				break :gen_quiet;
 			}
 
@@ -574,12 +580,15 @@ pub const Picker = struct {
 		}
 
 		good_quiet_loop: while (self.stage == .good_quiet) {
-			const sm = self.pick() orelse {
+			const picked = self.pick();
+			if (self.skip_quiets or picked == null) {
 				self.stage.inc();
 				self.list.resize(self.bad_noisy_n);
 				self.list.index = 0;
 				break :good_quiet_loop;
-			};
+			}
+
+			const sm = picked.?;
 			if (sm.score < evaluation.score.draw) {
 				self.list.slice()[self.bad_noisy_n + self.bad_quiet_n] = sm;
 				self.bad_quiet_n += 1;
@@ -597,13 +606,19 @@ pub const Picker = struct {
 		}
 
 		if (self.stage == .bad_quiet) bad_quiet: {
-			const sm = self.pick() orelse {
+			const picked = self.pick();
+			if (self.skip_quiets or picked == null) {
 				self.stage.inc();
 				break :bad_quiet;
-			};
-			return sm;
+			}
+
+			return picked.?;
 		}
 
 		return null;
+	}
+
+	pub fn skipQuiets(self: *Picker) void {
+		self.skip_quiets = true;
 	}
 };

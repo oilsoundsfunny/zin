@@ -28,12 +28,21 @@ pub const Info = struct {
 	ti:	usize,
 	tn:	usize,
 
+	nodes:	usize,
+	tbhits:	usize,
+	tthits:	usize,
+
 	depth:		Depth,
 	seldepth:	Depth,
+	result:		Result,
+	root_moves:	movegen.Move.Root.List,
+
+	allhist:	[base.types.Ptype.cnt][base.types.Square.cnt]hist.Int,
+	cuthist:	[base.types.Ptype.cnt][base.types.Square.cnt]hist.Int,
 
 	fn bestMove(self: *const Info) movegen.Move {
-		const pv = &self.pos.ss.bottom().pv;
-		return if (pv.constSlice().len == 0) movegen.Move.zero else pv.constSlice()[0];
+		const pv = &self.result.pv.line;
+		return if (pv.len == 0) movegen.Move.zero else pv.constSlice()[0];
 	}
 
 	fn printInfo(self: *const Info) !void {
@@ -42,23 +51,28 @@ pub const Info = struct {
 		}
 
 		const best = self.bestMove();
-		const nodes = self.instance.nodes.load(.acquire);
+		const nodes = self.nodes;
 		const ntime = base.time.read(.ns) - self.options.start * std.time.ns_per_ms;
 		const mtime = ntime / std.time.ns_per_ms;
+
+		const depth = self.result.depth;
+		const seldepth = self.result.seldepth;
+		const pv = &self.result.pv;
 
 		if (best == movegen.Move.zero) {
 			return;
 		}
 
 		try io.writer.print("info", .{});
-		try io.writer.print(" depth {d}", .{self.depth});
-		try io.writer.print(" seldepth {d}", .{self.seldepth});
+		try io.writer.print(" depth {d}", .{depth});
+		try io.writer.print(" seldepth {d}", .{seldepth});
+
 		try io.writer.print(" nodes {d}", .{nodes});
 		try io.writer.print(" time {d}", .{mtime});
 		try io.writer.print(" nps {d}", .{nodes * std.time.ns_per_s / ntime});
-		try io.writer.print(" seldepth {d}", .{self.seldepth});
+
 		try io.writer.print(" score", .{});
-		switch (self.pos.ss.bottom().pv.score) {
+		switch (pv.score) {
 			evaluation.score.lose ... evaluation.score.tblose => |pvs| {
 				const s = @divTrunc(pvs - evaluation.score.lose + 1, 2);
 				try io.writer.print(" mate {d}", .{-s});
@@ -72,17 +86,19 @@ pub const Info = struct {
 				try io.writer.print(" cp {d}", .{s});
 			},
 		}
+
 		try io.writer.print(" pv", .{});
-		for (self.pos.ss.bottom().pv.constSlice()) |m| {
+		for (pv.constSlice()) |m| {
 			const s = m.toString();
 			const l = m.toStringLen();
 			try io.writer.print(" {s}", .{s[0 .. l]});
 		}
+
 		try io.writer.print("\n", .{});
 		try io.writer.flush();
 	}
 
-	fn printBest(self: *Info) !void {
+	fn printBest(self: *const Info) !void {
 		if (self.instance != &uci.instance) {
 			return;
 		}
@@ -101,8 +117,6 @@ pub const Info = struct {
 	}
 
 	fn iid(self: *Info) !void {
-		var save = std.mem.zeroInit(Result, .{});
-
 		const is_main = self.ti == 0;
 		const is_threaded = self.tn > 1;
 
@@ -114,26 +128,24 @@ pub const Info = struct {
 		var depth: Depth = min_depth;
 
 		while (depth <= max_depth) : (depth += 1) {
-			self.depth = 0;
-			self.depth += @intCast(depth);
-			self.depth += @intFromBool(is_threaded
-			  and !is_main
+			self.depth = depth + @intFromBool(is_threaded
+			  and self.ti % 2 == 1
 			  and depth > min_depth
 			  and depth < max_depth);
+			self.seldepth = 0;
+			self.asp();
 
-			self.asp(&save);
 			if (!cond.load(.acquire)) {
 				break;
 			}
 
-			if (!is_main) {
-				continue;
+			if (is_main) {
+				std.mem.doNotOptimizeAway(transposition.table.age.fetchAdd(1, .acq_rel));
+				try self.printInfo();
 			}
-
-			self.depth = save.depth;
-			self.seldepth = save.seldepth;
-			try self.printInfo();
 		}
+
+		movegen.Move.Root.sortSlice(self.root_moves.slice());
 
 		if (is_main) {
 			try self.printInfo();
@@ -141,44 +153,42 @@ pub const Info = struct {
 		}
 	}
 
-	fn asp(self: *Info, save: *Result) void {
+	fn asp(self: *Info) void {
 		const options = self.options;
 		const cond = &options.is_searching;
 
-		const pvs: evaluation.score.Int = @intCast(save.pv.score);
-		var s: evaluation.score.Int = evaluation.score.none;
-		var w: evaluation.score.Int = evaluation.score.unit;
+		const pvs: evaluation.score.Int = @intCast(self.result.pv.score);
+		var s: @TypeOf(pvs) = evaluation.score.none;
+		var w: @TypeOf(pvs) = evaluation.score.unit;
 
 		const d = self.depth;
-		var a: evaluation.score.Int = evaluation.score.lose;
-		var b: evaluation.score.Int = evaluation.score.win;
+		var a: @TypeOf(pvs) = evaluation.score.lose;
+		var b: @TypeOf(pvs) = evaluation.score.win;
 		if (d >= 3) {
 			a = std.math.clamp(pvs - w, evaluation.score.lose, evaluation.score.win);
 			b = std.math.clamp(pvs + w, evaluation.score.lose, evaluation.score.win);
 		}
 
-		while (true) {
+		while (true) : (w *= 2) {
 			s = self.ab(.exact, 0, a, b, d);
-
 			if (!cond.load(.acquire)) {
 				return;
 			}
 
 			if (s <= a) {
 				b = @divTrunc(a + b, 2);
-				a -= w;
-				w *= 2;
+				a = std.math.clamp(a - w, evaluation.score.lose, evaluation.score.win);
 			} else if (s >= b) {
 				a = @divTrunc(a + b, 2);
-				b += w;
-				w *= 2;
+				b = std.math.clamp(b + w, evaluation.score.lose, evaluation.score.win);
 			} else break;
 		}
 
 		if (!cond.load(.acquire)) {
 			return;
 		}
-		save.* = .{
+
+		self.result = .{
 			.depth = self.depth,
 			.seldepth = self.seldepth,
 			.pv = self.pos.ss.bottom().pv,
@@ -214,16 +224,19 @@ pub const Info = struct {
 		}
 
 		if (d <= 0) {
-			return self.qs(node, ply, a, b);
+			return self.qs(ply, a, b);
 		}
 
 		const is_pv = node == .exact;
-		const nodes = @constCast(&self.instance.nodes).fetchAdd(1, .acq_rel) + 1;
+		const is_root = ply == 0;
 
 		if (is_pv) {
 			self.seldepth = @max(self.seldepth, @as(Depth, @intCast(ply + 1)));
 			self.pos.ss.top().pv.line.resize(0) catch unreachable;
 		}
+
+		self.nodes += 1;
+		const nodes = self.nodes;
 
 		if (self.ti == 0) {
 			const options = self.options;
@@ -288,7 +301,7 @@ pub const Info = struct {
 		var flag = transposition.Entry.Flag.upperbound;
 
 		var mi: usize = 0;
-		var mp = movegen.Picker.init(self, false, ttm);
+		var mp = movegen.Picker.init(self, ttm);
 
 		move_loop: while (mp.next()) |sm| {
 			const m = sm.move;
@@ -304,11 +317,30 @@ pub const Info = struct {
 					else => std.debug.panic("invalid node", .{}),
 				};
 
-				break :recur -self.ab(child, ply + 1, -b, -a, d - 1);
+				var score = -self.ab(child, ply + 1,
+				  if (child == .exact) -b else -a - 1, -a, d - 1);
+				if (child != .exact and score > a and score < b) {
+					score = -self.ab(.exact, ply + 1, -b, -a, d - 1);
+				}
+				break :recur score;
 			};
 
 			if (!cond.load(.acquire)) {
 				return draw;
+			}
+
+			if (is_root) {
+				const rms = self.root_moves.slice();
+				var rmi: usize = 0;
+				while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {
+				}
+
+				const rm = &rms[rmi];
+				if (mi == 1 or s > a) {
+					rm.update(s, m, pos.ss.top().up(1).constSlice());
+				} else {
+					rm.score = evaluation.score.lose;
+				}
 			}
 
 			if (s > best.score) {
@@ -323,10 +355,7 @@ pub const Info = struct {
 						const next_pv = &pos.ss.top().up(1).pv;
 						const this_pv = &pos.ss.top().pv;
 
-						this_pv.score = s;
-						this_pv.line.resize(0) catch unreachable;
-						this_pv.line.appendAssumeCapacity(best.move);
-						this_pv.line.appendSliceAssumeCapacity(next_pv.constSlice());
+						this_pv.update(s, m, next_pv.constSlice());
 					}
 
 					if (a >= b) {
@@ -356,7 +385,6 @@ pub const Info = struct {
 	}
 
 	fn qs(self: *Info,
-	  node: Node,
 	  ply: usize,
 	  alpha: evaluation.score.Int,
 	  beta:  evaluation.score.Int) evaluation.score.Int {
@@ -368,13 +396,10 @@ pub const Info = struct {
 			return evaluation.score.draw;
 		}
 
-		const is_pv = node == .exact;
-		const nodes = @constCast(&self.instance.nodes).fetchAdd(1, .acq_rel) + 1;
+		self.nodes += 1;
+		self.pos.ss.top().pv.line.resize(0) catch unreachable;
 
-		if (is_pv) {
-			self.pos.ss.top().pv.line.resize(0) catch unreachable;
-		}
-
+		const nodes = self.nodes;
 		if (self.ti == 0) {
 			const options = self.options;
 
@@ -419,7 +444,6 @@ pub const Info = struct {
 		  and tte.score > evaluation.score.tblose
 		  and !(tte.flag == .upperbound and tte.score >  pos.ss.top().stat_eval)
 		  and !(tte.flag == .lowerbound and tte.score <= pos.ss.top().stat_eval);
-		const was_pv = tth and tte.was_pv;
 
 		if (tth and tte.shouldTrust(a, b, 0)) {
 			return tte.score;
@@ -447,23 +471,24 @@ pub const Info = struct {
 		var flag = transposition.Entry.Flag.upperbound;
 
 		var mi: usize = 0;
-		var mp = movegen.Picker.init(self, !is_checked, ttm);
+		var mp = movegen.Picker.init(self, ttm);
+		if (!is_checked) {
+			mp.skipQuiets();
+		}
 
 		move_loop: while (mp.next()) |sm| {
+			if (best.score > evaluation.score.tblose and mp.stage.isBad()) {
+				break;
+			}
+
 			const m = sm.move;
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
 				defer pos.undoMove();
+				defer mp.skipQuiets();
 				defer mi += 1;
 
-				const child: Node = switch (node) {
-					.upperbound => .lowerbound,
-					.lowerbound => if (mi == 0) .upperbound else .lowerbound,
-					.exact => if (mi == 0) .exact else .lowerbound,
-					else => std.debug.panic("invalid node", .{}),
-				};
-
-				break :recur -self.qs(child, ply + 1, -b, -a);
+				break :recur -self.qs(ply + 1, -b, -a);
 			};
 
 			if (!cond.load(.acquire)) {
@@ -490,7 +515,7 @@ pub const Info = struct {
 		}
 
 		ttf[0].* = .{
-			.was_pv = was_pv or flag == .exact,
+			.was_pv = false,
 			.flag = flag,
 			.age = @truncate(transposition.table.age.load(.acquire)),
 			.depth = 0,
@@ -507,11 +532,26 @@ pub const Info = struct {
 pub const Instance = struct {
 	infos:	[]Info = &.{},
 	options:	Options = std.mem.zeroInit(Options, .{}),
-	root_moves:	movegen.Move.Root.List,
 
-	nodes:	std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-	tbhits:	std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
-	tthits:	std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+	fn prep(self: *Instance) void {
+		defer self.options.is_searching.store(true, .release);
+
+		const pos = &self.infos[0].pos;
+		const rml = movegen.Move.Root.List.init(pos);
+
+		for (self.infos, 0 ..) |*info, i| {
+			info.* = std.mem.zeroInit(Info, .{
+				.pos = info.pos,
+				.instance = self,
+				.options = &self.options,
+
+				.ti = i,
+				.tn = self.infos.len,
+
+				.root_moves = rml,
+			});
+		}
+	}
 
 	pub fn alloc(self: *Instance, num: usize) !void {
 		var pos = std.mem.zeroInit(Position, .{});
@@ -551,16 +591,13 @@ pub const Instance = struct {
 	}
 
 	pub fn start(self: *Instance) !void {
-		self.options.is_searching.store(true, .release);
+		self.prep();
 
 		const config: std.Thread.SpawnConfig = .{
 			.stack_size = 16 * 1024 * 1024,
 			.allocator = base.heap.allocator,
 		};
-		for (self.infos, 0 ..) |*info, i| {
-			info.ti = i;
-			info.tn = self.infos.len;
-
+		for (self.infos) |*info| {
 			const thread = try std.Thread.spawn(config, Info.iid, .{info});
 			std.Thread.detach(thread);
 		}

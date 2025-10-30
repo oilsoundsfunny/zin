@@ -164,9 +164,11 @@ fn playOut(self: *Self) !void {
 	self.line = try @TypeOf(self.line).init(0);
 
 	while (true) {
-		try self.instance.think();
+		try self.instance.start();
+		while (self.instance.options.is_searching.load(.acquire)) {
+		}
 
-		const rml = &self.instance.root_moves;
+		const rml = info.result.pv;
 		const rms = rml.constSlice();
 		if (rms.len == 0 or pos.isDrawn()) {
 			const is_checked = pos.isChecked();

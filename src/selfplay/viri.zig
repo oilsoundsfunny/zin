@@ -127,7 +127,7 @@ pub const Self = extern struct {
 		self.score = @intCast(engine.evaluation.score.fromPosition(pos));
 
 		var i: usize = 0;
-		var occ = pos.ptypeOcc(.all);
+		var occ = pos.bothOcc();
 		self.occ = occ;
 		while (occ.lowSquare()) |s| : ({
 			i += 1;

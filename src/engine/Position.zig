@@ -15,8 +15,10 @@ const zobrist = @import("zobrist.zig");
 
 const Self = @This();
 
-mailbox:	std.EnumArray(base.types.Square, base.types.Piece),
-pieces_occ:	std.EnumArray(base.types.Piece, base.types.Square.Set),
+by_square:	std.EnumArray(base.types.Square, base.types.Piece)
+  = std.EnumArray(base.types.Square, base.types.Piece).initFill(.none),
+by_color:	std.EnumArray(base.types.Color, base.types.Square.Set),
+by_ptype:	std.EnumArray(base.types.Ptype, base.types.Square.Set),
 
 castles:	std.EnumMap(base.types.Castle, Castle),
 
@@ -60,7 +62,7 @@ pub const State = struct {
 	rule50:	 u8,
 	qs_ply:	?u8,
 
-	check_mask:	base.types.Square.Set = .all,
+	check_mask:	base.types.Square.Set = .full,
 
 	key:	zobrist.Int,
 
@@ -142,40 +144,39 @@ pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
 
 fn colorOccPtr(self: *Self, c: base.types.Color) *base.types.Square.Set {
-	const p = base.types.Piece.init(c, .all);
-	return self.pieceOccPtr(p);
+	return self.by_color.getPtr(c);
 }
 
-fn pieceOccPtr(self: *Self, p: base.types.Piece) *base.types.Square.Set {
-	return self.pieces_occ.getPtr(p);
+fn ptypeOccPtr(self: *Self, c: base.types.Ptype) *base.types.Square.Set {
+	return self.by_ptype.getPtr(c);
 }
 
 fn squarePtr(self: *Self, s: base.types.Square) *base.types.Piece {
-	return self.mailbox.getPtr(s);
+	return self.by_square.getPtr(s);
 }
 
 fn colorOccPtrConst(self: *const Self, c: base.types.Color) *const base.types.Square.Set {
-	const p = base.types.Piece.init(c, .all);
-	return self.pieceOccPtrConst(p);
+	return self.by_color.getPtrConst(c);
 }
 
-fn pieceOccPtrConst(self: *const Self, p: base.types.Piece) *const base.types.Square.Set {
-	return self.pieces_occ.getPtrConst(p);
+fn ptypeOccPtrConst(self: *const Self, c: base.types.Ptype) *const base.types.Square.Set {
+	return self.by_ptype.getPtrConst(c);
 }
 
 fn squarePtrConst(self: *const Self, s: base.types.Square) *const base.types.Piece {
-	return self.mailbox.getPtrConst(s);
+	return self.by_square.getPtrConst(s);
 }
 
-fn popSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.types.Piece) void {
-	if (p == .nul) {
+fn popSq(self: *Self, s: base.types.Square, p: base.types.Piece, comptime full: bool) void {
+	if (p == .none) {
 		return;
 	}
 
 	const c = p.color();
-	self.mailbox.set(s, .nul);
+	const t = p.ptype();
+	self.squarePtr(s).* = .none;
 	self.colorOccPtr(c).pop(s);
-	self.pieceOccPtr(p).pop(s);
+	self.ptypeOccPtr(t).pop(s);
 	if (!full) {
 		return;
 	}
@@ -185,15 +186,24 @@ fn popSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 	self.ss.top().accumulator.pop(s, p);
 }
 
-fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.types.Piece) void {
-	if (p == .nul) {
+fn popSqFull(self: *Self, s: base.types.Square, p: base.types.Piece) void {
+	self.popSq(s, p, true);
+}
+
+fn popSqLazy(self: *Self, s: base.types.Square, p: base.types.Piece) void {
+	self.popSq(s, p, false);
+}
+
+fn setSq(self: *Self, s: base.types.Square, p: base.types.Piece, comptime full: bool) void {
+	if (p == .none) {
 		return;
 	}
 
 	const c = p.color();
-	self.mailbox.set(s, p);
+	const t = p.ptype();
+	self.squarePtr(s).* = p;
 	self.colorOccPtr(c).set(s);
-	self.pieceOccPtr(p).set(s);
+	self.ptypeOccPtr(t).set(s);
 	if (!full) {
 		return;
 	}
@@ -201,6 +211,14 @@ fn setSquare(self: *Self, comptime full: bool, s: base.types.Square, p: base.typ
 	const z = zobrist.psq(s, p);
 	self.ss.top().key ^= z;
 	self.ss.top().accumulator.set(s, p);
+}
+
+fn setSqFull(self: *Self, s: base.types.Square, p: base.types.Piece) void {
+	self.setSq(s, p, true);
+}
+
+fn setSqLazy(self: *Self, s: base.types.Square, p: base.types.Piece) void {
+	self.setSq(s, p, false);
 }
 
 fn popCastle(self: *Self, c: base.types.Castle) void {
@@ -213,7 +231,7 @@ fn setCastle(self: *Self, c: base.types.Castle, info: Castle) void {
 }
 
 fn genCheckMask(self: *const Self) base.types.Square.Set {
-	const occ = self.ptypeOcc(.all);
+	const occ = self.bothOcc();
 	const stm = self.stm;
 
 	const kb = self.pieceOcc(base.types.Piece.init(stm, .king));
@@ -223,7 +241,7 @@ fn genCheckMask(self: *const Self) base.types.Square.Set {
 
 	const kba = bitboard.bAtk(ks, occ);
 	var diag = base.types.Square.Set
-	  .nul
+	  .none
 	  .bwo(self.pieceOcc(base.types.Piece.init(stm.flip(), .bishop)))
 	  .bwo(self.pieceOcc(base.types.Piece.init(stm.flip(), .queen)))
 	  .bwa(atkers);
@@ -233,7 +251,7 @@ fn genCheckMask(self: *const Self) base.types.Square.Set {
 
 	const kra = bitboard.rAtk(ks, occ);
 	var line = base.types.Square.Set
-	  .nul
+	  .none
 	  .bwo(self.pieceOcc(base.types.Piece.init(stm.flip(), .rook)))
 	  .bwo(self.pieceOcc(base.types.Piece.init(stm.flip(), .queen)))
 	  .bwa(atkers);
@@ -241,25 +259,30 @@ fn genCheckMask(self: *const Self) base.types.Square.Set {
 		ka.setOther(bitboard.rAtk(s, occ).bwa(kra));
 	}
 
-	return if (ka != .nul) ka else .all;
+	return if (ka != .none) ka else .full;
+}
+
+pub fn bothOcc(self: *const Self) base.types.Square.Set {
+	const wo = self.colorOcc(.white);
+	const bo = self.colorOcc(.black);
+	return @TypeOf(wo, bo).bwo(wo, bo);
 }
 
 pub fn colorOcc(self: *const Self, c: base.types.Color) base.types.Square.Set {
 	return self.colorOccPtrConst(c).*;
 }
 
-pub fn pieceOcc(self: *const Self, p: base.types.Piece) base.types.Square.Set {
-	return self.pieceOccPtrConst(p).*;
+pub fn ptypeOcc(self: *const Self, p: base.types.Ptype) base.types.Square.Set {
+	return self.ptypeOccPtrConst(p).*;
 }
 
-pub fn ptypeOcc(self: *const Self, p: base.types.Ptype) base.types.Square.Set {
-	const wp = base.types.Piece.init(.white, p);
-	const bp = base.types.Piece.init(.black, p);
+pub fn pieceOcc(self: *const Self, p: base.types.Piece) base.types.Square.Set {
+	const c = p.color();
+	const t = p.ptype();
 
-	const wo = self.pieceOcc(wp);
-	const bo = self.pieceOcc(bp);
-
-	return base.types.Square.Set.bwo(wo, bo);
+	const co = self.colorOcc(c);
+	const to = self.ptypeOcc(t);
+	return @TypeOf(co, to).bwa(co, to);
 }
 
 pub fn getSquare(self: *const Self, s: base.types.Square) base.types.Piece {
@@ -283,9 +306,9 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		.accumulator = self.ss.top().accumulator,
 	}));
 
-	self.popSquare(true, s, sp);
-	self.popSquare(true, d, dp);
-	self.setSquare(true, d, sp);
+	self.popSqFull(s, sp);
+	self.popSqFull(d, dp);
+	self.setSqFull(d, sp);
 
 	switch (move.flag) {
 		.none => {
@@ -296,15 +319,15 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 			const their_pawn = base.types.Piece.init(self.stm.flip(), .pawn);
 			const enp_target = d.shift(self.stm.forward().flip(), 1);
 
-			self.popSquare(true, enp_target, their_pawn);
+			self.popSqFull(enp_target, their_pawn);
 		},
 
 		.promote => {
 			const our_pawn = base.types.Piece.init(self.stm, .pawn);
 			const our_promotion = base.types.Piece.init(self.stm, move.info.promote.toPtype());
 
-			self.popSquare(true, d, our_pawn);
-			self.setSquare(true, d, our_promotion);
+			self.popSqFull(d, our_pawn);
+			self.setSqFull(d, our_promotion);
 		},
 
 		.castle => {
@@ -313,25 +336,25 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 			const our_king = base.types.Piece.init(self.stm, .king);
 
 			if (uci.options.frc) {
-				self.popSquare(true, info.rs, our_king);
-				self.setSquare(true, info.kd, our_king);
-				self.setSquare(true, info.rd, our_rook);
+				self.popSqFull(info.rs, our_king);
+				self.setSqFull(info.kd, our_king);
+				self.setSqFull(info.rd, our_rook);
 			} else {
-				self.popSquare(true, info.rs, our_rook);
-				self.setSquare(true, info.rd, our_rook);
+				self.popSqFull(info.rs, our_rook);
+				self.setSqFull(info.rd, our_rook);
 			}
 		},
 	}
 
-	switch (sp.ptype()) {
-		.pawn => {
+	switch (sp) {
+		.w_pawn, .b_pawn => {
 			self.ss.top().rule50 = 0;
 			if (d.shift(self.stm.forward().flip(), 2) == s) {
 				self.ss.top().en_pas = d.shift(self.stm.forward().flip(), 1);
 			}
 		},
 
-		.rook => {
+		.w_rook, .b_rook => {
 			var iter = self.castles.iterator();
 			while (iter.next()) |entry| {
 				const k = entry.key;
@@ -344,7 +367,7 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 			}
 		},
 
-		.king => {
+		.w_king, .b_king => {
 			self.popCastle(if (self.stm == .white) .wk else .bk);
 			self.popCastle(if (self.stm == .white) .wq else .bq);
 
@@ -366,15 +389,15 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 				else => false,
 			};
 			if (!builtin.is_test and is_s_mirrored != is_d_mirrored) {
-				self.ss.top().accumulator.mirror(self.stm, &self.pieces_occ);
+				self.ss.top().accumulator.mirror(self, self.stm);
 			}
 		},
 
 		else => {},
 	}
 
-	switch (dp.ptype()) {
-		.rook => {
+	switch (dp) {
+		.w_rook, .b_rook => {
 			var iter = self.castles.iterator();
 			while (iter.next()) |entry| {
 				const k = entry.key;
@@ -399,7 +422,7 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 
 	const kb = self.pieceOcc(base.types.Piece.init(self.stm.flip(), .king));
 	const ks = kb.lowSquare() orelse std.debug.panic("invalid position", .{});
-	if (self.squareAtkers(ks).bwa(self.colorOcc(self.stm)) != .nul) {
+	if (self.squareAtkers(ks).bwa(self.colorOcc(self.stm)) != .none) {
 		self.undoMove();
 		return error.InvalidMove;
 	}
@@ -412,8 +435,8 @@ pub fn doNull(self: *Self) MoveError!void {
 
 	self.stm = self.stm.flip();
 	self.ss.top().move = .{};
-	self.ss.top().src_piece = .nul;
-	self.ss.top().dst_piece = .nul;
+	self.ss.top().src_piece = .none;
+	self.ss.top().dst_piece = .none;
 	self.ss.push(std.mem.zeroInit(State, .{
 		.castle = self.ss.top().castle,
 
@@ -442,15 +465,15 @@ pub fn undoMove(self: *Self) void {
 			const their_pawn = base.types.Piece.init(self.stm.flip(), .pawn);
 			const enp_target = d.shift(self.stm.forward().flip(), 1);
 
-			self.setSquare(false, enp_target, their_pawn);
+			self.setSqLazy(enp_target, their_pawn);
 		},
 
 		.promote => {
 			const our_pawn = base.types.Piece.init(self.stm, .pawn);
 			const our_promotion = base.types.Piece.init(self.stm, move.info.promote.toPtype());
 
-			self.popSquare(false, d, our_promotion);
-			self.setSquare(false, d, our_pawn);
+			self.popSqLazy(d, our_promotion);
+			self.setSqLazy(d, our_pawn);
 		},
 
 		.castle => {
@@ -459,19 +482,19 @@ pub fn undoMove(self: *Self) void {
 			const our_king = base.types.Piece.init(self.stm, .king);
 
 			if (uci.options.frc) {
-				self.popSquare(false, info.rd, our_rook);
-				self.popSquare(false, info.kd, our_king);
-				self.setSquare(false, info.rs, our_king);
+				self.popSqLazy(info.rd, our_rook);
+				self.popSqLazy(info.kd, our_king);
+				self.setSqLazy(info.rs, our_king);
 			} else {
-				self.popSquare(false, info.rd, our_rook);
-				self.setSquare(false, info.rs, our_rook);
+				self.popSqLazy(info.rd, our_rook);
+				self.setSqLazy(info.rs, our_rook);
 			}
 		},
 	}
 
-	self.popSquare(false, d, sp);
-	self.setSquare(false, d, dp);
-	self.setSquare(false, s, sp);
+	self.popSqLazy(d, sp);
+	self.setSqLazy(d, dp);
+	self.setSqLazy(s, sp);
 	self.ss.pop();
 }
 
@@ -519,7 +542,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 		const s = sa[si];
 		const from_c = base.types.Piece.fromChar(c);
 		si += if (from_c) |p| blk: {
-			self.setSquare(true, s, p);
+			self.setSqFull(s, p);
 
 			switch (p) {
 				.w_rook => {
@@ -540,7 +563,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 						else => false,
 					};
 					if (!builtin.is_test and mirrored) {
-						self.ss.top().accumulator.mirror(.white, &self.pieces_occ);
+						self.ss.top().accumulator.mirror(self, .white);
 					}
 				},
 
@@ -562,7 +585,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 						else => false,
 					};
 					if (!builtin.is_test and mirrored) {
-						self.ss.top().accumulator.mirror(.black, &self.pieces_occ);
+						self.ss.top().accumulator.mirror(self, .black);
 					}
 				},
 
@@ -604,8 +627,8 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 			if (cas_token.len > 1) {
 				return error.InvalidCastle;
 			}
-			self.ss.top().castle = .nul;
-			self.ss.top().key ^= zobrist.cas(.nul);
+			self.ss.top().castle = .none;
+			self.ss.top().key ^= zobrist.cas(.none);
 			break;
 		}
 		const cas = base.types.Castle.fromChar(c) orelse sw: switch (c) {
@@ -639,17 +662,17 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 		  if (cas.ptype() == .queen) .file_d else .file_f);
 
 		const kb = if (ks != kd) base.types.Square.Set
-		  .all
+		  .full
 		  .bwa(bitboard.rAtk(ks, kd.toSet()))
 		  .bwa(bitboard.rAtk(kd, ks.toSet()))
 		  .bwo(kd.toSet())
-		  else .nul;
+		  else .none;
 		const rb = if (rs != rd) base.types.Square.Set
-		  .all
+		  .full
 		  .bwa(bitboard.rAtk(rs, rd.toSet()))
 		  .bwa(bitboard.rAtk(rd, rs.toSet()))
 		  .bwo(rd.toSet())
-		  else .nul;
+		  else .none;
 
 		self.setCastle(cas, .{
 			.ks = ks,
@@ -691,9 +714,9 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 }
 
 pub fn squareAtkers(self: *const Self, s: base.types.Square) base.types.Square.Set {
-	const occ = self.ptypeOcc(.all);
+	const occ = self.bothOcc();
 	return base.types.Square.Set
-	  .nul
+	  .none
 	  .bwo(bitboard.pAtk(s.toSet(), .white).bwa(self.pieceOcc(.b_pawn)))
 	  .bwo(bitboard.pAtk(s.toSet(), .black).bwa(self.pieceOcc(.w_pawn)))
 	  .bwo(bitboard.nAtk(s).bwa(self.ptypeOcc(.knight)))
@@ -721,7 +744,7 @@ pub fn is3peat(self: *const Self) bool {
 }
 
 pub fn isChecked(self: *const Self) bool {
-	return self.ss.top().check_mask != .all;
+	return self.ss.top().check_mask != .full;
 }
 
 pub fn isDrawn(self: *const Self) bool {
@@ -732,7 +755,7 @@ pub fn isDrawn(self: *const Self) bool {
 
 pub fn isMoveNoisy(self: *const Self, move: movegen.Move) bool {
 	const dp = self.getSquare(move.dst);
-	const is_capt = dp.color() != self.stm and dp.ptype() != .nul and dp.ptype() != .all;
+	const is_capt = dp.color() != self.stm and dp.ptype() != .none and dp.ptype() != .full;
 
 	return switch (move.flag) {
 		.none => is_capt,
@@ -751,7 +774,7 @@ pub fn isMoveQuiet(self: *const Self, move: movegen.Move) bool {
 
 pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 	const stm = self.stm;
-	const occ = self.ptypeOcc(.all);
+	const occ = self.bothOcc();
 	const them = self.colorOcc(stm.flip());
 
 	const s = move.src;
@@ -761,40 +784,35 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 
 	const spc = sp.color();
 	const dpc = dp.color();
-	const spt = sp.ptype();
-	const dpt = dp.ptype();
 
 	return switch (move.flag) {
 		.none => none: {
-			if (spc != stm or spt == .nul) {
+			if (sp == .none or spc != stm) {
 				break :none false;
 			}
-			if (dpc == stm and dpt != .nul) {
+			if (dp != .none and dpc == stm) {
 				break :none false;
 			}
 
-			const noisy = switch (spt) {
+			const noisy = switch (sp.ptype()) {
 				.pawn => bitboard.pAtk(s.toSet(), stm).bwa(them),
-				else => bitboard.ptAtk(spt, s, occ).bwa(them),
+				else => |pt| bitboard.ptAtk(pt, s, occ).bwa(them),
 			};
 			const quiet = switch (sp.ptype()) {
-				.pawn => base.types.Square.Set.nul
+				.pawn => base.types.Square.Set.none
 				  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
 				  .bwo(bitboard.pPush2(s.toSet(), occ, stm)),
-				else => bitboard.ptAtk(spt, s, occ).bwa(occ.flip()),
+				else => |pt| bitboard.ptAtk(pt, s, occ).bwa(occ.flip()),
 			};
 
-			break :none switch (dpt) {
-				.nul => quiet.get(d),
+			break :none switch (dp) {
+				.none => quiet.get(d),
 				else => noisy.get(d),
 			};
 		},
 
 		.en_passant => en_passant: {
-			if (sp != base.types.Piece.init(stm, .pawn)) {
-				break :en_passant false;
-			}
-			if (dp != .nul) {
+			if (sp != base.types.Piece.init(stm, .pawn) or dp != .none) {
 				break :en_passant false;
 			}
 
@@ -822,20 +840,20 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 			  or (uci.options.frc and d != info.rs)
 			  or (uci.options.frc and dp != our_rook)
 			  or (!uci.options.frc and d != info.kd)
-			  or (!uci.options.frc and dp != .nul);
+			  or (!uci.options.frc and dp != .none);
 			break :castle !illegal;
 		},
 
 		.promote => promote: {
 			const noisy = bitboard.pAtk(s.toSet(), stm).bwa(them);
-			const quiet = base.types.Square.Set.nul
+			const quiet = base.types.Square.Set.none
 			  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
 			  .bwo(bitboard.pPush2(s.toSet(), occ, stm));
 
-			break :promote spc == stm and spt == .pawn
+			break :promote spc == stm and sp.ptype() == .pawn
 			  and d.rank() == stm.promotionRank()
-			  and !(dpt == .nul and !quiet.get(d))
-			  and !(dpt != .nul and !noisy.get(d));
+			  and !(dp == .none and !quiet.get(d))
+			  and !(dp != .none and !noisy.get(d));
 		},
 	};
 }

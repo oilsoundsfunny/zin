@@ -111,8 +111,8 @@ pub const r_offset = std.EnumArray(base.types.Square, u32).init(.{
 	.e8 = 78538, .f8 = 28745, .g8 =  8555, .h8 =  1009,
 });
 
-pub var b_nmask = std.EnumArray(base.types.Square, base.types.Square.Set).initFill(.nul);
-pub var r_nmask = std.EnumArray(base.types.Square, base.types.Square.Set).initFill(.nul);
+pub var b_nmask = std.EnumArray(base.types.Square, base.types.Square.Set).initFill(.none);
+pub var r_nmask = std.EnumArray(base.types.Square, base.types.Square.Set).initFill(.none);
 pub var atk = std.mem.zeroes([87988]base.types.Square.Set);
 
 fn bAtkInit() void {
@@ -125,11 +125,11 @@ fn bAtkInit() void {
 		  .bwa(s.file().toSet().flip());
 
 		const edge = base.types.Square.Set.bwo(rank_edge, file_edge);
-		const mask = misc.genAtk(.bishop, s, .nul).bwa(edge.flip());
+		const mask = misc.genAtk(.bishop, s, .none).bwa(edge.flip());
 
 		b_nmask.set(s, mask.flip());
 
-		var b = base.types.Square.Set.nul;
+		var b = base.types.Square.Set.none;
 		const n = std.math.shl(usize, 1, mask.count());
 		const p = (&atk[b_offset.get(s)])[0 .. 1].ptr;
 		for (0 .. n) |_| {
@@ -153,11 +153,11 @@ fn rAtkInit() void {
 		  .bwa(s.file().toSet().flip());
 
 		const edge = base.types.Square.Set.bwo(rank_edge, file_edge);
-		const mask = misc.genAtk(.rook, s, .nul).bwa(edge.flip());
+		const mask = misc.genAtk(.rook, s, .none).bwa(edge.flip());
 
 		r_nmask.set(s, mask.flip());
 
-		var b = base.types.Square.Set.nul;
+		var b = base.types.Square.Set.none;
 		const n = std.math.shl(usize, 1, mask.count());
 		const p = (&atk[r_offset.get(s)])[0 .. 1].ptr;
 		for (0 .. n) |_| {

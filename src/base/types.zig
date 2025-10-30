@@ -1,8 +1,10 @@
 const std = @import("std");
 
+const defs = @import("defs.zig");
+
 const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
-	nul = (1 << (Square.cnt * 0)) - 1,
-	all = (1 << (Square.cnt * 1)) - 1,
+	none = (1 << (Square.cnt * 0)) - 1,
+	full = (1 << (Square.cnt * 1)) - 1,
 	_,
 
 	pub const Tag = std.meta.Tag(SquareSet);
@@ -24,7 +26,7 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
 	}
 
 	pub fn fromSlice(comptime T: type, slice: []const T) SquareSet {
-		var b = SquareSet.nul;
+		var b = SquareSet.none;
 		for (slice) |item| {
 			b = b.bwo(switch (T) {
 				Square, Rank, File => item.toSet(),
@@ -57,7 +59,7 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
 	}
 
 	pub fn flip(self: SquareSet) SquareSet {
-		return self.bwx(.all);
+		return self.bwx(.full);
 	}
 
 	pub fn flipRank(self: SquareSet) SquareSet {
@@ -97,7 +99,7 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
 	}
 
 	pub fn get(self: SquareSet, s: Square) bool {
-		return self.bwa(s.toSet()) != .nul;
+		return self.bwa(s.toSet()) != .none;
 	}
 
 	pub fn pop(self: *SquareSet, s: Square) void {
@@ -135,8 +137,8 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
 };
 
 const CastleSet = enum(std.meta.Int(.unsigned, Castle.cnt)) {
-	nul = (1 << (Castle.cnt * 0)) - 1,
-	all = (1 << (Castle.cnt * 1)) - 1,
+	none = (1 << (Castle.cnt * 0)) - 1,
+	full = (1 << (Castle.cnt * 1)) - 1,
 	_,
 
 	pub const Tag = std.meta.Tag(CastleSet);
@@ -167,11 +169,11 @@ const CastleSet = enum(std.meta.Int(.unsigned, Castle.cnt)) {
 	}
 
 	pub fn flip(self: CastleSet) CastleSet {
-		return self.bwx(.all);
+		return self.bwx(.full);
 	}
 
 	pub fn get(self: CastleSet, s: Castle) bool {
-		return self.bwa(s.toSet()) != .nul;
+		return self.bwa(s.toSet()) != .none;
 	}
 
 	pub fn pop(self: *CastleSet, s: Castle) void {
@@ -202,7 +204,7 @@ pub const Color = enum(u1) {
 	const Tag = std.meta.Tag(Color);
 	const tag_info = @typeInfo(Tag).int;
 
-	const char_map = std.EnumMap(Color, u8).init(.{
+	const char_array = std.EnumArray(Color, u8).init(.{
 		.white = 'w',
 		.black = 'b',
 	});
@@ -219,8 +221,8 @@ pub const Color = enum(u1) {
 		return @intFromEnum(self);
 	}
 
-	pub fn char(self: Color) ?u8 {
-		return char_map.get(self);
+	pub fn char(self: Color) u8 {
+		return char_array.getPtrConst(self).*;
 	}
 
 	pub fn flip(self: Color) Color {
@@ -256,9 +258,8 @@ pub const Color = enum(u1) {
 	}
 
 	pub fn fromChar(c: u8) ?Color {
-		for (values) |v| {
-			const from_v = v.char() orelse continue;
-			if (c == from_v) {
+		inline for (values) |v| {
+			if (c == v.char()) {
 				return v;
 			}
 		}
@@ -267,19 +268,17 @@ pub const Color = enum(u1) {
 };
 
 pub const Ptype = enum(u3) {
-	nul,
 	pawn,
 	knight,
 	bishop,
 	rook,
 	queen,
 	king,
-	all,
 
 	const Tag = std.meta.Tag(Ptype);
 	const tag_info = @typeInfo(Tag).int;
 
-	const char_map = std.EnumMap(Ptype, u8).init(.{
+	const char_array = std.EnumArray(Ptype, u8).init(.{
 		.pawn = 'p',
 		.knight = 'n',
 		.bishop = 'b',
@@ -289,6 +288,15 @@ pub const Ptype = enum(u3) {
 	});
 
 	pub const cnt: comptime_int = 1 << tag_info.bits;
+
+	pub const scores = std.EnumArray(Ptype, defs.score.Int).init(.{
+		.pawn = defs.score.unit,
+		.knight = defs.score.unit * 44 / 16,
+		.bishop = defs.score.unit * 52 / 16,
+		.rook  = defs.score.unit * 5,
+		.queen = defs.score.unit * 9,
+		.king  = defs.score.draw,
+	});
 
 	pub const values = std.enums.values(Ptype);
 
@@ -300,14 +308,17 @@ pub const Ptype = enum(u3) {
 		return @intFromEnum(self);
 	}
 
-	pub fn char(self: Ptype) ?u8 {
-		return char_map.get(self);
+	pub fn char(self: Ptype) u8 {
+		return char_array.getPtrConst(self).*;
+	}
+
+	pub fn score(self: Ptype) defs.score.Int {
+		return scores.getPtrConst(self).*;
 	}
 
 	pub fn fromChar(c: u8) ?Ptype {
-		for (values) |v| {
-			const from_v = v.char() orelse continue;
-			if (c == from_v) {
+		inline for (values) |v| {
+			if (c == v.char()) {
 				return v;
 			}
 		}
@@ -316,8 +327,6 @@ pub const Ptype = enum(u3) {
 };
 
 pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_info.bits)) {
-	nul,
-
 	w_pawn = Ptype.cnt
 	  * @as(comptime_int, Color.white.tag())
 	  + @as(comptime_int, Ptype.pawn.tag()),
@@ -326,7 +335,6 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_i
 	w_rook,
 	w_queen,
 	w_king,
-	w_all,
 
 	b_pawn = Ptype.cnt
 	  * @as(comptime_int, Color.black.tag())
@@ -336,7 +344,8 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_i
 	b_rook,
 	b_queen,
 	b_king,
-	b_all,
+
+	none = 0b0111,
 
 	const Tag = std.meta.Tag(Piece);
 	const tag_info = @typeInfo(Tag).int;
@@ -361,8 +370,8 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_i
 
 	pub const values = std.enums.values(Piece);
 
-	pub const w_pieces = values[1 ..][0 .. 6];
-	pub const b_pieces = values[8 ..][0 .. 6];
+	pub const w_pieces = values[0 ..][0 .. 6];
+	pub const b_pieces = values[6 ..][0 .. 6];
 
 	pub fn init(c: Color, p: Ptype) Piece {
 		const ci = @as(Tag, c.tag()) * Ptype.cnt;
@@ -450,9 +459,8 @@ pub const Rank = enum(u3) {
 	}
 
 	pub fn fromChar(c: u8) ?Rank {
-		for (values) |v| {
-			const from_v = v.char();
-			if (c == from_v) {
+		inline for (values) |v| {
+			if (c == v.char()) {
 				return v;
 			}
 		}
@@ -511,9 +519,8 @@ pub const File = enum(u3) {
 	}
 
 	pub fn fromChar(c: u8) ?File {
-		for (values) |v| {
-			const from_v = v.char();
-			if (c == from_v) {
+		inline for (values) |v| {
+			if (c == v.char()) {
 				return v;
 			}
 		}

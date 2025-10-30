@@ -65,17 +65,18 @@ test {
 		.{.flag = .none, .info = .{.none = 0}, .src = .g1, .dst = .f3},
 		.{.flag = .none, .info = .{.none = 0}, .src = .g1, .dst = .h3},
 	};
-	var nmp = engine.movegen.Picker.init(info, true,  .{});
-	var qmp = engine.movegen.Picker.init(info, false, .{});
+	var nmp = engine.movegen.Picker.init(info, .{});
+	var qmp = engine.movegen.Picker.init(info, .{});
+
+	nmp.skipQuiets();
+	if (nmp.next()) |_| {
+		return error.TestExpectedEqual;
+	}
 
 	for (seq) |m| {
 		const sm = qmp.next() orelse return error.TestExpectedEqual;
 		try std.testing.expectEqual(m.flag, sm.move.flag);
 		try std.testing.expectEqual(m.src, sm.move.src);
 		try std.testing.expectEqual(m.dst, sm.move.dst);
-
-		if (nmp.next()) |_| {
-			return error.TestExpectedEqual;
-		}
 	}
 }
