@@ -93,7 +93,7 @@ const Modules = enum {
 pub fn build(bld: *std.Build) !void {
 	const optimize = bld.standardOptimizeOption(.{});
 	const ndebug = optimize != .Debug and optimize != .ReleaseSafe;
-	const target = bld.graph.host;
+	const target = bld.standardTargetOptions(.{});
 
 	const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
 	const stack_check = bld.option(bool, "stack-check", "") orelse !ndebug;

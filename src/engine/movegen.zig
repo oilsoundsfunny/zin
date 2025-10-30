@@ -98,7 +98,7 @@ const RootMoveList = struct {
 			defer pos.undoMove();
 
 			var rm: RootMove = .{
-				.score = -evaluation.score.fromPosition(pos),
+				.score = evaluation.score.lose,
 			};
 			rm.push(m);
 			rml.push(rm);

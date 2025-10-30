@@ -10,13 +10,6 @@ const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
-const Result = struct {
-	depth:		Depth,
-	seldepth:	Depth,
-
-	pv:	movegen.Move.Root,
-};
-
 pub const Depth = isize;
 pub const Node = transposition.Entry.Flag;
 
@@ -34,15 +27,14 @@ pub const Info = struct {
 
 	depth:		Depth,
 	seldepth:	Depth,
-	result:		Result,
 	root_moves:	movegen.Move.Root.List,
 
 	allhist:	[base.types.Ptype.cnt][base.types.Square.cnt]hist.Int,
 	cuthist:	[base.types.Ptype.cnt][base.types.Square.cnt]hist.Int,
 
 	fn bestMove(self: *const Info) movegen.Move {
-		const pv = &self.result.pv.line;
-		return if (pv.len == 0) movegen.Move.zero else pv.constSlice()[0];
+		const pv = &self.root_moves.constSlice()[0];
+		return if (pv.line.len == 0) movegen.Move.zero else pv.constSlice()[0];
 	}
 
 	fn printInfo(self: *const Info) !void {
@@ -55,9 +47,9 @@ pub const Info = struct {
 		const ntime = base.time.read(.ns) - self.options.start * std.time.ns_per_ms;
 		const mtime = ntime / std.time.ns_per_ms;
 
-		const depth = self.result.depth;
-		const seldepth = self.result.seldepth;
-		const pv = &self.result.pv;
+		const depth = self.depth;
+		const seldepth = self.seldepth;
+		const pv = &self.root_moves.constSlice()[0];
 
 		if (best == movegen.Move.zero) {
 			return;
@@ -127,7 +119,7 @@ pub const Info = struct {
 		const min_depth = 1;
 		var depth: Depth = min_depth;
 
-		while (depth <= max_depth) : (depth += 1) {
+		while (self.root_moves.constSlice().len > 0 and depth <= max_depth) : (depth += 1) {
 			self.depth = depth + @intFromBool(is_threaded
 			  and self.ti % 2 == 1
 			  and depth > min_depth
@@ -135,6 +127,7 @@ pub const Info = struct {
 			self.seldepth = 0;
 			self.asp();
 
+			movegen.Move.Root.sortSlice(self.root_moves.slice());
 			if (!cond.load(.acquire)) {
 				break;
 			}
@@ -144,8 +137,6 @@ pub const Info = struct {
 				try self.printInfo();
 			}
 		}
-
-		movegen.Move.Root.sortSlice(self.root_moves.slice());
 
 		if (is_main) {
 			try self.printInfo();
@@ -157,7 +148,9 @@ pub const Info = struct {
 		const options = self.options;
 		const cond = &options.is_searching;
 
-		const pvs: evaluation.score.Int = @intCast(self.result.pv.score);
+		const pv = &self.root_moves.constSlice()[0];
+		const pvs: evaluation.score.Int = @intCast(pv.score);
+
 		var s: @TypeOf(pvs) = evaluation.score.none;
 		var w: @TypeOf(pvs) = evaluation.score.unit;
 
@@ -187,12 +180,6 @@ pub const Info = struct {
 		if (!cond.load(.acquire)) {
 			return;
 		}
-
-		self.result = .{
-			.depth = self.depth,
-			.seldepth = self.seldepth,
-			.pv = self.pos.ss.bottom().pv,
-		};
 	}
 
 	fn ab(self: *Info,
@@ -329,15 +316,22 @@ pub const Info = struct {
 				return draw;
 			}
 
+			std.debug.assert(best.score <= a);
+			std.debug.assert(a < b);
+
+			const first_rm = is_root and mi == 1;
+			const pv_found = is_pv and s > a;
+
 			if (is_root) {
 				const rms = self.root_moves.slice();
 				var rmi: usize = 0;
 				while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {
 				}
 
+				const next_pv = &pos.ss.top().up(1).pv;
 				const rm = &rms[rmi];
-				if (mi == 1 or s > a) {
-					rm.update(s, m, pos.ss.top().up(1).constSlice());
+				if (pv_found or first_rm) {
+					rm.update(s, m, next_pv.constSlice());
 				} else {
 					rm.score = evaluation.score.lose;
 				}
@@ -346,22 +340,22 @@ pub const Info = struct {
 			if (s > best.score) {
 				best.score = @intCast(s);
 
+				if (pv_found or first_rm) {
+					const next_pv = &pos.ss.top().up(1).pv;
+					const this_pv = &pos.ss.top().pv;
+
+					this_pv.update(s, m, next_pv.constSlice());
+				}
+
 				if (s > a) {
 					a = s;
 					best.move = m;
 					flag = .exact;
+				}
 
-					if (is_pv) {
-						const next_pv = &pos.ss.top().up(1).pv;
-						const this_pv = &pos.ss.top().pv;
-
-						this_pv.update(s, m, next_pv.constSlice());
-					}
-
-					if (a >= b) {
-						flag = .lowerbound;
-						break :move_loop;
-					}
+				if (s >= b) {
+					flag = .lowerbound;
+					break :move_loop;
 				}
 			}
 		}
