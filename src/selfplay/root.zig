@@ -1,4 +1,5 @@
 const base = @import("base");
+const bitboard = @import("bitboard");
 const bounded_array = @import("bounded_array");
 const engine = @import("engine");
 const std = @import("std");
@@ -39,22 +40,24 @@ pub fn main() !void {
 	try base.init();
 	defer base.deinit();
 
+	try bitboard.init();
+	defer bitboard.deinit();
+
 	try engine.init();
+	defer engine.deinit();
+
 	_ = try engine.uci.parseCommand("setoption name Hash value 128");
 	_ = try engine.uci.parseCommand("setoption name UCI_Chess960 value true");
 	_ = try engine.uci.parseCommand("setoption name Clear Hash");
-	defer engine.deinit();
 
 	const args = try std.process.argsAlloc(base.heap.allocator);
 	var i: usize = 1;
 
 	var book_path: ?[]const u8 = null;
 	var data_path: ?[]const u8 = null;
-	var filter_draws = false;
-	var depth: ?u8 = null;
+	var depth: ?engine.search.Depth = null;
 	var games: ?usize = null;
 	var nodes: ?usize = null;
-	var random = false;
 	var threads: ?usize = null;
 
 	while (i < args.len) : (i += 1) {
@@ -80,9 +83,6 @@ pub fn main() !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			data_path = args[i];
-		} else if (std.mem.eql(u8, arg, "--filter-draws")) {
-			filter_draws = if (!filter_draws) true
-			  else std.process.fatal("duplicated arg '{s}'", .{arg});
 		} else if (std.mem.eql(u8, arg, "--depth")) {
 			i += 1;
 			if (i > args.len) {
@@ -113,8 +113,6 @@ pub fn main() !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			nodes = try std.fmt.parseUnsigned(usize, args[i], 10);
-		} else if (std.mem.eql(u8, arg, "--random")) {
-			random = if (!random) true else std.process.fatal("duplicated arg '{s}'", .{arg});
 		} else if (std.mem.eql(u8, arg, "--threads")) {
 			i += 1;
 			if (i > args.len) {
@@ -137,9 +135,6 @@ pub fn main() !void {
 		.depth = depth,
 		.nodes = nodes,
 		.threads = threads orelse 1,
-
-		.filter_draws = filter_draws,
-		.random = random,
 	});
 	try tourney.start();
 	defer tourney.stop();

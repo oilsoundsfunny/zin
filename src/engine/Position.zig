@@ -20,10 +20,8 @@ by_square:	std.EnumArray(base.types.Square, base.types.Piece)
 by_color:	std.EnumArray(base.types.Color, base.types.Square.Set),
 by_ptype:	std.EnumArray(base.types.Ptype, base.types.Square.Set),
 
-castles:	std.EnumMap(base.types.Castle, Castle),
-
 stm:	base.types.Color,
-len:	usize,
+castles:	std.EnumMap(base.types.Castle, Castle),
 ss:	State.Stack = .{},
 
 pub const FenError = error {
@@ -707,8 +705,8 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 	  catch return error.InvalidPlyClock;
 
 	const move_token = tokens.next() orelse return error.InvalidFen;
-	self.len = std.fmt.parseUnsigned(u8, move_token, 10)
-	  catch return error.InvalidMoveClock;
+	std.mem.doNotOptimizeAway(std.fmt.parseUnsigned(u8, move_token, 10)
+	  catch return error.InvalidMoveClock);
 
 	self.ss.top().check_mask = self.genCheckMask();
 }

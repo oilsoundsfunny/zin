@@ -282,6 +282,14 @@ pub const Info = struct {
 		_ = &stat_eval;
 		_ = &corr_eval;
 
+		// reverse futility pruning (rfp)
+		if (!is_pv
+		  and !is_checked
+		  and d < 8
+		  and corr_eval >= b + d * 96) {
+			return @divTrunc(corr_eval + b, 2);
+		}
+
 		var best: movegen.Move.Scored = .{
 			.move = .{},
 			.score = evaluation.score.none,

@@ -17,8 +17,6 @@ const min_cp = 0;
 instance:	engine.search.Instance,
 opening:	[]const u8 = &.{},
 
-filter_draws:	bool,
-random:	bool,
 prng:	std.Random.Xoroshiro128 = std.Random.Xoroshiro128.init(0xaaaaaaaaaaaaaaaa),
 
 games:	?usize,
@@ -34,22 +32,16 @@ pub const Tourney = struct {
 
 	pub const Options = struct {
 		games:	?usize,
-		depth:	?u8,
+		depth:	?engine.search.Depth,
 		nodes:	?usize,
 		threads:	usize,
-
-		filter_draws:	bool,
-		random:	 		bool,
 	};
 
 	pub fn alloc(options: Options) !Tourney {
-		if (!options.random
-		  and options.depth == null
-		  and options.nodes == null) {
+		if (options.depth == null and options.nodes == null) {
 			std.process.fatal("missing args '{s}' and '{s}'", .{"--depth", "--nodes"});
-		}
-		if (options.threads == 0) {
-			std.process.fatal("get some real threads vro :wilted_rose:", .{});
+		} else if (options.threads == 0) {
+			std.process.fatal("invalid thread count: {d}", .{options.threads});
 		}
 
 		var self: Tourney = .{};
@@ -59,17 +51,14 @@ pub const Tourney = struct {
 		for (self.players.items, 0 ..) |*player, i| {
 			const n = options.threads;
 			player.* = std.mem.zeroInit(Self, .{
-				.filter_draws = options.filter_draws,
-				.random = options.random,
-
 				.games = if (options.games) |g| g / n + @intFromBool(i < g % n) else null,
 				.index = i,
 			});
 
 			try player.instance.alloc(1);
 			player.instance.options.infinite = false;
-			player.instance.options.depth = if (options.random) options.depth orelse 0 else null;
-			player.instance.options.nodes = if (options.random) options.nodes orelse 0 else null;
+			player.instance.options.depth = options.depth;
+			player.instance.options.nodes = options.nodes;
 		}
 
 		return self;
@@ -110,66 +99,29 @@ fn writeData(self: *Self) !void {
 	try writer.flush();
 }
 
-fn playRandom(self: *Self) !void {
-	std.debug.assert(self.instance.infos.len == 1);
-	const infos = self.instance.infos;
-	const info = &infos[0];
-	try info.pos.parseFen(self.opening);
-
-	const original_depth = self.instance.options.depth;
-	self.instance.options.depth = 1;
-	defer self.instance.options.depth = original_depth;
-
-	var pos = info.pos;
-
-	find_line: while (true) : (pos = info.pos) {
-		for (0 .. random_ply) |_| {
-			const rml = engine.movegen.Move.Root.List.init(&pos);
-			const rms = rml.constSlice();
-			if (rms.len == 0 or pos.isDrawn()) {
-				continue :find_line;
-			}
-
-			const r = self.prng.random().uintLessThan(usize, rms.len);
-			const m = rms[r].constSlice()[0];
-			try pos.doMove(m);
-		}
-
-		const ev = engine.evaluation.score.fromPosition(&pos);
-		const cp = engine.evaluation.score.toCentipawns(ev);
-		const abs = if (cp < 0) -cp else cp;
-
-		if (abs != std.math.clamp(abs, min_cp, max_cp)) {
-			continue :find_line;
-		}
-
-		const rml = engine.movegen.Move.Root.List.init(&pos);
-		const rms = rml.constSlice();
-		if (rms.len == 0 or pos.isDrawn()) {
-			continue :find_line;
-		}
-
-		info.pos = pos;
-		break :find_line;
-	}
-}
-
 fn playOut(self: *Self) !void {
 	std.debug.assert(self.instance.infos.len == 1);
 	const infos = self.instance.infos;
 	const info = &infos[0];
 	const pos = &info.pos;
+	const root_moves = &info.root_moves;
 
 	self.data = viri.Self.fromPosition(pos);
 	self.line = try @TypeOf(self.line).init(0);
 
-	while (true) {
-		try self.instance.start();
-		self.instance.waitStop();
+	var ply: usize = 0;
+	while (true) : (ply += 1) {
+		if (ply >= random_ply) {
+			try self.instance.start();
+			self.instance.waitStop();
+		} else {
+			root_moves.* = engine.movegen.Move.Root.List.init(pos);
+		}
 
-		const rml = info.result.pv;
-		const rms = rml.constSlice();
-		if (rms.len == 0 or pos.isDrawn()) {
+		const rms = root_moves.constSlice();
+		const rmn = rms.len;
+
+		if (rmn == 0 or pos.isDrawn()) {
 			const is_checked = pos.isChecked();
 			const is_drawn = pos.isDrawn();
 			const stm = pos.stm;
@@ -182,19 +134,20 @@ fn playOut(self: *Self) !void {
 			break;
 		}
 
-		const i = if (!self.random or rms.len <= 2) 0
-		  else self.prng.random().uintLessThan(usize, rms.len / 2);
+		const i = self.prng.random().uintLessThan(usize, @max(rmn, 2) / 2);
 		const rm = &rms[i];
 		const pvm = rm.constSlice()[0];
 		const pvs = rm.score;
 		try pos.doMove(pvm);
 
-		const m = viri.Move.fromMove(pvm);
-		const s = engine.evaluation.score.toCentipawns(@intCast(pvs));
-		try self.line.append(.{
-			.move = m,
-			.score = @intCast(s),
-		});
+		if (ply >= random_ply) {
+			const m = viri.Move.fromMove(pvm);
+			const s = engine.evaluation.score.toCentipawns(@intCast(pvs));
+			try self.line.append(.{
+				.move = m,
+				.score = @intCast(s),
+			});
+		}
 	}
 }
 
@@ -206,20 +159,11 @@ fn match(self: *Self) !void {
 		const games = if (self.games) |g| g else std.math.maxInt(usize);
 
 		while (self.played - played < random_games and self.played < games) {
-			self.playRandom() catch |err| {
-				std.debug.panic("error: {s} @ player {d}, game {d}",
-				  .{@errorName(err), self.index, self.played});
-				return err;
-			};
 			self.playOut() catch |err| {
 				std.debug.panic("error: {s} @ player {d}, game {d}",
 				  .{@errorName(err), self.index, self.played});
 				return err;
 			};
-
-			if (self.filter_draws and self.data.result == .draw) {
-				continue;
-			}
 
 			defer self.played += 1;
 			try self.writeData();

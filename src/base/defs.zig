@@ -7,7 +7,7 @@ pub const score = struct {
 	pub const Int = i32;
 
 	pub const none = std.math.minInt(i16);
-	pub const unit = 400;
+	pub const unit = 256;
 
 	pub const win  = 0 + std.math.maxInt(i16);
 	pub const draw = 0;
@@ -16,11 +16,11 @@ pub const score = struct {
 	pub const tbwin  = 0 + (max - 247);
 	pub const tblose = 0 - (max - 247);
 
-	pub fn fromCentipawns(c: Int) Int {
-		return c * 4;
-	}
-
 	pub fn toCentipawns(s: Int) Int {
-		return @divTrunc(s, 4);
+		std.debug.assert(s < tbwin);
+		std.debug.assert(s > tblose);
+
+		const mul = s * 100;
+		return @divTrunc(mul, unit);
 	}
 };
