@@ -533,14 +533,14 @@ pub const Info = struct {
 };
 
 pub const Instance = struct {
-	infos:	[]Info = &.{},
+	infos:		[]Info = &.{},
 	options:	Options = std.mem.zeroInit(Options, .{}),
 
 	pub fn alloc(self: *Instance, num: usize) !void {
 		var pos = std.mem.zeroInit(Position, .{});
 		if (self.infos.len == 0) {
 			try pos.parseFen(Position.startpos);
-			self.infos = try base.heap.allocator.alignedAlloc(Info, .@"64", num);
+			self.infos = try base.heap.allocator.alloc(Info, num);
 		} else {
 			@memcpy((&pos)[0 .. 1], (&self.infos[0].pos)[0 .. 1]);
 			self.infos = try base.heap.allocator.realloc(self.infos, num);
