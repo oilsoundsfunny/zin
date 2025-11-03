@@ -262,9 +262,8 @@ pub fn loop() !void {
 		};
 
 		if (comm == .quit) {
-			if (instance.options.is_searching.load(.monotonic)) {
-				instance.options.is_searching.store(false, .monotonic);
-				std.Thread.sleep(options.overhead * std.time.ns_per_ms);
+			if (instance.options.is_searching) {
+				instance.stop();
 			}
 			break;
 		}

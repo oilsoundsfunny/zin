@@ -43,7 +43,7 @@ pub const Info = struct {
 		}
 
 		const best = self.bestMove();
-		const nodes = self.nodes;
+		const nodes = self.instance.nodes();
 		const ntime = base.time.read(.ns) - self.options.start * std.time.ns_per_ms;
 		const mtime = ntime / std.time.ns_per_ms;
 
@@ -113,10 +113,7 @@ pub const Info = struct {
 		const is_main = self.ti == 0;
 		const is_threaded = self.tn > 1;
 
-		const options = self.options;
-		const cond = &options.is_searching;
-
-		const max_depth = options.depth orelse movegen.Move.Root.capacity;
+		const max_depth = self.options.depth orelse movegen.Move.Root.capacity;
 		const min_depth = 1;
 		var depth: Depth = min_depth;
 
@@ -129,12 +126,12 @@ pub const Info = struct {
 			self.asp();
 
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
-			if (!cond.load(.acquire)) {
+			if (!self.options.is_searching) {
 				break;
 			}
 
 			if (is_main) {
-				std.mem.doNotOptimizeAway(transposition.table.age.fetchAdd(1, .acq_rel));
+				transposition.table.age += 1;
 				try self.printInfo();
 			}
 		}
@@ -146,9 +143,6 @@ pub const Info = struct {
 	}
 
 	fn asp(self: *Info) void {
-		const options = self.options;
-		const cond = &options.is_searching;
-
 		const pv = &self.root_moves.constSlice()[0];
 		const pvs: evaluation.score.Int = @intCast(pv.score);
 
@@ -165,7 +159,7 @@ pub const Info = struct {
 
 		while (true) : (w *= 2) {
 			s = self.ab(.exact, 0, a, b, d);
-			if (!cond.load(.acquire)) {
+			if (!self.options.is_searching) {
 				return;
 			}
 
@@ -178,7 +172,7 @@ pub const Info = struct {
 			} else break;
 		}
 
-		if (!cond.load(.acquire)) {
+		if (!self.options.is_searching) {
 			return;
 		}
 	}
@@ -195,8 +189,7 @@ pub const Info = struct {
 		const draw: evaluation.score.Int = evaluation.score.draw;
 		const lose: evaluation.score.Int = mated;
 
-		const cond = @constCast(&self.options.is_searching);
-		if (!cond.load(.acquire)) {
+		if (!self.options.is_searching) {
 			return draw;
 		}
 
@@ -236,7 +229,7 @@ pub const Info = struct {
 			const exceed_nodes = options.nodes != null and nodes >= options.nodes.?;
 
 			if (!inf and (exceed_time or exceed_nodes)) {
-				cond.store(false, .release);
+				@constCast(self.options).is_searching = false;
 				return draw;
 			}
 		}
@@ -303,6 +296,8 @@ pub const Info = struct {
 			const m = sm.move;
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
+				transposition.table.prefetch(pos.ss.top().key);
+
 				defer pos.undoMove();
 				defer mi += 1;
 
@@ -321,7 +316,7 @@ pub const Info = struct {
 				break :recur score;
 			};
 
-			if (!cond.load(.acquire)) {
+			if (!self.options.is_searching) {
 				return draw;
 			}
 
@@ -376,7 +371,7 @@ pub const Info = struct {
 		ttf[0].* = .{
 			.was_pv = was_pv or flag == .exact,
 			.flag = flag,
-			.age = @truncate(transposition.table.age.load(.acquire)),
+			.age = @truncate(transposition.table.age),
 			.depth = @intCast(depth),
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
@@ -394,8 +389,7 @@ pub const Info = struct {
 		const draw = evaluation.score.draw;
 		const lose = evaluation.score.lose + 1;
 
-		const cond = @constCast(&self.options.is_searching);
-		if (!cond.load(.acquire)) {
+		if (!self.options.is_searching) {
 			return evaluation.score.draw;
 		}
 
@@ -413,7 +407,7 @@ pub const Info = struct {
 			const exceed_nodes = options.nodes != null and nodes >= options.nodes.?;
 
 			if (!inf and (exceed_time or exceed_nodes)) {
-				cond.store(false, .release);
+				@constCast(self.options).is_searching = false;
 				return draw;
 			}
 		}
@@ -487,6 +481,8 @@ pub const Info = struct {
 			const m = sm.move;
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
+				transposition.table.prefetch(pos.ss.top().key);
+
 				defer pos.undoMove();
 				defer mp.skipQuiets();
 				defer mi += 1;
@@ -494,7 +490,7 @@ pub const Info = struct {
 				break :recur -self.qs(ply + 1, -b, -a);
 			};
 
-			if (!cond.load(.acquire)) {
+			if (!self.options.is_searching) {
 				return draw;
 			}
 
@@ -520,7 +516,7 @@ pub const Info = struct {
 		ttf[0].* = .{
 			.was_pv = false,
 			.flag = flag,
-			.age = @truncate(transposition.table.age.load(.acquire)),
+			.age = @truncate(transposition.table.age),
 			.depth = 0,
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
@@ -533,8 +529,16 @@ pub const Info = struct {
 };
 
 pub const Instance = struct {
-	infos:		[]Info = &.{},
+	infos:	[]Info = &.{},
 	options:	Options = std.mem.zeroInit(Options, .{}),
+
+	fn nodes(self: *const Instance) usize {
+		var n: usize = 0;
+		for (self.infos) |*info| {
+			n += info.nodes;
+		}
+		return n;
+	}
 
 	pub fn alloc(self: *Instance, num: usize) !void {
 		var pos = std.mem.zeroInit(Position, .{});
@@ -569,21 +573,19 @@ pub const Instance = struct {
 	}
 
 	pub fn waitStop(self: *const Instance) void {
-		const cond = &self.options.is_searching;
-		while (cond.load(.acquire)) {
+		while (self.options.is_searching) {
 		}
 	}
 
 	pub fn stop(self: *Instance) void {
-		self.options.is_searching.store(false, .release);
+		self.options.is_searching = false;
 		std.Thread.sleep(uci.options.overhead * std.time.ns_per_ms);
 	}
 
 	pub fn start(self: *Instance) !void {
-		self.options.is_searching.store(true, .release);
-
 		const pos = &self.infos[0].pos;
 		const rml = movegen.Move.Root.List.init(pos);
+		self.options.is_searching = true;
 
 		for (self.infos, 0 ..) |*info, i| {
 			info.* = std.mem.zeroInit(Info, .{
@@ -619,7 +621,7 @@ pub const Options = struct {
 	start:	u64,
 	stop:	?u64,
 
-	is_searching:	std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+	is_searching:	bool = false,
 
 	pub fn reset(self: *Options) void {
 		self.* = std.mem.zeroInit(Options, .{

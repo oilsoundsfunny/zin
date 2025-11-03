@@ -60,7 +60,7 @@ pub const Cluster = packed struct(u256) {
 
 pub const Table = struct {
 	slice:	[]Cluster = &.{},
-	age:	std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
+	age:	usize = 0,
 
 	fn index(self: Table, key: zobrist.Int) usize {
 		return zobrist.index(key, self.slice.len);
@@ -83,7 +83,7 @@ pub const Table = struct {
 		if (len == 0) {
 			return;
 		}
-		defer self.age.store(0, .monotonic);
+		defer self.age = 0;
 
 		const tn = uci.options.threads;
 		const mod = len % tn;
@@ -145,7 +145,7 @@ pub const Table = struct {
 
 	pub fn prefetch(self: Table, key: zobrist.Int) void {
 		std.debug.assert(self.slice.len > 0);
-		const i = self.index(key);
+		const i = self.index(key) / 2 * 2;
 		const c = &self.slice[i];
 		@prefetch(c, .{});
 	}

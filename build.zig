@@ -51,6 +51,7 @@ pub fn build(bld: *std.Build) !void {
 	const target = bld.standardTargetOptions(.{});
 
 	const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
+	const lto = bld.option(bool, "lto", "") orelse false;
 	const stack_check = bld.option(bool, "stack-check", "") orelse !ndebug;
 	const strip = bld.option(bool, "strip", "Strip executable(s)") orelse ndebug;
 	const unwind_tables = bld.option(std.builtin.UnwindTables, "unwind-tables", "")
@@ -196,5 +197,6 @@ pub fn build(bld: *std.Build) !void {
 		.use_lld = use_llvm,
 		.use_llvm = use_llvm,
 	});
+	exe.want_lto = lto;
 	bld.installArtifact(exe);
 }
