@@ -12,11 +12,11 @@ const random_ply = 8;
 const random_games = 4;
 
 const max_cp = 400;
-const min_cp = 0;
 
 instance:	engine.search.Instance,
-opening:	[]const u8 = &.{},
 
+io:	*base.Io,
+opening:	[]const u8 = &.{},
 prng:	std.Random.Xoroshiro128 = std.Random.Xoroshiro128.init(0xaaaaaaaaaaaaaaaa),
 
 games:	?usize,
@@ -27,21 +27,22 @@ data:	viri.Self,
 line:	bounded_array.BoundedArray(viri.Move.Scored, 1024),
 
 pub const Tourney = struct {
-	players:	std.ArrayListAligned(Self, .@"64") = .{},
-	threads:	std.ArrayListAligned(std.Thread, .@"64") = .{},
+	players:	std.ArrayList(Self) = .{},
+	threads:	std.ArrayList(std.Thread) = .{},
 
 	pub const Options = struct {
+		io:	*base.Io,
 		games:	?usize,
 		depth:	?engine.search.Depth,
 		nodes:	?usize,
 		threads:	usize,
 	};
 
-	pub fn alloc(options: Options) !Tourney {
+	pub fn init(options: Options) !Tourney {
 		if (options.depth == null and options.nodes == null) {
 			std.process.fatal("missing args '{s}' and '{s}'", .{"--depth", "--nodes"});
 		} else if (options.threads == 0) {
-			std.process.fatal("invalid thread count: {d}", .{options.threads});
+			std.process.fatal("bad thread count: {d}", .{options.threads});
 		}
 
 		var self: Tourney = .{};
@@ -51,6 +52,7 @@ pub const Tourney = struct {
 		for (self.players.items, 0 ..) |*player, i| {
 			const n = options.threads;
 			player.* = std.mem.zeroInit(Self, .{
+				.io = options.io,
 				.games = if (options.games) |g| g / n + @intFromBool(i < g % n) else null,
 				.index = i,
 			});
@@ -78,46 +80,72 @@ pub const Tourney = struct {
 };
 
 fn readOpening(self: *Self) !void {
-	root.io.reader_mtx.lock();
-	defer root.io.reader_mtx.unlock();
+	self.io.lockReader();
+	defer self.io.unlockReader();
 
-	const reader = &root.io.book_reader.interface;
-	const line = try reader.takeDelimiterInclusive('\n');
-	const copy = try base.heap.allocator.dupe(u8, line);
-	self.opening = copy;
+	const line = try self.io.reader().takeDelimiterInclusive('\n');
+	self.opening = try base.heap.allocator.dupe(u8, line);
 }
 
 fn writeData(self: *Self) !void {
-	root.io.writer_mtx.lock();
-	defer root.io.writer_mtx.unlock();
+	self.io.lockWriter();
+	defer self.io.unlockWriter();
 
-	const writer = &root.io.data_writer.interface;
-	try writer.writeAll(std.mem.asBytes(&self.data));
+	try self.io.writer().writeAll(std.mem.asBytes(&self.data));
 	for (self.line.constSlice()) |sm| {
-		try writer.writeAll(std.mem.asBytes(&sm));
+		try self.io.writer().writeAll(std.mem.asBytes(&sm));
 	}
-	try writer.flush();
+	try self.io.writer().flush();
+}
+
+fn playRandom(self: *Self) !void {
+	const infos = self.instance.infos;
+	const info = &infos[0];
+
+	var pos = info.pos;
+	var ply: usize = 0;
+	defer info.pos = pos;
+
+	find_line: while (true) : ({
+		ply = 0;
+		pos = info.pos;
+	}) {
+		while (ply <= random_ply) : (ply += 1) {
+			const root_moves = engine.movegen.Move.Root.List.init(&pos);
+			const rms = root_moves.constSlice();
+			const rmn = rms.len;
+			if (rmn == 0) {
+				continue :find_line;
+			}
+
+			if (ply < random_ply) {
+				const i = self.prng.random().uintLessThan(usize, rmn);
+				const m = rms[i].constSlice()[0];
+				pos.doMove(m) catch continue :find_line;
+			} else {
+				const ev = pos.evaluate();
+				const cp = engine.evaluation.score.centipawns(ev);
+				if (cp < -max_cp or cp > max_cp) {
+					continue :find_line;
+				}
+			}
+		} else break :find_line;
+	}
 }
 
 fn playOut(self: *Self) !void {
-	std.debug.assert(self.instance.infos.len == 1);
 	const infos = self.instance.infos;
 	const info = &infos[0];
 	const pos = &info.pos;
-	const root_moves = &info.root_moves;
 
 	self.data = viri.Self.fromPosition(pos);
 	self.line = try @TypeOf(self.line).init(0);
 
-	var ply: usize = 0;
-	while (true) : (ply += 1) {
-		if (ply >= random_ply) {
-			try self.instance.start();
-			self.instance.waitStop();
-		} else {
-			root_moves.* = engine.movegen.Move.Root.List.init(pos);
-		}
+	while (true) {
+		try self.instance.start();
+		self.instance.waitStop();
 
+		const root_moves = &info.root_moves;
 		const rms = root_moves.constSlice();
 		const rmn = rms.len;
 
@@ -134,20 +162,17 @@ fn playOut(self: *Self) !void {
 			break;
 		}
 
-		const i = self.prng.random().uintLessThan(usize, @max(rmn, 2) / 2);
-		const rm = &rms[i];
-		const pvm = rm.constSlice()[0];
-		const pvs = rm.score;
+		const pv = &rms[0];
+		const pvm = pv.constSlice()[0];
+		const pvs = pv.score;
 		try pos.doMove(pvm);
 
-		if (ply >= random_ply) {
-			const m = viri.Move.fromMove(pvm);
-			const s = engine.evaluation.score.toCentipawns(@intCast(pvs));
-			try self.line.append(.{
-				.move = m,
-				.score = @intCast(s),
-			});
-		}
+		const m = viri.Move.fromMove(pvm);
+		const s = engine.evaluation.score.centipawns(@intCast(pvs));
+		try self.line.append(.{
+			.move = m,
+			.score = @intCast(s),
+		});
 	}
 }
 
@@ -159,6 +184,12 @@ fn match(self: *Self) !void {
 		const games = if (self.games) |g| g else std.math.maxInt(usize);
 
 		while (self.played - played < random_games and self.played < games) {
+			self.playRandom() catch |err| {
+				std.debug.panic("error: {s} @ player {d}, game {d}",
+				  .{@errorName(err), self.index, self.played});
+				return err;
+			};
+
 			self.playOut() catch |err| {
 				std.debug.panic("error: {s} @ player {d}, game {d}",
 				  .{@errorName(err), self.index, self.played});

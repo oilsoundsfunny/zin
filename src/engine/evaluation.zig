@@ -19,8 +19,7 @@ pub const score = struct {
 	pub const tbwin  = base.defs.score.tbwin;
 	pub const tblose = base.defs.score.tblose;
 
-	pub const fromCentipawns = base.defs.score.fromCentipawns;
-	pub const toCentipawns = base.defs.score.toCentipawns;
+	pub const centipawns = base.defs.score.centipawns;
 
 	pub fn fromPosition(pos: *const Position) Int {
 		var ev = nnue.net.default.infer(pos);

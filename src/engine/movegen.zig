@@ -89,9 +89,10 @@ const RootMoveList = struct {
 		if (pos.isDrawn()) {
 			return rml;
 		}
+		defer RootMove.sortSlice(rml.slice());
 
-		_ = sml.genNoisy(pos);
-		_ = sml.genQuiet(pos);
+		std.mem.doNotOptimizeAway(sml.genNoisy(pos));
+		std.mem.doNotOptimizeAway(sml.genQuiet(pos));
 		for (sml.constSlice()) |sm| {
 			const m = sm.move;
 			pos.doMove(m) catch continue;
@@ -104,7 +105,6 @@ const RootMoveList = struct {
 			rml.push(rm);
 		}
 
-		RootMove.sortSlice(rml.slice());
 		return rml;
 	}
 };
@@ -498,8 +498,8 @@ pub const Picker = struct {
 			const sp = self.pos.getSquare(move.src);
 			const dp = self.pos.getSquare(move.dst);
 
-			const s = if (sp == .none) evaluation.score.draw else sp.ptype().score();
-			const d = if (dp == .none) evaluation.score.draw else dp.ptype().score();
+			const s = if (sp == .none) evaluation.score.draw else sp.ptype().score() * 7;
+			const d = if (dp == .none) evaluation.score.draw else dp.ptype().score() * 7;
 			break :captures @intCast(d - s);
 		};
 	}

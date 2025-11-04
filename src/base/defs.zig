@@ -16,7 +16,7 @@ pub const score = struct {
 	pub const tbwin  = 0 + (max - 247);
 	pub const tblose = 0 - (max - 247);
 
-	pub fn toCentipawns(s: Int) Int {
+	pub fn centipawns(s: Int) Int {
 		std.debug.assert(s < tbwin);
 		std.debug.assert(s > tblose);
 

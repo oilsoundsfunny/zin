@@ -74,7 +74,7 @@ pub const Info = struct {
 				try io.writer().print(" mate {d}", .{s});
 			},
 			else => |pvs| {
-				const s = evaluation.score.toCentipawns(@intCast(pvs));
+				const s = evaluation.score.centipawns(@intCast(pvs));
 				try io.writer().print(" cp {d}", .{s});
 			},
 		}
@@ -219,17 +219,14 @@ pub const Info = struct {
 		self.nodes += 1;
 		const nodes = self.nodes;
 
-		if (self.ti == 0) {
-			const options = self.options;
-
-			const inf = options.infinite;
-			const exceed_time = options.stop != null
+		if (self.ti == 0 and !self.options.infinite) {
+			const exceed_time = self.options.stop != null
 			  and nodes % 2048 == 0
-			  and base.time.read(.ms) >= options.stop.?;
-			const exceed_nodes = options.nodes != null and nodes >= options.nodes.?;
+			  and base.time.read(.ms) >= self.options.stop.?;
+			const exceed_nodes = self.options.nodes != null and nodes >= self.options.nodes.?;
 
-			if (!inf and (exceed_time or exceed_nodes)) {
-				@constCast(self.options).is_searching = false;
+			if (exceed_time or exceed_nodes) {
+				@constCast(self.instance).stop();
 				return draw;
 			}
 		}
@@ -397,17 +394,14 @@ pub const Info = struct {
 		self.pos.ss.top().pv.line.resize(0) catch unreachable;
 
 		const nodes = self.nodes;
-		if (self.ti == 0) {
-			const options = self.options;
-
-			const inf = options.infinite;
-			const exceed_time = options.stop != null
+		if (self.ti == 0 and !self.options.infinite) {
+			const exceed_time = self.options.stop != null
 			  and nodes % 2048 == 0
-			  and base.time.read(.ms) >= options.stop.?;
-			const exceed_nodes = options.nodes != null and nodes >= options.nodes.?;
+			  and base.time.read(.ms) >= self.options.stop.?;
+			const exceed_nodes = self.options.nodes != null and nodes >= self.options.nodes.?;
 
-			if (!inf and (exceed_time or exceed_nodes)) {
-				@constCast(self.options).is_searching = false;
+			if (exceed_time or exceed_nodes) {
+				@constCast(self.instance).stop();
 				return draw;
 			}
 		}
@@ -474,11 +468,16 @@ pub const Info = struct {
 		}
 
 		move_loop: while (mp.next()) |sm| {
-			if (best.score > evaluation.score.tblose and mp.stage.isBad()) {
+			const is_mated = best.score <= evaluation.score.tblose;
+			if (!is_mated and mp.stage.isBad()) {
 				break;
 			}
 
 			const m = sm.move;
+			// if (!is_mated and !pos.see(m, evaluation.score.draw)) {
+				// continue;
+			// }
+
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
 				transposition.table.prefetch(pos.ss.top().key);
@@ -573,13 +572,14 @@ pub const Instance = struct {
 	}
 
 	pub fn waitStop(self: *const Instance) void {
-		while (self.options.is_searching) {
+		const cond = &self.options.is_searching;
+		while (cond.*) {
+			std.mem.doNotOptimizeAway(cond);
 		}
 	}
 
 	pub fn stop(self: *Instance) void {
 		self.options.is_searching = false;
-		std.Thread.sleep(uci.options.overhead * std.time.ns_per_ms);
 	}
 
 	pub fn start(self: *Instance) !void {

@@ -8,13 +8,13 @@ const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
 pub const Entry = packed struct(u80) {
-	key:	u16,
-	depth:	u8,
-	was_pv:	bool,
-	flag:	Flag,
-	age:	u5,
-	eval:	i16,
-	score:	i16,
+	key:	u16 = 0,
+	depth:	u8 = 0,
+	was_pv:	bool = false,
+	flag:	Flag = .none,
+	age:	u5 = 0,
+	eval:	i16 = evaluation.score.none,
+	score:	i16 = evaluation.score.none,
 	move:	movegen.Move = movegen.Move.zero,
 
 	pub const Flag = enum(u2) {
@@ -52,10 +52,10 @@ pub const Entry = packed struct(u80) {
 };
 
 pub const Cluster = packed struct(u256) {
-	et0:	Entry,
-	et1:	Entry,
-	et2:	Entry,
-	pad:	u16,
+	et0:	Entry = .{},
+	et1:	Entry = .{},
+	et2:	Entry = .{},
+	pad:	u16 = 0,
 };
 
 pub const Table = struct {
@@ -89,23 +89,20 @@ pub const Table = struct {
 		const mod = len % tn;
 		const div = len / tn;
 
-		var pool: std.Thread.Pool = undefined;
-		var wg: std.Thread.WaitGroup = .{};
-
-		try pool.init(.{
-			.allocator = base.heap.allocator,
-			.n_jobs = tn,
-		});
-		defer pool.deinit();
+		const threads = try base.heap.allocator.alloc(std.Thread, tn);
+		defer base.heap.allocator.free(threads);
 
 		var p = self.slice.ptr;
 		for (0 .. tn) |i| {
 			const l = if (i < mod) div + 1 else div;
 			const s = p[0 .. l];
 			p += l;
-			pool.spawnWg(&wg, threadedClear, .{s});
+			threads[i] = try std.Thread.spawn(.{.allocator = base.heap.allocator},
+			  threadedClear, .{s});
 		}
-		pool.waitAndWork(&wg);
+		defer for (0 .. tn) |i| {
+			std.Thread.join(threads[i]);
+		};
 	}
 
 	pub fn fetch(self: Table, key: zobrist.Int) struct {*Entry, bool} {

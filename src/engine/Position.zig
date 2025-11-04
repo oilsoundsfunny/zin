@@ -15,10 +15,10 @@ const zobrist = @import("zobrist.zig");
 
 const Self = @This();
 
-by_square:	std.EnumArray(base.types.Square, base.types.Piece)
-  = std.EnumArray(base.types.Square, base.types.Piece).initFill(.none),
 by_color:	std.EnumArray(base.types.Color, base.types.Square.Set),
 by_ptype:	std.EnumArray(base.types.Ptype, base.types.Square.Set),
+by_square:	std.EnumArray(base.types.Square, base.types.Piece)
+  = std.EnumArray(base.types.Square, base.types.Piece).initFill(.none),
 
 stm:	base.types.Color,
 castles:	std.EnumMap(base.types.Castle, Castle),
@@ -858,4 +858,98 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 
 pub fn evaluate(self: *const Self) evaluation.score.Int {
 	return evaluation.score.fromPosition(self);
+}
+
+// yoinked from berserk
+// https://raw.githubusercontent.com/jhonnold/berserk/refs/heads/main/src/see.c
+pub fn see(self: *const Self, move: movegen.Move, bound: evaluation.score.Int) bool {
+	if (move.flag != .none) {
+		return true;
+	}
+
+	const s = move.src;
+	const d = move.dst;
+	const sp = self.getSquare(s);
+	const dp = self.getSquare(d);
+
+	var v = if (dp != .none) dp.ptype().score() - bound else -bound;
+	if (v < 0) {
+		return false;
+	}
+
+	v = sp.ptype().score() - v;
+	if (v <= 0) {
+		return true;
+	}
+
+	const by_color = self.by_color;
+	const by_ptype = self.by_ptype;
+
+	const diag = by_ptype.get(.queen).bwo(by_ptype.get(.bishop));
+	const line = by_ptype.get(.queen).bwo(by_ptype.get(.rook));
+
+	var atkers = self.squareAtkers(d);
+	var occ = self.bothOcc();
+	var stm = self.stm;
+	var ret = true;
+
+	while (true) {
+		stm = stm.flip();
+		atkers.popOther(occ.flip());
+
+		const mine = atkers.bwa(by_color.get(stm));
+		ret = if (mine == .none) break else !ret;
+
+		if (mine.bwa(by_ptype.get(.pawn)) != .none) {
+			v = base.types.Ptype.pawn.score() - v;
+			if (v < @intFromBool(ret)) {
+				break;
+			}
+
+			const atker = mine.bwa(by_ptype.get(.pawn));
+			occ.popOther(atker.getLow());
+
+			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+		} else if (mine.bwa(by_ptype.get(.knight)) != .none) {
+			v = base.types.Ptype.knight.score() - v;
+			if (v < @intFromBool(ret)) {
+				break;
+			}
+
+			const atker = mine.bwa(by_ptype.get(.pawn));
+			occ.popOther(atker.getLow());
+		} else if (mine.bwa(by_ptype.get(.bishop)) != .none) {
+			v = base.types.Ptype.bishop.score() - v;
+			if (v < @intFromBool(ret)) {
+				break;
+			}
+
+			const atker = mine.bwa(by_ptype.get(.bishop));
+			occ.popOther(atker.getLow());
+
+			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+		} else if (mine.bwa(by_ptype.get(.rook)) != .none) {
+			v = base.types.Ptype.rook.score() - v;
+			if (v < @intFromBool(ret)) {
+				break;
+			}
+
+			const atker = mine.bwa(by_ptype.get(.rook));
+			occ.popOther(atker.getLow());
+
+			atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
+		} else if (mine.bwa(by_ptype.get(.queen)) != .none) {
+			v = base.types.Ptype.queen.score() - v;
+			if (v < @intFromBool(ret)) {
+				break;
+			}
+
+			const atker = mine.bwa(by_ptype.get(.queen));
+			occ.popOther(atker.getLow());
+
+			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+			atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
+		} else return if (atkers.bwa(by_color.get(stm.flip())) == .none) ret else !ret;
+	}
+	return ret;
 }

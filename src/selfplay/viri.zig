@@ -122,9 +122,14 @@ pub const Self = extern struct {
 		}
 
 		var self = std.mem.zeroInit(Self, .{});
+		const eval = pos.evaluate();
+
 		self.ply = pos.ss.top().rule50;
-		self.length = @truncate(pos.len);
-		self.score = @intCast(engine.evaluation.score.fromPosition(pos));
+		self.length = 0;
+		self.score = @intCast(switch (pos.stm) {
+			.white => eval,
+			.black => -eval,
+		});
 
 		var i: usize = 0;
 		var occ = pos.bothOcc();

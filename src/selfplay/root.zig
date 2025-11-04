@@ -9,47 +9,7 @@ const Player = @import("Player.zig");
 pub const author = "oilsoundsfunny";
 pub const name = "selfplay";
 
-pub const io = struct {
-	var book: std.fs.File = undefined;
-	var data: std.fs.File = undefined;
-
-	var reader_buf align(64) = std.mem.zeroes([65536]u8);
-	var writer_buf align(64) = std.mem.zeroes([65536]u8);
-
-	pub var book_reader: std.fs.File.Reader = undefined;
-	pub var data_writer: std.fs.File.Writer = undefined;
-
-	pub var reader_mtx: std.Thread.Mutex = .{};
-	pub var writer_mtx: std.Thread.Mutex = .{};
-
-	fn deinit() void {
-		book.close();
-		data.close();
-	}
-
-	fn init(book_path: []const u8, data_path: []const u8) !void {
-		book = try std.fs.cwd().openFile(book_path, .{});
-		data = try std.fs.cwd().createFile(data_path, .{});
-
-		book_reader = book.reader(&reader_buf);
-		data_writer = data.writer(&writer_buf);
-	}
-};
-
 pub fn main() !void {
-	try base.init();
-	defer base.deinit();
-
-	try bitboard.init();
-	defer bitboard.deinit();
-
-	try engine.init();
-	defer engine.deinit();
-
-	_ = try engine.uci.parseCommand("setoption name Hash value 128");
-	_ = try engine.uci.parseCommand("setoption name UCI_Chess960 value true");
-	_ = try engine.uci.parseCommand("setoption name Clear Hash");
-
 	const args = try std.process.argsAlloc(base.heap.allocator);
 	var i: usize = 1;
 
@@ -126,11 +86,24 @@ pub fn main() !void {
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
 
-	try io.init(book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}),
+	var io = try base.Io.init(book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}),
 	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}));
 	defer io.deinit();
 
-	var tourney = try Player.Tourney.alloc(.{
+	try base.init();
+	defer base.deinit();
+
+	try bitboard.init();
+	defer bitboard.deinit();
+
+	try engine.init();
+	defer engine.deinit();
+
+	_ = try engine.uci.parseCommand("setoption name Clear Hash");
+	_ = try engine.uci.parseCommand("setoption name UCI_Chess960 value true");
+
+	var tourney = try Player.Tourney.init(.{
+		.io = &io,
 		.games = games,
 		.depth = depth,
 		.nodes = nodes,
