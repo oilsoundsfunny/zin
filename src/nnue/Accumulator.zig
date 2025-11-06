@@ -32,33 +32,23 @@ fn index(self: *const Self, c: base.types.Color, s: base.types.Square, p: base.t
 }
 
 pub fn pop(self: *Self, s: base.types.Square, p: base.types.Piece) void {
-	const vecs = std.EnumArray(base.types.Color, *align(32) Vec).init(.{
-		.white = self.perspectives.getPtr(.white),
-		.black = self.perspectives.getPtr(.black),
-	});
-
-	const wgts = std.EnumArray(base.types.Color, *align(32) const Vec).init(.{
-		.white = @ptrCast(&net.default.hl0_w[self.index(.white, s, p)]),
-		.black = @ptrCast(&net.default.hl0_w[self.index(.black, s, p)]),
-	});
-
-	vecs.get(.white).* -%= wgts.get(.white).*;
-	vecs.get(.black).* -%= wgts.get(.black).*;
+	for (base.types.Color.values) |c| {
+		const v: *align(32) Vec
+		  = self.perspectives.getPtr(c);
+		const w: *align(32) const Vec
+		  = @ptrCast(&net.default.hl0_w[self.index(c, s, p)]);
+		v.* -%= w.*;
+	}
 }
 
 pub fn set(self: *Self, s: base.types.Square, p: base.types.Piece) void {
-	const vecs = std.EnumArray(base.types.Color, *align(32) Vec).init(.{
-		.white = self.perspectives.getPtr(.white),
-		.black = self.perspectives.getPtr(.black),
-	});
-
-	const wgts = std.EnumArray(base.types.Color, *align(32) const Vec).init(.{
-		.white = @ptrCast(&net.default.hl0_w[self.index(.white, s, p)]),
-		.black = @ptrCast(&net.default.hl0_w[self.index(.black, s, p)]),
-	});
-
-	vecs.get(.white).* +%= wgts.get(.white).*;
-	vecs.get(.black).* +%= wgts.get(.black).*;
+	for (base.types.Color.values) |c| {
+		const v: *align(32) Vec
+		  = self.perspectives.getPtr(c);
+		const w: *align(32) const Vec
+		  = @ptrCast(&net.default.hl0_w[self.index(c, s, p)]);
+		v.* +%= w.*;
+	}
 }
 
 pub fn mirror(self: *Self, pos: *const engine.Position, stm: base.types.Color) void {
