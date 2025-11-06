@@ -29,6 +29,7 @@ pub const Info = struct {
 	seldepth:	Depth,
 	root_moves:	movegen.Move.Root.List,
 
+	nmp_verif:	bool,
 	allhist:	[base.types.Ptype.cnt][base.types.Square.cnt]hist.Int,
 	cuthist:	[base.types.Ptype.cnt][base.types.Square.cnt]hist.Int,
 
