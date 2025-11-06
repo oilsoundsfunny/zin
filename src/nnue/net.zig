@@ -19,8 +19,8 @@ pub const Self = extern struct {
 
 		const Vec = *align(32) const Accumulator.Vec;
 		const vecs = std.EnumArray(base.types.Color, Vec).init(.{
-			.white = accumulator.perspectives.getPtrConst(if (stm == .white) .white else .black),
-			.black = accumulator.perspectives.getPtrConst(if (stm == .white) .black else .white),
+			.white = accumulator.perspectives.getPtrConst(stm),
+			.black = accumulator.perspectives.getPtrConst(stm.flip()),
 		});
 		const wgts = std.EnumArray(base.types.Color, Vec).init(.{
 			.white = @ptrCast(&self.out_w[base.types.Color.white.tag()]),
