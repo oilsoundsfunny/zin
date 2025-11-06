@@ -280,6 +280,50 @@ pub const Info = struct {
 			return @divTrunc(corr_eval + b, 2);
 		}
 
+		// null move pruning
+		if (!is_pv
+		  and !is_checked
+		  and d >= 3
+		  and b > evaluation.score.tblose
+		  and corr_eval >= b
+		  and !self.nmp_verif) nmp: {
+			const occ = pos.bothOcc();
+			const kings = pos.ptypeOcc(.king);
+			const pawns = pos.ptypeOcc(.pawn);
+			if (occ.bwx(kings).bwx(pawns) == .none) {
+				break :nmp;
+			}
+
+			const r = @divTrunc(d, 4) + 3;
+			var s = null_search: {
+				pos.doNull() catch std.debug.panic("invalid null move", .{});
+				defer pos.undoNull();
+
+				const child: Node = switch (node) {
+					.upperbound => .lowerbound,
+					.lowerbound => .upperbound,
+					else => std.debug.panic("invalid node", .{}),
+				};
+				break :null_search -self.ab(child, ply + 1, -b, 1 - b, d - r);
+			};
+
+			if (s >= b) {
+				if (s >= evaluation.score.tbwin) {
+					s = b;
+				}
+
+				const verified = d <= 14 or verif_search: {
+					self.nmp_verif = true;
+					defer self.nmp_verif = false;
+
+					break :verif_search self.ab(.upperbound, ply + 1, b - 1, b, d - r) >= b;
+				};
+				if (verified) {
+					return s;
+				}
+			}
+		}
+
 		var best: movegen.Move.Scored = .{
 			.move = .{},
 			.score = evaluation.score.none,
