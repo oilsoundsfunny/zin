@@ -1,16 +1,16 @@
-const base = @import("base");
 const std = @import("std");
+const types = @import("types");
 
 const misc = @import("misc.zig");
 
 const Magic = struct {
-	ptr:	[*]const base.types.Square.Set,
-	magic:	u64,
-	nmask:	base.types.Square.Set,
 	pad:	usize,
+	ptr:	[*]const types.Square.Set,
+	magic:	types.Square.Set.Tag,
+	nmask:	types.Square.Set,
 };
 
-const b_magic = std.EnumArray(base.types.Square, base.types.Square.Set.Tag).init(.{
+const b_magic = std.EnumArray(types.Square, types.Square.Set.Tag).init(.{
 	.a1 = 0xa7020080601803d8, .b1 = 0x13802040400801f1,
 	.c1 = 0x0a0080181001f60c, .d1 = 0x1840802004238008,
 	.e1 = 0xc03fe00100000000, .f1 = 0x24c00bffff400000,
@@ -45,7 +45,7 @@ const b_magic = std.EnumArray(base.types.Square, base.types.Square.Set.Tag).init
 	.g8 = 0x0840800080200fda, .h8 = 0x100000c05f582008,
 });
 
-const b_offset = std.EnumArray(base.types.Square, u32).init(.{
+const b_offset = std.EnumArray(types.Square, u32).init(.{
 	.a1 = 60984, .b1 = 66046, .c1 = 32910, .d1 = 16369,
 	.e1 = 42115, .f1 =   835, .g1 = 18910, .h1 = 25911,
 	.a2 = 63301, .b2 = 16063, .c2 = 17481, .d2 = 59361,
@@ -64,7 +64,7 @@ const b_offset = std.EnumArray(base.types.Square, u32).init(.{
 	.e8 = 58912, .f8 = 22194, .g8 = 70880, .h8 = 11140,
 });
 
-const r_magic = std.EnumArray(base.types.Square, base.types.Square.Set.Tag).init(.{
+const r_magic = std.EnumArray(types.Square, types.Square.Set.Tag).init(.{
 	.a1 = 0x80280013ff84ffff, .b1 = 0x5ffbfefdfef67fff,
 	.c1 = 0xffeffaffeffdffff, .d1 = 0x003000900300008a,
 	.e1 = 0x0050028010500023, .f1 = 0x0020012120a00020,
@@ -99,7 +99,7 @@ const r_magic = std.EnumArray(base.types.Square, base.types.Square.Set.Tag).init
 	.g8 = 0xee73fffbffbb77fe, .h8 = 0x0002000308482882,
 });
 
-const r_offset = std.EnumArray(base.types.Square, u32).init(.{
+const r_offset = std.EnumArray(types.Square, u32).init(.{
 	.a1 = 10890, .b1 = 50579, .c1 = 62020, .d1 = 67322,
 	.e1 = 80251, .f1 = 58503, .g1 = 51175, .h1 = 83130,
 	.a2 = 50430, .b2 = 21613, .c2 = 72625, .d2 = 80755,
@@ -118,20 +118,20 @@ const r_offset = std.EnumArray(base.types.Square, u32).init(.{
 	.e8 = 78538, .f8 = 28745, .g8 =  8555, .h8 =  1009,
 });
 
-var atk = std.mem.zeroes([87988]base.types.Square.Set);
-pub var b_atk = std.EnumArray(base.types.Square, Magic).initUndefined();
-pub var r_atk = std.EnumArray(base.types.Square, Magic).initUndefined();
+var atk = std.mem.zeroes([87988]types.Square.Set);
+pub var b_atk = std.EnumArray(types.Square, Magic).initUndefined();
+pub var r_atk = std.EnumArray(types.Square, Magic).initUndefined();
 
 fn bAtkInit() !void {
-	for (base.types.Square.values) |s| {
-		const rank_edge = base.types.Square.Set
-		  .fromSlice(base.types.Rank, &.{.rank_1, .rank_8})
+	for (types.Square.values) |s| {
+		const rank_edge = types.Square.Set
+		  .fromSlice(types.Rank, &.{.rank_1, .rank_8})
 		  .bwa(s.rank().toSet().flip());
-		const file_edge = base.types.Square.Set
-		  .fromSlice(base.types.File, &.{.file_a, .file_h})
+		const file_edge = types.Square.Set
+		  .fromSlice(types.File, &.{.file_a, .file_h})
 		  .bwa(s.file().toSet().flip());
 
-		const edge = base.types.Square.Set.bwo(rank_edge, file_edge);
+		const edge = types.Square.Set.bwo(rank_edge, file_edge);
 		const mask = misc.genAtk(.bishop, s, .none).bwa(edge.flip());
 
 		const offset = b_offset.getPtrConst(s).*;
@@ -147,7 +147,7 @@ fn bAtkInit() !void {
 			.pad = 0xaaaaaaaaaaaaaaaa,
 		});
 
-		var b = base.types.Square.Set.none;
+		var b = types.Square.Set.none;
 		for (0 .. n) |_| {
 			const a = misc.genAtk(.bishop, s, b);
 			const i = misc.genIdx(.bishop, s, b);
@@ -160,15 +160,15 @@ fn bAtkInit() !void {
 }
 
 fn rAtkInit() !void {
-	for (base.types.Square.values) |s| {
-		const rank_edge = base.types.Square.Set
-		  .fromSlice(base.types.Rank, &.{.rank_1, .rank_8})
+	for (types.Square.values) |s| {
+		const rank_edge = types.Square.Set
+		  .fromSlice(types.Rank, &.{.rank_1, .rank_8})
 		  .bwa(s.rank().toSet().flip());
-		const file_edge = base.types.Square.Set
-		  .fromSlice(base.types.File, &.{.file_a, .file_h})
+		const file_edge = types.Square.Set
+		  .fromSlice(types.File, &.{.file_a, .file_h})
 		  .bwa(s.file().toSet().flip());
 
-		const edge = base.types.Square.Set.bwo(rank_edge, file_edge);
+		const edge = types.Square.Set.bwo(rank_edge, file_edge);
 		const mask = misc.genAtk(.rook, s, .none).bwa(edge.flip());
 
 		const offset = r_offset.getPtrConst(s).*;
@@ -184,7 +184,7 @@ fn rAtkInit() !void {
 			.pad = 0xaaaaaaaaaaaaaaaa,
 		});
 
-		var b = base.types.Square.Set.none;
+		var b = types.Square.Set.none;
 		for (0 .. n) |_| {
 			const a = misc.genAtk(.rook, s, b);
 			const i = misc.genIdx(.rook, s, b);
@@ -210,13 +210,13 @@ pub fn init() !void {
 	try rAtkInit();
 }
 
-pub fn bAtk(s: base.types.Square, b: base.types.Square.Set) base.types.Square.Set {
+pub fn bAtk(s: types.Square, b: types.Square.Set) types.Square.Set {
 	const i = misc.genIdx(.bishop, s, b);
 	const p = b_atk.getPtrConst(s).ptr;
 	return p[i];
 } 
 
-pub fn rAtk(s: base.types.Square, b: base.types.Square.Set) base.types.Square.Set {
+pub fn rAtk(s: types.Square, b: types.Square.Set) types.Square.Set {
 	const i = misc.genIdx(.rook, s, b);
 	const p = r_atk.getPtrConst(s).ptr;
 	return p[i];

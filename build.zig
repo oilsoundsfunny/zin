@@ -1,22 +1,22 @@
 const std = @import("std");
 
 const Modules = enum {
-	base,
+	types,
 	bitboard,
 	engine,
 	nnue,
 	selfplay,
 
 	const dependencies = std.EnumArray(Modules, []const Modules).init(.{
-		.base = &.{},
-		.bitboard = &.{.base},
-		.engine = &.{.base, .bitboard, .nnue},
-		.nnue = &.{.base, .bitboard, .engine},
-		.selfplay = &.{.base, .bitboard, .engine},
+		.types = &.{},
+		.bitboard = &.{.types},
+		.engine = &.{.types, .bitboard, .nnue},
+		.nnue = &.{.types, .bitboard, .engine},
+		.selfplay = &.{.types, .bitboard, .engine},
 	});
 
 	const names = std.EnumArray(Modules, []const u8).init(.{
-		.base = "base",
+		.types = "types",
 		.bitboard = "bitboard",
 		.engine = "engine",
 		.nnue = "nnue",
@@ -24,7 +24,7 @@ const Modules = enum {
 	});
 
 	const src_files = std.EnumArray(Modules, []const u8).init(.{
-		.base = "src/base/root.zig",
+		.types = "src/types/root.zig",
 		.bitboard = "src/bitboard/root.zig",
 		.engine = "src/engine/root.zig",
 		.nnue = "src/nnue/root.zig",
@@ -32,7 +32,7 @@ const Modules = enum {
 	});
 
 	const test_files = std.EnumArray(Modules, []const u8).init(.{
-		.base = "tests/base/root.zig",
+		.types = "tests/types/root.zig",
 		.bitboard = "tests/bitboard/root.zig",
 		.engine = "tests/engine/root.zig",
 		.nnue = "tests/nnue/root.zig",
@@ -57,10 +57,7 @@ pub fn build(bld: *std.Build) !void {
 	const unwind_tables = bld.option(std.builtin.UnwindTables, "unwind-tables", "")
 	  orelse if (ndebug) std.builtin.UnwindTables.none else std.builtin.UnwindTables.@"async";
 	const use_llvm = bld.option(bool, "use-llvm", "Use the LLVM code backend")
-	  orelse switch (optimize) {
-		.Debug => false,
-		else => true,
-	};
+	  orelse (optimize != .Debug);
 
 	const bounded_array = bld.dependency("bounded_array", .{});
 

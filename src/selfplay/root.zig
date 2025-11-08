@@ -1,8 +1,8 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const bounded_array = @import("bounded_array");
 const engine = @import("engine");
 const std = @import("std");
+const types = @import("types");
 
 const Player = @import("Player.zig");
 
@@ -10,7 +10,8 @@ pub const author = "oilsoundsfunny";
 pub const name = "selfplay";
 
 pub fn main() !void {
-	const args = try std.process.argsAlloc(base.heap.allocator);
+	const allocator = std.heap.page_allocator;
+	const args = try std.process.argsAlloc(allocator);
 	var i: usize = 1;
 
 	var book_path: ?[]const u8 = null;
@@ -86,12 +87,14 @@ pub fn main() !void {
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
 
-	var io = try base.Io.init(book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}),
-	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}));
+	var io = try types.Io.init(allocator,
+	  book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}), 16384,
+	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}), 16384);
 	defer io.deinit();
 
-	try base.init();
-	defer base.deinit();
+	var tt = try engine.transposition.Table.init(allocator, 128);
+	try tt.clear(threads orelse 1);
+	defer tt.deinit();
 
 	try bitboard.init();
 	defer bitboard.deinit();
@@ -99,16 +102,17 @@ pub fn main() !void {
 	try engine.init();
 	defer engine.deinit();
 
-	_ = try engine.uci.parseCommand("setoption name Clear Hash");
-	_ = try engine.uci.parseCommand("setoption name UCI_Chess960 value true");
-
 	var tourney = try Player.Tourney.init(.{
+		.allocator = allocator,
 		.io = &io,
+		.tt = &tt,
 		.games = games,
 		.depth = depth,
 		.nodes = nodes,
 		.threads = threads orelse 1,
 	});
+	defer tourney.deinit();
+
 	try tourney.start();
 	defer tourney.stop();
 }

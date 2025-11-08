@@ -1,7 +1,7 @@
-const base = @import("base");
 const builtin = @import("builtin");
 const engine = @import("engine");
 const std = @import("std");
+const types = @import("types");
 
 const Accumulator = @import("Accumulator.zig");
 const arch = @import("arch.zig");
@@ -18,17 +18,17 @@ pub const Self = extern struct {
 		const accumulator = &pos.ss.top().accumulator;
 
 		const Vec = *align(32) const Accumulator.Vec;
-		const vecs = std.EnumArray(base.types.Color, Vec).init(.{
+		const vecs = std.EnumArray(types.Color, Vec).init(.{
 			.white = accumulator.perspectives.getPtrConst(stm),
 			.black = accumulator.perspectives.getPtrConst(stm.flip()),
 		});
-		const wgts = std.EnumArray(base.types.Color, Vec).init(.{
-			.white = @ptrCast(&self.out_w[base.types.Color.white.tag()]),
-			.black = @ptrCast(&self.out_w[base.types.Color.black.tag()]),
+		const wgts = std.EnumArray(types.Color, Vec).init(.{
+			.white = @ptrCast(&self.out_w[types.Color.white.tag()]),
+			.black = @ptrCast(&self.out_w[types.Color.black.tag()]),
 		});
 
 		var out: Accumulator.Madd = @splat(engine.evaluation.score.draw);
-		inline for (base.types.Color.values) |c| {
+		inline for (types.Color.values) |c| {
 			const v = vecs.get(c).*;
 			const w = wgts.get(c).*;
 			const clamped = crelu(v);

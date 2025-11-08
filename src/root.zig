@@ -1,7 +1,7 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const engine = @import("engine");
 const std = @import("std");
+const types = @import("types");
 
 pub const author = "oilsoundsfunny";
 pub const name = "zin";
@@ -16,9 +16,6 @@ pub const std_options = std.Options {
 };
 
 pub fn main() !void {
-	try base.init();
-	defer base.deinit();
-
 	try bitboard.init();
 	defer bitboard.deinit();
 

@@ -1,8 +1,8 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const bounded_array = @import("bounded_array");
 const params = @import("params");
 const std = @import("std");
+const types = @import("types");
 
 const evaluation = @import("evaluation.zig");
 const Position = @import("Position.zig");
@@ -89,10 +89,9 @@ const RootMoveList = struct {
 		if (pos.isDrawn()) {
 			return rml;
 		}
-		defer RootMove.sortSlice(rml.slice());
 
-		std.mem.doNotOptimizeAway(sml.genNoisy(pos));
-		std.mem.doNotOptimizeAway(sml.genQuiet(pos));
+		_ = sml.genNoisy(pos);
+		_ = sml.genQuiet(pos);
 		for (sml.constSlice()) |sm| {
 			const m = sm.move;
 			pos.doMove(m) catch continue;
@@ -105,6 +104,7 @@ const RootMoveList = struct {
 			rml.push(rm);
 		}
 
+		RootMove.sortSlice(rml.slice());
 		return rml;
 	}
 };
@@ -143,7 +143,7 @@ const ScoredMoveList = struct {
 		const stm = pos.stm;
 		const occ = pos.bothOcc();
 
-		const cas: base.types.Castle = switch (stm) {
+		const cas: types.Castle = switch (stm) {
 			.white => if (is_k) .wk else .wq,
 			.black => if (is_k) .bk else .bq,
 		};
@@ -165,7 +165,7 @@ const ScoredMoveList = struct {
 		}
 
 		const s = info.ks;
-		const d = if (uci.options.frc) info.rs else info.kd;
+		const d = info.rs;
 		self.push(.{
 			.move = .{.flag = .castle, .info = .{.castle = cas}, .src = s, .dst = d},
 			.score = evaluation.score.draw,
@@ -178,7 +178,7 @@ const ScoredMoveList = struct {
 		const stm = pos.stm;
 		const enp = pos.ss.top().en_pas orelse return self.slice().len - len;
 
-		const src = pos.pieceOcc(base.types.Piece.init(stm, .pawn));
+		const src = pos.pieceOcc(types.Piece.init(stm, .pawn));
 		const dst = enp.toSet();
 
 		const ea = bitboard.pAtkEast(src, stm).bwa(dst);
@@ -203,7 +203,7 @@ const ScoredMoveList = struct {
 	}
 
 	fn genPawnMoves(self: *ScoredMoveList, pos: *const Position,
-	  comptime promo: ?base.types.Ptype,
+	  comptime promo: ?types.Ptype,
 	  comptime noisy: bool) usize {
 		const is_promote = promo != null;
 		const flag: Move.Flag = if (!is_promote) .none else .promote;
@@ -215,7 +215,7 @@ const ScoredMoveList = struct {
 		const occ = pos.bothOcc();
 		const promotion_bb = stm.promotionRank().toSet();
 
-		const src = pos.pieceOcc(base.types.Piece.init(stm, .pawn));
+		const src = pos.pieceOcc(types.Piece.init(stm, .pawn));
 		const dst = pos.ss.top().check_mask
 		  .bwa(if (is_promote) promotion_bb else promotion_bb.flip())
 		  .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
@@ -262,17 +262,17 @@ const ScoredMoveList = struct {
 	}
 
 	fn genPtMoves(self: *ScoredMoveList, pos: *const Position,
-	  comptime ptype: base.types.Ptype,
+	  comptime ptype: types.Ptype,
 	  comptime noisy: bool) usize {
 		const len = self.slice().len;
 		const stm = pos.stm;
 		const occ = pos.bothOcc();
-		const target = base.types.Square.Set
+		const target = types.Square.Set
 		  .full
 		  .bwa(if (ptype != .king) pos.ss.top().check_mask else .full)
 		  .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
-		var src = pos.pieceOcc(base.types.Piece.init(stm, ptype));
+		var src = pos.pieceOcc(types.Piece.init(stm, ptype));
 		while (src.lowSquare()) |s| : (src.popLow()) {
 			var dst = bitboard.ptAtk(ptype, s, occ).bwa(target);
 			while (dst.lowSquare()) |d| : (dst.popLow()) {
@@ -348,8 +348,8 @@ const ScoredMoveList = struct {
 pub const Move = packed struct(u16) {
 	flag:	Flag = .none,
 	info:	Info = .{.none = 0},
-	src:	base.types.Square = @enumFromInt(0),
-	dst:	base.types.Square = @enumFromInt(0),
+	src:	types.Square = @enumFromInt(0),
+	dst:	types.Square = @enumFromInt(0),
 
 	pub const Flag = enum(u2) {
 		none,
@@ -364,15 +364,15 @@ pub const Move = packed struct(u16) {
 		rook,
 		queen,
 
-		fn fromPtype(p: base.types.Ptype) Promotion {
+		fn fromPtype(p: types.Ptype) Promotion {
 			const i = @intFromEnum(p);
-			const n = @intFromEnum(base.types.Ptype.knight);
+			const n = @intFromEnum(types.Ptype.knight);
 			return @enumFromInt(i - n);
 		}
 
-		pub fn toPtype(self: Promotion) base.types.Ptype {
+		pub fn toPtype(self: Promotion) types.Ptype {
 			const i = @intFromEnum(self);
-			const n = base.types.Ptype.knight.tag();
+			const n = types.Ptype.knight.tag();
 			return @enumFromInt(n + i);
 		}
 	};
@@ -380,7 +380,7 @@ pub const Move = packed struct(u16) {
 	pub const Info = packed union {
 		none:		u2,
 		en_passant:	u2,
-		castle:		base.types.Castle,
+		castle:		types.Castle,
 		promote:	Promotion,
 	};
 
@@ -413,15 +413,31 @@ pub const Move = packed struct(u16) {
 
 	pub const zero: Move = .{};
 
-	pub fn toString(self: Move) [8]u8 {
-		var buf = std.mem.zeroes([8]u8);
+	pub fn isZero(self: Move) bool {
+		return self == @as(Move, .{});
+	}
+
+	pub fn toString(self: Move, pos: *const Position) [8]u8 {
+		var buf: [8]u8 = undefined;
+
 		buf[0] = self.src.file().char();
 		buf[1] = self.src.rank().char();
-		buf[2] = self.dst.file().char();
-		buf[3] = self.dst.rank().char();
-		if (self.flag == .promote) {
-			buf[4] = self.info.promote.toPtype().char();
+		switch (self.flag) {
+			.none, .en_passant, .promote => |f| {
+				buf[2] = self.dst.file().char();
+				buf[3] = self.dst.rank().char();
+				if (f == .promote) {
+					buf[4] = self.info.promote.toPtype().char();
+				}
+			},
+			.castle => {
+				const castle = pos.castles.getPtrConstAssertContains(self.info.castle);
+				const s = if (pos.frc) castle.rs else castle.kd;
+				buf[2] = s.file().char();
+				buf[3] = s.rank().char();
+			},
 		}
+
 		return buf;
 	}
 
@@ -433,7 +449,7 @@ pub const Move = packed struct(u16) {
 pub const Picker = struct {
 	list:	Move.Scored.List,
 	pos:	*const Position,
-	info:	*const search.Info,
+	thread:	*const search.Thread,
 
 	skip_quiets:	bool,
 	stage:	Stage,
@@ -510,14 +526,14 @@ pub const Picker = struct {
 		  else evaluation.score.draw;
 	}
 
-	pub fn init(info: *const search.Info, ttm: Move) Picker {
+	pub fn init(thread: *const search.Thread, ttm: Move) Picker {
 		return .{
 			.list = .{},
-			.pos  = &info.pos,
-			.info = info,
+			.pos  = &thread.pos,
+			.thread = thread,
 
 			.skip_quiets = false,
-			.stage = if (ttm == Move.zero) .gen_noisy else .ttm,
+			.stage = if (ttm.isZero()) .gen_noisy else .ttm,
 
 			.excluded = Move.zero,
 			.ttm = ttm,

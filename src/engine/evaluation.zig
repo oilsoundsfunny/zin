@@ -1,25 +1,28 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const nnue = @import("nnue");
 const params = @import("params");
 const std = @import("std");
+const types = @import("types");
 
 const Position = @import("Position.zig");
 
 pub const score = struct {
-	pub const Int = base.defs.score.Int;
+	pub const Int = i32;
 
-	pub const none = base.defs.score.none;
-	pub const unit = base.defs.score.unit;
+	pub const none = -32768;
+	pub const unit = 256;
 
-	pub const win  = base.defs.score.win;
-	pub const draw = base.defs.score.draw;
-	pub const lose = base.defs.score.lose;
+	pub const win  = 0 + 32767;
+	pub const draw = 0;
+	pub const lose = 0 - 32767;
 
-	pub const tbwin  = base.defs.score.tbwin;
-	pub const tblose = base.defs.score.tblose;
+	pub const tbwin  = 0 + 32640;
+	pub const tblose = 0 - 32640;
 
-	pub const centipawns = base.defs.score.centipawns;
+	pub fn centipawns(s: Int) Int {
+		std.debug.assert(s == std.math.clamp(s, lose, win));
+		return @divTrunc(s * 100, unit);
+	}
 
 	pub fn fromPosition(pos: *const Position) Int {
 		var ev = nnue.net.default.infer(pos);

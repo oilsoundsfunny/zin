@@ -1,4 +1,3 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const bounded_array = @import("bounded_array");
 const builtin = @import("builtin");
@@ -6,23 +5,23 @@ const nnue = @import("nnue");
 const params = @import("params");
 const root = @import("root");
 const std = @import("std");
+const types = @import("types");
 
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
 const search = @import("search.zig");
-const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
 const Self = @This();
 
-by_color:	std.EnumArray(base.types.Color, base.types.Square.Set),
-by_ptype:	std.EnumArray(base.types.Ptype, base.types.Square.Set),
-by_square:	std.EnumArray(base.types.Square, base.types.Piece)
-  = std.EnumArray(base.types.Square, base.types.Piece).initFill(.none),
+by_color:	std.EnumArray(types.Color, types.Square.Set),
+by_ptype:	std.EnumArray(types.Ptype, types.Square.Set),
+by_square:	std.EnumArray(types.Square, types.Piece),
+castles:	std.EnumMap(types.Castle, Castle),
 
-stm:	base.types.Color,
-castles:	std.EnumMap(base.types.Castle, Castle),
-ss:	State.Stack = .{},
+frc:	bool,
+stm:	types.Color,
+ss:	State.Stack,
 
 pub const FenError = error {
 	InvalidPiece,
@@ -40,35 +39,33 @@ pub const MoveError = error {
 };
 
 pub const Castle = struct {
-	atk:	base.types.Square.Set,
-	occ:	base.types.Square.Set,
+	atk:	types.Square.Set,
+	occ:	types.Square.Set,
 
-	ks:	base.types.Square,
-	kd:	base.types.Square,
+	ks:	types.Square,
+	kd:	types.Square,
 
-	rs:	base.types.Square,
-	rd:	base.types.Square,
+	rs:	types.Square,
+	rd:	types.Square,
 };
 
 pub const State = struct {
 	move:	movegen.Move = movegen.Move.zero,
-	src_piece:	base.types.Piece,
-	dst_piece:	base.types.Piece,
+	src_piece:	types.Piece = .none,
+	dst_piece:	types.Piece = .none,
 
-	castle:	 base.types.Castle.Set,
-	en_pas:	?base.types.Square,
+	castle:	 types.Castle.Set,
+	en_pas:	?types.Square,
 	rule50:	 u8,
-	qs_ply:	?u8,
+	key:	 zobrist.Int,
 
-	check_mask:	base.types.Square.Set = .full,
-
-	key:	zobrist.Int,
+	check_mask:	types.Square.Set = .full,
 
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
 	accumulator:	nnue.Accumulator = .{},
 
-	pv:	movegen.Move.Root,
+	pv:	movegen.Move.Root = .{},
 
 	pub const Stack = struct {
 		array:	bounded_array.BoundedArray(State, 1024) = .{
@@ -141,31 +138,42 @@ pub const State = struct {
 pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
 
-fn colorOccPtr(self: *Self, c: base.types.Color) *base.types.Square.Set {
+pub const zero: Self = .{
+	.by_color = std.EnumArray(types.Color, types.Square.Set).initFill(.none),
+	.by_ptype = std.EnumArray(types.Ptype, types.Square.Set).initFill(.none),
+	.by_square = std.EnumArray(types.Square, types.Piece).initFill(.none),
+	.castles = std.EnumMap(types.Castle, Castle).init(.{}),
+
+	.frc = false,
+	.stm = .white,
+	.ss = .{},
+};
+
+fn colorOccPtr(self: *Self, c: types.Color) *types.Square.Set {
 	return self.by_color.getPtr(c);
 }
 
-fn ptypeOccPtr(self: *Self, c: base.types.Ptype) *base.types.Square.Set {
+fn ptypeOccPtr(self: *Self, c: types.Ptype) *types.Square.Set {
 	return self.by_ptype.getPtr(c);
 }
 
-fn squarePtr(self: *Self, s: base.types.Square) *base.types.Piece {
+fn squarePtr(self: *Self, s: types.Square) *types.Piece {
 	return self.by_square.getPtr(s);
 }
 
-fn colorOccPtrConst(self: *const Self, c: base.types.Color) *const base.types.Square.Set {
+fn colorOccPtrConst(self: *const Self, c: types.Color) *const types.Square.Set {
 	return self.by_color.getPtrConst(c);
 }
 
-fn ptypeOccPtrConst(self: *const Self, c: base.types.Ptype) *const base.types.Square.Set {
+fn ptypeOccPtrConst(self: *const Self, c: types.Ptype) *const types.Square.Set {
 	return self.by_ptype.getPtrConst(c);
 }
 
-fn squarePtrConst(self: *const Self, s: base.types.Square) *const base.types.Piece {
+fn squarePtrConst(self: *const Self, s: types.Square) *const types.Piece {
 	return self.by_square.getPtrConst(s);
 }
 
-fn popSq(self: *Self, s: base.types.Square, p: base.types.Piece, comptime full: bool) void {
+fn popSq(self: *Self, s: types.Square, p: types.Piece, comptime full: bool) void {
 	if (p == .none) {
 		return;
 	}
@@ -184,15 +192,15 @@ fn popSq(self: *Self, s: base.types.Square, p: base.types.Piece, comptime full: 
 	self.ss.top().accumulator.pop(s, p);
 }
 
-fn popSqFull(self: *Self, s: base.types.Square, p: base.types.Piece) void {
+fn popSqFull(self: *Self, s: types.Square, p: types.Piece) void {
 	self.popSq(s, p, true);
 }
 
-fn popSqLazy(self: *Self, s: base.types.Square, p: base.types.Piece) void {
+fn popSqLazy(self: *Self, s: types.Square, p: types.Piece) void {
 	self.popSq(s, p, false);
 }
 
-fn setSq(self: *Self, s: base.types.Square, p: base.types.Piece, comptime full: bool) void {
+fn setSq(self: *Self, s: types.Square, p: types.Piece, comptime full: bool) void {
 	if (p == .none) {
 		return;
 	}
@@ -211,47 +219,47 @@ fn setSq(self: *Self, s: base.types.Square, p: base.types.Piece, comptime full: 
 	self.ss.top().accumulator.set(s, p);
 }
 
-fn setSqFull(self: *Self, s: base.types.Square, p: base.types.Piece) void {
+fn setSqFull(self: *Self, s: types.Square, p: types.Piece) void {
 	self.setSq(s, p, true);
 }
 
-fn setSqLazy(self: *Self, s: base.types.Square, p: base.types.Piece) void {
+fn setSqLazy(self: *Self, s: types.Square, p: types.Piece) void {
 	self.setSq(s, p, false);
 }
 
-fn popCastle(self: *Self, c: base.types.Castle) void {
+fn popCastle(self: *Self, c: types.Castle) void {
 	self.ss.top().castle.pop(c);
 }
 
-fn setCastle(self: *Self, c: base.types.Castle, info: Castle) void {
+fn setCastle(self: *Self, c: types.Castle, info: Castle) void {
 	self.castles.put(c, info);
 	self.ss.top().castle.set(c);
 }
 
-fn genCheckMask(self: *const Self) base.types.Square.Set {
+fn genCheckMask(self: *const Self) types.Square.Set {
 	const occ = self.bothOcc();
 	const stm = self.stm;
 
-	const kb = self.pieceOcc(base.types.Piece.init(stm, .king));
+	const kb = self.pieceOcc(types.Piece.init(stm, .king));
 	const ks = kb.lowSquare() orelse std.debug.panic("invalid position", .{});
 	const atkers = self.squareAtkers(ks).bwa(self.colorOcc(stm.flip()));
 	var ka = atkers;
 
 	const kba = bitboard.bAtk(ks, occ);
-	var diag = base.types.Square.Set
+	var diag = types.Square.Set
 	  .none
-	  .bwo(self.pieceOcc(base.types.Piece.init(stm.flip(), .bishop)))
-	  .bwo(self.pieceOcc(base.types.Piece.init(stm.flip(), .queen)))
+	  .bwo(self.pieceOcc(types.Piece.init(stm.flip(), .bishop)))
+	  .bwo(self.pieceOcc(types.Piece.init(stm.flip(), .queen)))
 	  .bwa(atkers);
 	while (diag.lowSquare()) |s| : (diag.popLow()) {
 		ka.setOther(bitboard.bAtk(s, occ).bwa(kba));
 	}
 
 	const kra = bitboard.rAtk(ks, occ);
-	var line = base.types.Square.Set
+	var line = types.Square.Set
 	  .none
-	  .bwo(self.pieceOcc(base.types.Piece.init(stm.flip(), .rook)))
-	  .bwo(self.pieceOcc(base.types.Piece.init(stm.flip(), .queen)))
+	  .bwo(self.pieceOcc(types.Piece.init(stm.flip(), .rook)))
+	  .bwo(self.pieceOcc(types.Piece.init(stm.flip(), .queen)))
 	  .bwa(atkers);
 	while (line.lowSquare()) |s| : (line.popLow()) {
 		ka.setOther(bitboard.rAtk(s, occ).bwa(kra));
@@ -260,21 +268,21 @@ fn genCheckMask(self: *const Self) base.types.Square.Set {
 	return if (ka != .none) ka else .full;
 }
 
-pub fn bothOcc(self: *const Self) base.types.Square.Set {
+pub fn bothOcc(self: *const Self) types.Square.Set {
 	const wo = self.colorOcc(.white);
 	const bo = self.colorOcc(.black);
 	return @TypeOf(wo, bo).bwo(wo, bo);
 }
 
-pub fn colorOcc(self: *const Self, c: base.types.Color) base.types.Square.Set {
+pub fn colorOcc(self: *const Self, c: types.Color) types.Square.Set {
 	return self.colorOccPtrConst(c).*;
 }
 
-pub fn ptypeOcc(self: *const Self, p: base.types.Ptype) base.types.Square.Set {
+pub fn ptypeOcc(self: *const Self, p: types.Ptype) types.Square.Set {
 	return self.ptypeOccPtrConst(p).*;
 }
 
-pub fn pieceOcc(self: *const Self, p: base.types.Piece) base.types.Square.Set {
+pub fn pieceOcc(self: *const Self, p: types.Piece) types.Square.Set {
 	const c = p.color();
 	const t = p.ptype();
 
@@ -283,7 +291,7 @@ pub fn pieceOcc(self: *const Self, p: base.types.Piece) base.types.Square.Set {
 	return @TypeOf(co, to).bwa(co, to);
 }
 
-pub fn getSquare(self: *const Self, s: base.types.Square) base.types.Piece {
+pub fn getSquare(self: *const Self, s: types.Square) types.Piece {
 	return self.squarePtrConst(s).*;
 }
 
@@ -314,15 +322,15 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		},
 
 		.en_passant => {
-			const their_pawn = base.types.Piece.init(self.stm.flip(), .pawn);
+			const their_pawn = types.Piece.init(self.stm.flip(), .pawn);
 			const enp_target = d.shift(self.stm.forward().flip(), 1);
 
 			self.popSqFull(enp_target, their_pawn);
 		},
 
 		.promote => {
-			const our_pawn = base.types.Piece.init(self.stm, .pawn);
-			const our_promotion = base.types.Piece.init(self.stm, move.info.promote.toPtype());
+			const our_pawn = types.Piece.init(self.stm, .pawn);
+			const our_promotion = types.Piece.init(self.stm, move.info.promote.toPtype());
 
 			self.popSqFull(d, our_pawn);
 			self.setSqFull(d, our_promotion);
@@ -330,17 +338,12 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 
 		.castle => {
 			const info = self.castles.getAssertContains(move.info.castle);
-			const our_rook = base.types.Piece.init(self.stm, .rook);
-			const our_king = base.types.Piece.init(self.stm, .king);
+			const our_rook = types.Piece.init(self.stm, .rook);
+			const our_king = types.Piece.init(self.stm, .king);
 
-			if (uci.options.frc) {
-				self.popSqFull(info.rs, our_king);
-				self.setSqFull(info.kd, our_king);
-				self.setSqFull(info.rd, our_rook);
-			} else {
-				self.popSqFull(info.rs, our_rook);
-				self.setSqFull(info.rd, our_rook);
-			}
+			self.popSqFull(info.rs, our_king);
+			self.setSqFull(info.kd, our_king);
+			self.setSqFull(info.rd, our_rook);
 		},
 	}
 
@@ -418,7 +421,7 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	  ^ zobrist.cas(self.ss.top().castle)
 	  ^ zobrist.enp(self.ss.top().en_pas);
 
-	const kb = self.pieceOcc(base.types.Piece.init(self.stm.flip(), .king));
+	const kb = self.pieceOcc(types.Piece.init(self.stm.flip(), .king));
 	const ks = kb.lowSquare() orelse std.debug.panic("invalid position", .{});
 	if (self.squareAtkers(ks).bwa(self.colorOcc(self.stm)) != .none) {
 		self.undoMove();
@@ -460,15 +463,15 @@ pub fn undoMove(self: *Self) void {
 		},
 
 		.en_passant => {
-			const their_pawn = base.types.Piece.init(self.stm.flip(), .pawn);
+			const their_pawn = types.Piece.init(self.stm.flip(), .pawn);
 			const enp_target = d.shift(self.stm.forward().flip(), 1);
 
 			self.setSqLazy(enp_target, their_pawn);
 		},
 
 		.promote => {
-			const our_pawn = base.types.Piece.init(self.stm, .pawn);
-			const our_promotion = base.types.Piece.init(self.stm, move.info.promote.toPtype());
+			const our_pawn = types.Piece.init(self.stm, .pawn);
+			const our_promotion = types.Piece.init(self.stm, move.info.promote.toPtype());
 
 			self.popSqLazy(d, our_promotion);
 			self.setSqLazy(d, our_pawn);
@@ -476,17 +479,12 @@ pub fn undoMove(self: *Self) void {
 
 		.castle => {
 			const info = self.castles.getAssertContains(move.info.castle);
-			const our_rook = base.types.Piece.init(self.stm, .rook);
-			const our_king = base.types.Piece.init(self.stm, .king);
+			const our_rook = types.Piece.init(self.stm, .rook);
+			const our_king = types.Piece.init(self.stm, .king);
 
-			if (uci.options.frc) {
-				self.popSqLazy(info.rd, our_rook);
-				self.popSqLazy(info.kd, our_king);
-				self.setSqLazy(info.rs, our_king);
-			} else {
-				self.popSqLazy(info.rd, our_rook);
-				self.setSqLazy(info.rs, our_rook);
-			}
+			self.popSqLazy(info.rd, our_rook);
+			self.popSqLazy(info.kd, our_king);
+			self.setSqLazy(info.rs, our_king);
 		},
 	}
 
@@ -515,10 +513,10 @@ pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
 
 pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
 	const backup = self.*;
-	self.* = std.mem.zeroInit(Self, .{});
+	self.* = zero;
 	errdefer self.* = backup;
 
-	const sa = [base.types.Square.cnt]base.types.Square {
+	const sa = [types.Square.cnt]types.Square {
 		.a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
 		.a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
 		.a6, .b6, .c6, .d6, .e6, .f6, .g6, .h6,
@@ -529,8 +527,8 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 		.a1, .b1, .c1, .d1, .e1, .f1, .g1, .h1,
 	};
 	var si: usize = 0;
-	var rooks = std.EnumMap(base.types.Castle, base.types.Square).init(.{});
-	var kings = std.EnumMap(base.types.Color, base.types.Square).init(.{});
+	var rooks = std.EnumMap(types.Castle, types.Square).init(.{});
+	var kings = std.EnumMap(types.Color, types.Square).init(.{});
 
 	const psq_token = tokens.next() orelse return error.InvalidFen;
 	if (psq_token.len < 17 or psq_token.len > 71) {
@@ -538,7 +536,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 	}
 	for (psq_token) |c| {
 		const s = sa[si];
-		const from_c = base.types.Piece.fromChar(c);
+		const from_c = types.Piece.fromChar(c);
 		si += if (from_c) |p| blk: {
 			self.setSqFull(s, p);
 
@@ -597,10 +595,10 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 			else => return error.InvalidPiece,
 		};
 
-		if (si > base.types.Square.cnt) {
+		if (si > types.Square.cnt) {
 			return error.InvalidSquare;
 		}
-		if (si < base.types.Square.cnt
+		if (si < types.Square.cnt
 		  and sa[si].rank() != s.rank()
 		  and sa[si].file() != .file_a) {
 			return error.InvalidSquare;
@@ -611,7 +609,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 	if (stm_token.len > 1) {
 		return error.InvalidFen;
 	}
-	self.stm = base.types.Color.fromChar(stm_token[0]) orelse return error.InvalidSideToMove;
+	self.stm = types.Color.fromChar(stm_token[0]) orelse return error.InvalidSideToMove;
 	if (self.stm == .white) {
 		self.ss.top().key ^= zobrist.stm();
 	}
@@ -629,23 +627,23 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 			self.ss.top().key ^= zobrist.cas(.none);
 			break;
 		}
-		const cas = base.types.Castle.fromChar(c) orelse sw: switch (c) {
+		const cas = types.Castle.fromChar(c) orelse sw: switch (c) {
 			'A' ... 'H', 'a' ... 'h' => {
 				const is_lower = std.ascii.isLower(c);
 				const to_lower = std.ascii.toLower(c);
 
 				const kf = kings.getAssertContains(if (is_lower) .white else .black).file();
-				const rf = base.types.File.fromChar(to_lower) orelse unreachable;
+				const rf = types.File.fromChar(to_lower) orelse unreachable;
 
 				const kfi: isize = @intFromEnum(kf);
 				const rfi: isize = @intFromEnum(rf);
-				const ei: isize = std.math.sign(base.types.Direction.west.tag());
+				const ei: isize = std.math.sign(types.Direction.west.tag());
 				const is_k = std.math.sign(rfi - kfi) == ei;
 
 				if (is_lower) {
-					break :sw if (is_k) base.types.Castle.bk else base.types.Castle.bq;
+					break :sw if (is_k) types.Castle.bk else types.Castle.bq;
 				} else {
-					break :sw if (is_k) base.types.Castle.wk else base.types.Castle.wq;
+					break :sw if (is_k) types.Castle.wk else types.Castle.wq;
 				}
 			},
 			else => return error.InvalidCastle,
@@ -654,18 +652,18 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 		const ks = kings.getAssertContains(cas.color());
 		const rs = rooks.getAssertContains(cas);
 
-		const kd = base.types.Square.init(cas.color().homeRank(),
+		const kd = types.Square.init(cas.color().homeRank(),
 		  if (cas.ptype() == .queen) .file_c else .file_g);
-		const rd = base.types.Square.init(cas.color().homeRank(),
+		const rd = types.Square.init(cas.color().homeRank(),
 		  if (cas.ptype() == .queen) .file_d else .file_f);
 
-		const kb = if (ks != kd) base.types.Square.Set
+		const kb = if (ks != kd) types.Square.Set
 		  .full
 		  .bwa(bitboard.rAtk(ks, kd.toSet()))
 		  .bwa(bitboard.rAtk(kd, ks.toSet()))
 		  .bwo(kd.toSet())
 		  else .none;
-		const rb = if (rs != rd) base.types.Square.Set
+		const rb = if (rs != rd) types.Square.Set
 		  .full
 		  .bwa(bitboard.rAtk(rs, rd.toSet()))
 		  .bwa(bitboard.rAtk(rd, rs.toSet()))
@@ -693,9 +691,9 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 			self.ss.top().en_pas = null;
 		},
 		2 => {
-			const r = base.types.Rank.fromChar(enp_token[0]) orelse return error.InvalidEnPassant;
-			const f = base.types.File.fromChar(enp_token[0]) orelse return error.InvalidEnPassant;
-			self.ss.top().en_pas = base.types.Square.init(r, f);
+			const r = types.Rank.fromChar(enp_token[0]) orelse return error.InvalidEnPassant;
+			const f = types.File.fromChar(enp_token[0]) orelse return error.InvalidEnPassant;
+			self.ss.top().en_pas = types.Square.init(r, f);
 		},
 		else => return error.InvalidFen,
 	}
@@ -711,9 +709,9 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 	self.ss.top().check_mask = self.genCheckMask();
 }
 
-pub fn squareAtkers(self: *const Self, s: base.types.Square) base.types.Square.Set {
+pub fn squareAtkers(self: *const Self, s: types.Square) types.Square.Set {
 	const occ = self.bothOcc();
-	return base.types.Square.Set
+	return types.Square.Set
 	  .none
 	  .bwo(bitboard.pAtk(s.toSet(), .white).bwa(self.pieceOcc(.b_pawn)))
 	  .bwo(bitboard.pAtk(s.toSet(), .black).bwa(self.pieceOcc(.w_pawn)))
@@ -783,72 +781,68 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 	const spc = sp.color();
 	const dpc = dp.color();
 
-	return switch (move.flag) {
-		.none => none: {
-			if (sp == .none or spc != stm) {
-				break :none false;
-			}
+	return sp != .none and spc == stm and switch (move.flag) {
+		.none => move.info.none == 0 and none: {
 			if (dp != .none and dpc == stm) {
 				break :none false;
 			}
 
 			const noisy = switch (sp.ptype()) {
-				.pawn => bitboard.pAtk(s.toSet(), stm).bwa(them),
+				.pawn => bitboard.pAtk(s.toSet(), stm)
+				  .bwa(them)
+				  .bwa(stm.promotionRank().toSet().flip()),
 				else => |pt| bitboard.ptAtk(pt, s, occ).bwa(them),
 			};
 			const quiet = switch (sp.ptype()) {
-				.pawn => base.types.Square.Set.none
+				.pawn => types.Square.Set.none
 				  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
-				  .bwo(bitboard.pPush2(s.toSet(), occ, stm)),
+				  .bwo(bitboard.pPush2(s.toSet(), occ, stm))
+				  .bwa(stm.promotionRank().toSet().flip()),
 				else => |pt| bitboard.ptAtk(pt, s, occ).bwa(occ.flip()),
 			};
 
-			break :none switch (dp) {
-				.none => quiet.get(d),
-				else => noisy.get(d),
-			};
+			break :none if (dp == .none) quiet.get(d) else noisy.get(d);
 		},
 
-		.en_passant => en_passant: {
-			if (sp != base.types.Piece.init(stm, .pawn) or dp != .none) {
-				break :en_passant false;
-			}
-
-			const enp = self.ss.top().en_pas orelse return false;
-			if (enp != d) {
-				break :en_passant false;
-			}
-
+		.en_passant => move.info.en_passant == 0
+		  and sp.ptype() == .pawn
+		  and dp == .none
+		  and bitboard.pAtk(s.toSet(), stm).get(d)
+		  and self.ss.top().en_pas != null
+		  and self.ss.top().en_pas.? == d
+		  and en_passant: {
 			const capt = d.shift(stm.forward().flip(), 1);
-			const their_pawn = base.types.Piece.init(stm.flip(), .pawn);
-			if (self.getSquare(capt) != their_pawn) {
-				break :en_passant false;
-			}
-
-			break :en_passant bitboard.pAtk(s.toSet(), stm).get(d);
+			const their_pawn = types.Piece.init(stm.flip(), .pawn);
+			break :en_passant self.getSquare(capt) == their_pawn;
 		},
 
 		.castle => castle: {
-			const info = self.castles.getPtrConst(move.info.castle) orelse return false;
-			const our_rook = base.types.Piece.init(stm, .rook);
-			const our_king = base.types.Piece.init(stm, .king);
+			const info = self.castles.getPtrConst(move.info.castle) orelse break :castle false;
+			const ks = info.ks;
+			const rs = info.rs;
 
-			const illegal = !self.ss.top().castle.get(move.info.castle)
-			  or s != info.ks or sp != our_king
-			  or (uci.options.frc and d != info.rs)
-			  or (uci.options.frc and dp != our_rook)
-			  or (!uci.options.frc and d != info.kd)
-			  or (!uci.options.frc and dp != .none);
+			const is_checked = self.isChecked();
+			var between = occ.bwa(info.occ);
+			between.pop(ks);
+			between.pop(rs);
+
+			const rook = types.Piece.init(stm, .rook);
+			const king = types.Piece.init(stm, .king);
+
+			const illegal = is_checked or between != .none
+			  or !self.ss.top().castle.get(move.info.castle)
+			  or s != ks or sp != king
+			  or d != rs or dp != rook;
 			break :castle !illegal;
 		},
 
 		.promote => promote: {
 			const noisy = bitboard.pAtk(s.toSet(), stm).bwa(them);
-			const quiet = base.types.Square.Set.none
+			const quiet = types.Square.Set.none
 			  .bwo(bitboard.pPush1(s.toSet(), occ, stm))
 			  .bwo(bitboard.pPush2(s.toSet(), occ, stm));
 
-			break :promote spc == stm and sp.ptype() == .pawn
+			break :promote sp.ptype() == .pawn
 			  and d.rank() == stm.promotionRank()
 			  and !(dp == .none and !quiet.get(d))
 			  and !(dp != .none and !noisy.get(d));
@@ -901,7 +895,7 @@ pub fn see(self: *const Self, move: movegen.Move, bound: evaluation.score.Int) b
 		ret = if (mine == .none) break else !ret;
 
 		if (mine.bwa(by_ptype.get(.pawn)) != .none) {
-			v = base.types.Ptype.pawn.score() - v;
+			v = types.Ptype.pawn.score() - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}
@@ -911,7 +905,7 @@ pub fn see(self: *const Self, move: movegen.Move, bound: evaluation.score.Int) b
 
 			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
 		} else if (mine.bwa(by_ptype.get(.knight)) != .none) {
-			v = base.types.Ptype.knight.score() - v;
+			v = types.Ptype.knight.score() - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}
@@ -919,7 +913,7 @@ pub fn see(self: *const Self, move: movegen.Move, bound: evaluation.score.Int) b
 			const atker = mine.bwa(by_ptype.get(.pawn));
 			occ.popOther(atker.getLow());
 		} else if (mine.bwa(by_ptype.get(.bishop)) != .none) {
-			v = base.types.Ptype.bishop.score() - v;
+			v = types.Ptype.bishop.score() - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}
@@ -929,7 +923,7 @@ pub fn see(self: *const Self, move: movegen.Move, bound: evaluation.score.Int) b
 
 			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
 		} else if (mine.bwa(by_ptype.get(.rook)) != .none) {
-			v = base.types.Ptype.rook.score() - v;
+			v = types.Ptype.rook.score() - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}
@@ -939,7 +933,7 @@ pub fn see(self: *const Self, move: movegen.Move, bound: evaluation.score.Int) b
 
 			atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
 		} else if (mine.bwa(by_ptype.get(.queen)) != .none) {
-			v = base.types.Ptype.queen.score() - v;
+			v = types.Ptype.queen.score() - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}

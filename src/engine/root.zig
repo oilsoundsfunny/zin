@@ -10,8 +10,5 @@ pub fn deinit() void {
 }
 
 pub fn init() !void {
-	try uci.init();
 	try zobrist.init();
-
-	search.io = try @TypeOf(search.io).init(null, null);
 }

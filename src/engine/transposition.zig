@@ -1,5 +1,5 @@
-const base = @import("base");
 const std = @import("std");
+const types = @import("types");
 
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
@@ -59,53 +59,76 @@ pub const Cluster = packed struct(u256) {
 };
 
 pub const Table = struct {
-	slice:	[]Cluster = &.{},
-	age:	usize = 0,
+	allocator:	std.mem.Allocator,
 
-	fn index(self: Table, key: zobrist.Int) usize {
-		return zobrist.index(key, self.slice.len);
-	}
+	slice:	[]Cluster,
+	age:	usize,
 
 	fn threadedClear(slice: []Cluster) void {
 		for (slice) |*cluster| {
-			cluster.* = @bitCast(@as(u256, 0));
+			cluster.* = .{};
 		}
 	}
 
-	pub fn alloc(self: *Table, mb: usize) !void {
-		const mem = std.math.shl(usize, mb, 20);
-		const cnt = mem / @sizeOf(Cluster);
-		self.slice = try base.heap.allocator.realloc(self.slice, cnt);
+	fn index(self: *const Table, key: zobrist.Int) usize {
+		return zobrist.index(key, self.slice.len);
 	}
 
-	pub fn clear(self: *Table) !void {
+	pub fn deinit(self: *Table) void {
+		self.allocator.free(self.slice);
+		self.slice = &.{};
+		self.resetAge();
+	}
+
+	pub fn init(allocator: std.mem.Allocator, mb: ?usize) !Table {
+		const len = (mb orelse search.Options.zero.hash) * (1 << 20) / @sizeOf(Cluster);
+		return .{
+			.allocator = allocator,
+			.slice = try allocator.alloc(Cluster, len),
+			.age = 0,
+		};
+	}
+
+	pub fn realloc(self: *Table, mb: usize) !void {
+		const len = (mb << 20) / @sizeOf(Cluster);
+		self.slice = try self.allocator.realloc(self.slice, len);
+	}
+
+	pub fn clear(self: *Table, tn: usize) !void {
 		const len = self.slice.len;
 		if (len == 0) {
 			return;
 		}
-		defer self.age = 0;
 
-		const tn = uci.options.threads;
 		const mod = len % tn;
 		const div = len / tn;
 
-		const threads = try base.heap.allocator.alloc(std.Thread, tn);
-		defer base.heap.allocator.free(threads);
-
 		var p = self.slice.ptr;
+		const threads = try self.allocator.alloc(std.Thread, tn);
+		defer self.allocator.free(threads);
+
 		for (0 .. tn) |i| {
 			const l = if (i < mod) div + 1 else div;
 			const s = p[0 .. l];
+
 			p += l;
-			threads[i] = try std.Thread.spawn(.{.allocator = base.heap.allocator},
-			  threadedClear, .{s});
+			threads[i] = try std.Thread.spawn(.{.allocator = self.allocator}, threadedClear, .{s});
 		}
+
 		defer for (0 .. tn) |i| {
 			std.Thread.join(threads[i]);
 		};
 	}
 
-	pub fn fetch(self: Table, key: zobrist.Int) struct {*Entry, bool} {
+	pub fn doAge(self: *Table) void {
+		self.age += 1;
+	}
+
+	pub fn resetAge(self: *Table) void {
+		self.age = 0;
+	}
+
+	pub fn fetch(self: *const Table, key: zobrist.Int) struct {*Entry, bool} {
 		std.debug.assert(self.slice.len > 0);
 		const i = self.index(key);
 		const cluster = &self.slice[i];
@@ -140,12 +163,10 @@ pub const Table = struct {
 		return .{replace, false};
 	}
 
-	pub fn prefetch(self: Table, key: zobrist.Int) void {
+	pub fn prefetch(self: *const Table, key: zobrist.Int) void {
 		std.debug.assert(self.slice.len > 0);
 		const i = self.index(key) / 2 * 2;
 		const c = &self.slice[i];
 		@prefetch(c, .{});
 	}
 };
-
-pub var table: Table = .{};

@@ -1,12 +1,10 @@
-const base = @import("base");
 const std = @import("std");
+const types = @import("types");
 
 const sliding = @import("sliding.zig");
 
-pub fn genAtk(comptime pt: base.types.Ptype,
-  s: base.types.Square,
-  b: base.types.Square.Set) base.types.Square.Set {
-	const dirs: []const base.types.Direction = switch (pt) {
+pub fn genAtk(comptime pt: types.Ptype, s: types.Square, b: types.Square.Set) types.Square.Set {
+	const dirs: []const types.Direction = switch (pt) {
 		.knight => &.{
 			.northnorthwest, .westnorthwest, .southsouthwest, .westsouthwest,
 			.northnortheast, .eastnortheast, .southsoutheast, .eastsoutheast,
@@ -26,10 +24,10 @@ pub fn genAtk(comptime pt: base.types.Ptype,
 	};
 	const max = switch (pt) {
 		.knight, .king => 1,
-		.bishop, .rook => base.types.Square.cnt,
+		.bishop, .rook => types.Square.cnt,
 		else => @compileError("unexpected tag" ++ @tagName(pt)),
 	};
-	var atk = base.types.Square.Set.none;
+	var atk = types.Square.Set.none;
 
 	for (dirs) |d| {
 		for (1 .. max + 1) |i| {
@@ -48,9 +46,7 @@ pub fn genAtk(comptime pt: base.types.Ptype,
 	return atk;
 }
 
-pub fn genIdx(comptime pt: base.types.Ptype,
-  s: base.types.Square,
-  b: base.types.Square.Set) base.types.Square.Set.Tag {
+pub fn genIdx(comptime pt: types.Ptype, s: types.Square, b: types.Square.Set) types.Square.Set.Tag {
 	return switch (pt) {
 		.knight, .king => s.tag(),
 		.bishop, .rook => blk: {

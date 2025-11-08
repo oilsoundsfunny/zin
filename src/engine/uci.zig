@@ -1,5 +1,5 @@
-const base = @import("base");
 const std = @import("std");
+const types = @import("types");
 
 const movegen = @import("movegen.zig");
 const Position = @import("Position.zig");
@@ -23,70 +23,53 @@ const Command = enum {
 	ucinewgame,
 };
 
+fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
+	const options = &pool.options;
+	const stm = pool.threads[0].pos.stm;
 
-pub const options = struct {
-	pub var frc = false;
-	pub var hash: usize = 64;
-	pub var threads: usize = 1;
-	pub var overhead: u64 = 10;
-};
-
-pub var instance = std.mem.zeroInit(search.Instance, .{});
-pub var io: base.Io = undefined;
-
-fn parseGo(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
-	const opt = &instance.options;
-	const stm = instance.infos[0].pos.stm;
-
-	opt.reset();
-	errdefer opt.reset();
+	options.reset();
+	errdefer options.reset();
 
 	while (tokens.next()) |token| {
 		if (std.mem.eql(u8, token, "infinite")) {
-			opt.reset();
+			options.reset();
 			continue;
 		}
+		defer options.infinite = false;
 
 		const aux = tokens.next() orelse return error.UnknownCommand;
 		if (std.mem.eql(u8, token, "depth")) {
-			opt.depth = std.fmt.parseUnsigned(search.Depth, aux, 10)
+			options.depth = std.fmt.parseUnsigned(search.Depth, aux, 10)
 			  catch return error.UnknownCommand;
 		} else if (std.mem.eql(u8, token, "movetime")) {
-			opt.movetime = std.fmt.parseUnsigned(u64, aux, 10)
+			options.movetime = std.fmt.parseUnsigned(u64, aux, 10)
 			  catch return error.UnknownCommand;
 		} else if (std.mem.eql(u8, token, "nodes")) {
-			opt.nodes = std.fmt.parseUnsigned(u64, aux, 10)
+			options.nodes = std.fmt.parseUnsigned(u64, aux, 10)
 			  catch return error.UnknownCommand;
 		} else if (std.mem.eql(u8, token, "winc")) {
-			opt.incr.set(.white,
+			options.incr.put(.white,
 			  std.fmt.parseUnsigned(u64, aux, 10) catch return error.UnknownCommand);
 		} else if (std.mem.eql(u8, token, "wtime")) {
-			opt.time.set(.white,
+			options.time.put(.white,
 			  std.fmt.parseUnsigned(u64, aux, 10) catch return error.UnknownCommand);
 		} else if (std.mem.eql(u8, token, "binc")) {
-			opt.incr.set(.black,
+			options.incr.put(.black,
 			  std.fmt.parseUnsigned(u64, aux, 10) catch return error.UnknownCommand);
 		} else if (std.mem.eql(u8, token, "btime")) {
-			opt.time.set(.black,
+			options.time.put(.black,
 			  std.fmt.parseUnsigned(u64, aux, 10) catch return error.UnknownCommand);
 		} else return error.UnknownCommand;
-		opt.infinite = false;
-	}
+	} else options.calcStop(stm);
 
-	opt.stop = if (!opt.infinite and opt.movetime != null) movetime: {
-		const mt = opt.movetime.?;
-		break :movetime opt.start +| mt -| options.overhead;
-	} else if (!opt.infinite and opt.incr.get(stm) != null and opt.time.get(stm) != null) time: {
-		const i = opt.incr.get(stm).?;
-		const t = opt.time.get(stm).? -| options.overhead;
-		break :time opt.start + t / 20 + i / 2;
-	} else null;
-
-	try instance.start();
+	try pool.start();
 	return .go;
 }
 
-fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
+fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
+	const options = &pool.options;
+	const tt = pool.tt;
+
 	const first = tokens.next() orelse return error.UnknownCommand;
 	if (!std.mem.eql(u8, first, "name")) {
 		return error.UnknownCommand;
@@ -99,7 +82,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 			return error.UnknownCommand;
 		}
 
-		try transposition.table.clear();
+		try tt.clear(pool.threads.len);
 	} else if (std.ascii.eqlIgnoreCase(name, "Hash")) {
 		if (!std.mem.eql(u8, aux, "value")) {
 			return error.UnknownCommand;
@@ -108,7 +91,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 		const value = tokens.next() orelse return error.UnknownCommand;
 		options.hash = std.fmt.parseUnsigned(usize, value, 10)
 		  catch return error.UnknownCommand;
-		try transposition.table.alloc(options.hash);
+		try tt.realloc(options.hash);
 	} else if (std.ascii.eqlIgnoreCase(name, "Threads")) {
 		if (!std.mem.eql(u8, aux, "value")) {
 			return error.UnknownCommand;
@@ -117,28 +100,29 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 		const value = tokens.next() orelse return error.UnknownCommand;
 		options.threads = std.fmt.parseUnsigned(usize, value, 10)
 		  catch return error.UnknownCommand;
-		try instance.alloc(options.threads);
+		try pool.realloc(options.threads);
 	} else if (std.ascii.eqlIgnoreCase(name, "UCI_Chess960")) {
 		if (!std.mem.eql(u8, aux, "value")) {
 			return error.UnknownCommand;
 		}
 
 		const value = tokens.next() orelse return error.UnknownCommand;
-		options.frc = if (std.mem.eql(u8, value, "false")) false
+		const frc = if (std.mem.eql(u8, value, "false")) false
 		  else if (std.mem.eql(u8, value, "true")) true
 		  else return error.UnknownCommand;
+		pool.setFRC(frc);
 	} else return error.UnknownCommand;
 
 	return .setoption;
 }
 
-fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
-	var pos = std.mem.zeroInit(Position, .{});
-	defer for (instance.infos) |*info| {
-		const d_pos = &info.pos;
-		const s_pos = &pos;
-		@memcpy(d_pos[0 .. 1], s_pos[0 .. 1]);
-	};
+fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
+	const frc = pool.threads[0].pos.frc;
+	var pos = Position.zero;
+	defer {
+		pos.frc = frc;
+		pool.setPosition(&pos);
+	}
 
 	errdefer pos.parseFen(Position.startpos)
 	  catch std.debug.panic("invalid startpos", .{});
@@ -158,26 +142,27 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any)) !Command {
 	}
 
 	move_loop: while (tokens.next()) |token| {
+		var i: usize = 0;
+		var n: usize = 0;
 		var list: movegen.Move.Scored.List = .{};
-		_ = list.genNoisy(&pos);
-		_ = list.genQuiet(&pos);
-		for (list.slice()) |sm| {
-			const m = sm.move;
-			const s = m.toString();
+
+		n += list.genNoisy(&pos);
+		n += list.genQuiet(&pos);
+		while (i < n) : (i += 1) {
+			const m = list.constSlice()[i].move;
+			const s = m.toString(&pos);
 			const l = m.toStringLen();
 			if (!std.mem.eql(u8, token, s[0 .. l])) {
 				continue;
 			}
+
 			pos.doMove(m) catch return error.UnknownCommand;
 			continue :move_loop;
-		}
-		return error.UnknownCommand;
-	}
-
-	return .position;
+		} else return error.UnknownCommand;
+	} else return .position;
 }
 
-pub fn parseCommand(command: []const u8) !Command {
+pub fn parseCommand(command: []const u8, pool: *search.Pool) !Command {
 	var tokens = std.mem.tokenizeAny(u8, command, &std.ascii.whitespace);
 	const first = tokens.next() orelse return error.UnknownCommand;
 
@@ -188,82 +173,96 @@ pub fn parseCommand(command: []const u8) !Command {
 
 		return .debug;
 	} else if (std.mem.eql(u8, first, "go")) {
-		return parseGo(&tokens);
+		return parseGo(&tokens, pool);
 	} else if (std.mem.eql(u8, first, "isready")) {
 		if (tokens.peek()) |_| {
 			return error.UnknownCommand;
 		}
 
-		try io.writer().print("readyok\n", .{});
-		try io.writer().flush();
+		pool.io.lockWriter();
+		defer pool.io.unlockWriter();
+
+		try pool.io.writer().print("readyok\n", .{});
+		try pool.io.writer().flush();
+
 		return .isready;
 	} else if (std.mem.eql(u8, first, "position")) {
-		return parsePosition(&tokens);
+		return parsePosition(&tokens, pool);
 	} else if (std.mem.eql(u8, first, "quit")) {
 		return if (tokens.peek()) |_| error.UnknownCommand else .quit;
 	} else if (std.mem.eql(u8, first, "setoption")) {
-		return parseOption(&tokens);
+		return parseOption(&tokens, pool);
 	} else if (std.mem.eql(u8, first, "stop")) {
 		if (tokens.peek()) |_| {
 			return error.UnknownCommand;
 		}
 
-		instance.stop();
+		pool.stop();
 		return .stop;
 	} else if (std.mem.eql(u8, first, "uci")) {
 		if (tokens.peek()) |_| {
 			return error.UnknownCommand;
 		}
 
-		try io.writer().print("id author {s}\n", .{@import("root").author});
-		try io.writer().print("id name {s}\n", .{@import("root").name});
+		pool.io.lockWriter();
+		defer pool.io.unlockWriter();
 
-		try io.writer().print("option name {s} type {s}\n", .{"Clear Hash", "button"});
-		try io.writer().print("option name {s} type {s} default {d} min {d} max {d}\n",
+		try pool.io.writer().print("id author {s}\n", .{@import("root").author});
+		try pool.io.writer().print("id name {s}\n", .{@import("root").name});
+
+		try pool.io.writer().print("option name {s} type {s}\n", .{"Clear Hash", "button"});
+		try pool.io.writer().print("option name {s} type {s} default {d} min {d} max {d}\n",
 		    .{"Hash", "spin", 64, 1, 1 << 38});
-		try io.writer().print("option name {s} type {s} default {d} min {d} max {d}\n",
+		try pool.io.writer().print("option name {s} type {s} default {d} min {d} max {d}\n",
 		    .{"Threads", "spin", 1, 1, 64});
-		try io.writer().print("option name {s} type {s} default {s}\n",
+		try pool.io.writer().print("option name {s} type {s} default {s}\n",
 		    .{"UCI_Chess960", "check", "false"});
-		try io.writer().print("uciok\n", .{});
-		try io.writer().flush();
+
+		try pool.io.writer().print("uciok\n", .{});
+		try pool.io.writer().flush();
+
 		return .uci;
 	} else if (std.mem.eql(u8, first, "ucinewgame")) {
 		if (tokens.peek()) |_| {
 			return error.UnknownCommand;
 		}
 
-		instance.reset();
+		try pool.reset();
 		return .ucinewgame;
 	} else return error.UnknownCommand;
-
-	return error.UnknownCommand;
-}
-
-pub fn init() !void {
-	io = try base.Io.init(null, null);
-
-	_ = try parseCommand("setoption name Hash value 64");
-	_ = try parseCommand("setoption name Threads value 1");
-	_ = try parseCommand("setoption name UCI_Chess960 value false");
-	_ = try parseCommand("setoption name Clear Hash");
-	_ = try parseCommand("position startpos");
 }
 
 pub fn loop() !void {
-	while (io.reader().takeDelimiterInclusive('\n')) |read| {
-		const comm = parseCommand(read) catch |err| sw: switch (err) {
+	const allocator = std.heap.page_allocator;
+
+	var io = try types.Io.init(allocator, null, 16384, null, 16384);
+	var tt = try transposition.Table.init(allocator, null);
+	var pool = try search.Pool.init(allocator, null, false, &io, &tt);
+
+	try pool.reset();
+	try pool.tt.clear(pool.options.threads);
+
+	defer io.deinit();
+	defer tt.deinit();
+	defer pool.deinit();
+
+	const reader = io.reader();
+	const writer = io.writer();
+
+	while (reader.takeDelimiterInclusive('\n')) |read| {
+		const comm = parseCommand(read, &pool) catch |err| sw: switch (err) {
 			error.UnknownCommand => {
-				try io.writer().print("Unknown command: '{s}'\n", .{read[0 .. read.len - 1]});
-				try io.writer().flush();
+				try writer.print("Unknown command: '{s}'\n", .{read[0 .. read.len - 1]});
+				try writer.flush();
 				break :sw Command.none;
 			},
 			else => return err,
 		};
 
 		if (comm == .quit) {
-			if (instance.options.is_searching) {
-				instance.stop();
+			if (pool.is_searching) {
+				pool.stop();
+				std.Thread.sleep(std.time.ns_per_ms / 2);
 			}
 			break;
 		}

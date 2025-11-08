@@ -1,7 +1,7 @@
-const base = @import("base");
 const bounded_array = @import("bounded_array");
 const engine = @import("engine");
 const std = @import("std");
+const types = @import("types");
 
 const Piece = enum(u4) {
 	w_pawn = 0,
@@ -24,16 +24,10 @@ const Piece = enum(u4) {
 
 	const tag_info = @typeInfo(Tag).int;
 
-	fn fromSquare(pos: *const engine.Position, s: base.types.Square) Piece {
+	fn fromSquare(pos: *const engine.Position, s: types.Square) Piece {
 		var iter = @constCast(pos).castles.iterator();
 
 		return switch (pos.getSquare(s)) {
-			.w_pawn => .w_pawn,
-			.w_knight => .w_knight,
-			.w_bishop => .w_bishop,
-			.w_queen => .w_queen,
-			.w_king => .w_king,
-
 			.w_rook => loop: while (iter.next()) |entry| {
 				const k = entry.key;
 				const v = entry.value;
@@ -42,12 +36,6 @@ const Piece = enum(u4) {
 					break :loop Piece.w_castle;
 				}
 			} else Piece.w_rook,
-
-			.b_pawn => .b_pawn,
-			.b_knight => .b_knight,
-			.b_bishop => .b_bishop,
-			.b_queen => .b_queen,
-			.b_king => .b_king,
 
 			.b_rook => loop: while (iter.next()) |entry| {
 				const k = entry.key;
@@ -58,7 +46,8 @@ const Piece = enum(u4) {
 				}
 			} else Piece.b_rook,
 
-			else => @enumFromInt(0),
+			.none => std.debug.panic("invalid piece", .{}),
+			inline else => |e| @field(Piece, @tagName(e)),
 		};
 	}
 
@@ -72,8 +61,8 @@ const Piece = enum(u4) {
 };
 
 pub const Move = packed struct(u16) {
-	src:	base.types.Square = @enumFromInt(0),
-	dst:	base.types.Square = @enumFromInt(0),
+	src:	types.Square = @enumFromInt(0),
+	dst:	types.Square = @enumFromInt(0),
 	info:	engine.movegen.Move.Info = .{.none = 0},
 	flag:	engine.movegen.Move.Flag = .none,
 
@@ -102,25 +91,19 @@ pub const Result = enum(u8) {
 };
 
 pub const Self = extern struct {
-	occ:	base.types.Square.Set,
-	pieces:	u128 align(8),
+	occ:	types.Square.Set = .none,
+	pieces:	u128 align(8) = 0,
 
-	flag:	u8,
+	flag:	u8 = 0,
 
-	ply:	u8,
-	length:	u16,
-	score:	i16,
+	ply:	u8 = 0,
+	length:	u16 = 0,
+	score:	i16 = 0,
 
-	result:	Result,
-	pad:	u8,
+	result:	Result = .draw,
+	pad:	u8 = 0,
 
 	pub fn fromPosition(pos: *const engine.Position) Self {
-		switch (@sizeOf(Self)) {
-			32 => {},
-			else => |s| @compileError(
-			  std.fmt.comptimePrint("expected size {d}, found size {d}", .{32, s})),
-		}
-
 		var self = std.mem.zeroInit(Self, .{});
 		const eval = pos.evaluate();
 
@@ -142,7 +125,7 @@ pub const Self = extern struct {
 			self.pieces |= std.math.shl(u128, t, i * Piece.tag_info.bits);
 		}
 
-		self.flag = if (pos.ss.top().en_pas) |s| s.tag() else base.types.Square.cnt;
+		self.flag = if (pos.ss.top().en_pas) |s| s.tag() else types.Square.cnt;
 		if (pos.stm == .black) {
 			self.flag |= 1 << 7;
 		}

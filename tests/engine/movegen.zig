@@ -1,7 +1,7 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const engine = @import("engine");
 const std = @import("std");
+const types = @import("types");
 
 test {
 	try std.testing.expectEqual(@sizeOf(u16), @sizeOf(engine.movegen.Move));
@@ -12,9 +12,6 @@ test {
 }
 
 test {
-	try base.init();
-	defer base.deinit();
-
 	try bitboard.init();
 	defer bitboard.deinit();
 
@@ -30,16 +27,14 @@ test {
 }
 
 test {
-	try base.init();
-	defer base.deinit();
-
 	try bitboard.init();
 	defer bitboard.deinit();
 
-	const info = try base.heap.allocator.create(engine.search.Info);
-	defer base.heap.allocator.destroy(info);
+	const thread = try std.testing.allocator.create(engine.search.Thread);
+	defer std.testing.allocator.destroy(thread);
 
-	try info.pos.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+	const pos = &thread.pos;
+	try pos.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 
 	const seq = [_]engine.movegen.Move {
 		.{.flag = .none, .info = .{.none = 0}, .src = .a2, .dst = .a3},
@@ -65,8 +60,8 @@ test {
 		.{.flag = .none, .info = .{.none = 0}, .src = .g1, .dst = .f3},
 		.{.flag = .none, .info = .{.none = 0}, .src = .g1, .dst = .h3},
 	};
-	var nmp = engine.movegen.Picker.init(info, .{});
-	var qmp = engine.movegen.Picker.init(info, .{});
+	var nmp = engine.movegen.Picker.init(thread, .{});
+	var qmp = engine.movegen.Picker.init(thread, .{});
 
 	nmp.skipQuiets();
 	if (nmp.next()) |_| {

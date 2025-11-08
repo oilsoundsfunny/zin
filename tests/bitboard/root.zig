@@ -1,8 +1,8 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const std = @import("std");
+const types = @import("types");
 
-const kiwi = base.types.Square.Set.fromSlice(base.types.Square, &.{
+const kiwi = types.Square.Set.fromSlice(types.Square, &.{
 	.a8,                .e8,           .h8,
 	.a7,      .c7, .d7, .e7, .f7, .g7,
 	.a6, .b6,           .e6, .f6, .g6,
@@ -14,16 +14,13 @@ const kiwi = base.types.Square.Set.fromSlice(base.types.Square, &.{
 });
 
 test {
-	try base.init();
-	defer base.deinit();
-
 	try bitboard.init();
 	defer bitboard.deinit();
 
-	const c3_atk = base.types.Square.Set.fromSlice(base.types.Square, &.{
+	const c3_atk = types.Square.Set.fromSlice(types.Square, &.{
 		.b5, .a4, .a2, .b1, .d1, .e2, .e4, .d5,
 	});
-	const f6_atk = base.types.Square.Set.fromSlice(base.types.Square, &.{
+	const f6_atk = types.Square.Set.fromSlice(types.Square, &.{
 		.e8, .d7, .d5, .e4, .g4, .h5, .h7, .g8,
 	});
 
@@ -32,16 +29,13 @@ test {
 }
 
 test {
-	try base.init();
-	defer base.deinit();
-
 	try bitboard.init();
 	defer bitboard.deinit();
 
-	const d2_atk = base.types.Square.Set.fromSlice(base.types.Square, &.{
+	const d2_atk = types.Square.Set.fromSlice(types.Square, &.{
 		.c3, .c1, .e1, .e3, .f4, .g5, .h6,
 	});
-	const g7_atk = base.types.Square.Set.fromSlice(base.types.Square, &.{
+	const g7_atk = types.Square.Set.fromSlice(types.Square, &.{
 		.f8, .f6, .h6, .h8,
 	});
 
@@ -50,16 +44,13 @@ test {
 }
 
 test {
-	try base.init();
-	defer base.deinit();
-
 	try bitboard.init();
 	defer bitboard.deinit();
 
-	const a1_atk = base.types.Square.Set.fromSlice(base.types.Square, &.{
+	const a1_atk = types.Square.Set.fromSlice(types.Square, &.{
 		.a2, .b1, .c1, .d1, .e1,
 	});
-	const h8_atk = base.types.Square.Set.fromSlice(base.types.Square, &.{
+	const h8_atk = types.Square.Set.fromSlice(types.Square, &.{
 		.g8, .f8, .e8, .h7, .h6, .h5, .h4, .h3,
 	});
 
