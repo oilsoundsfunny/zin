@@ -686,16 +686,19 @@ pub const Pool = struct {
 
 	pub fn waitFinish(self: *const Pool) void {
 		while (!self.finished) {
+			std.mem.doNotOptimizeAway(self);
 		}
 	}
 
 	pub fn waitStart(self: *const Pool) void {
 		while (!self.searching) {
+			std.mem.doNotOptimizeAway(self);
 		}
 	}
 
 	pub fn waitStop(self: *const Pool) void {
 		while (self.searching) {
+			std.mem.doNotOptimizeAway(self);
 		}
 	}
 
