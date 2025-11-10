@@ -3,9 +3,6 @@
 
 .DEFAULT_GOAL	:= default
 
-net:
-	-git submodule update --init --depth 1 --recursive
-
 ifndef	EXE
 EXE	= zin
 endif
@@ -16,6 +13,9 @@ else
 MV	= mv ./zig-out/bin/zin $(EXE)
 endif
 
+net:
+	-git submodule update --init --depth 1 --recursive
+
 ifdef	EVALFILE
 NET	= -Dnet=$(EVALFILE)
 else
@@ -23,5 +23,5 @@ NET	=
 endif
 
 default:	net
-	-zig build -Dname=$(EXE) $(NET) --release=fast
+	-zig build $(NET) --release=fast
 	@$(MV)

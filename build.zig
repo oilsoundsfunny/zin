@@ -170,7 +170,9 @@ pub fn build(bld: *std.Build) !void {
 		switch (m) {
 			.nnue => {
 				module.addAnonymousImport("default.nn", .{
-					.root_source_file = bld.path(net),
+					.root_source_file = .{
+						.cwd_relative = net,
+					},
 				});
 				module.addAnonymousImport("test.nn", .{
 					.root_source_file = bld.path("zin-nets/beans.bin"),
