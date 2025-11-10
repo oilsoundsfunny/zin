@@ -381,7 +381,7 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 				.file_e, .file_f, .file_g, .file_h => true,
 				else => false,
 			};
-			if (!builtin.is_test and is_s_mirrored != is_d_mirrored) {
+			if (is_s_mirrored != is_d_mirrored) {
 				self.ss.top().accumulator.mirror(self, self.stm);
 			}
 		},
@@ -550,7 +550,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 						.file_e, .file_f, .file_g, .file_h => true,
 						else => false,
 					};
-					if (!builtin.is_test and mirrored) {
+					if (mirrored) {
 						self.ss.top().accumulator.mirror(self, .white);
 					}
 				},
@@ -572,7 +572,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 						.file_e, .file_f, .file_g, .file_h => true,
 						else => false,
 					};
-					if (!builtin.is_test and mirrored) {
+					if (mirrored) {
 						self.ss.top().accumulator.mirror(self, .black);
 					}
 				},

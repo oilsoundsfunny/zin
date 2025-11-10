@@ -45,7 +45,7 @@ pub const Self = extern struct {
 };
 
 pub const default = init: {
-	const bin = if (builtin.is_test) @embedFile("test.nn") else @embedFile("default.nn");
+	const bin = @embedFile("default.nn");
 	var net: Self align(32) = undefined;
 	@memcpy(std.mem.asBytes(&net), bin[0 .. @sizeOf(Self)]);
 	break :init net;
