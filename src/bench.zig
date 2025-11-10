@@ -76,7 +76,7 @@ pub fn run(depth: ?engine.search.Depth) !void {
 	try pool.reset();
 	pool.options.threads = 1;
 	pool.options.infinite = false;
-	pool.options.depth = depth orelse 11;
+	pool.options.depth = depth orelse 13;
 
 	try pool.realloc(pool.options.threads);
 	try pool.tt.clear(pool.options.threads);
