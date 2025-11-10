@@ -453,28 +453,27 @@ pub const Thread = struct {
 				  + @as(usize, @intFromBool(is_noisy))
 				  + @as(usize, @intFromBool(mp.ttm.isNone()));
 
-				if (d >= 3 and searched > 1 and is_late) {
+				score = if (d >= 3 and searched > 1 and is_late) reduced: {
 					r += lmr.get(d, searched, is_quiet);
 					r += @intFromBool(node == .lowerbound);
 					r += @intFromBool(is_ttm_noisy);
 					r -= @intFromBool(is_pv);
 
 					const rd = std.math.clamp(recur_d -| r, 1, recur_d);
-					score = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
+					var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
 
-					if (score > a and rd < recur_d) {
-						recur_d += @intFromBool(score > best.score);
-						recur_d -= @intFromBool(score < best.score);
+					if (rs > a and rd < recur_d) {
+						recur_d += @intFromBool(rs > best.score);
+						recur_d -= @intFromBool(rs < best.score);
 
-						score = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
+						rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
 					}
-				} else {
-					score = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
-				}
 
-				if (is_pv and score > a) {
-					score = -self.ab(.exact, ply + 1, -b, -a, recur_d);
-				}
+					break :reduced rs;
+				} else -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
+
+				score = if (is_pv and score > a) -self.ab(.exact, ply + 1, -b, -a, recur_d)
+				  else score;
 
 				break :recur score;
 			};
