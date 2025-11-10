@@ -374,6 +374,20 @@ pub const Thread = struct {
 		pos.stat_eval = stat_eval;
 		pos.corr_eval = corr_eval;
 
+		const improving = !is_checked and blk: {
+			const fu2ev = pos.down(2).corr_eval;
+			if (fu2ev != evaluation.score.none) {
+				break :blk fu2ev < corr_eval;
+			}
+
+			const fu4ev = pos.down(4).corr_eval;
+			if (fu4ev != evaluation.score.none) {
+				break :blk fu4ev < corr_eval;
+			}
+
+			break :blk true;
+		};
+
 		// internal iterative reduction (iir)
 		const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
 		if (node.hasLower() and depth >= 4 and !has_ttm) {
@@ -381,10 +395,11 @@ pub const Thread = struct {
 		}
 
 		// reverse futility pruning (rfp)
+		const rfp_margin: @TypeOf(corr_eval) = if (improving) 28 else 78;
 		if (!is_pv
 		  and !is_checked
 		  and d < 8
-		  and corr_eval >= b + d * 96) {
+		  and corr_eval >= b + d * rfp_margin) {
 			return @divTrunc(corr_eval + b, 2);
 		}
 
