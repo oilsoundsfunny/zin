@@ -3,21 +3,42 @@ const nnue = @import("nnue");
 const std = @import("std");
 const types = @import("types");
 
+const movegen = @import("movegen.zig");
 const Position = @import("Position.zig");
 
 pub const score = struct {
+	const max = std.math.maxInt(i16);
+	const min = std.math.minInt(i16);
+
 	pub const Int = i32;
 
-	pub const none = -32768;
+	pub const mate  = 0 + max;
+	pub const mated = 0 - max;
+	pub const none  = min;
 
-	pub const win  = 0 + 32767;
+	pub const win  = 0 + (max - 1 - movegen.Move.Root.capacity);
 	pub const draw = 0;
-	pub const lose = 0 - 32767;
+	pub const lose = 0 - (max - 1 - movegen.Move.Root.capacity);
 
-	pub const tbwin  = 0 + 32640;
-	pub const tblose = 0 - 32640;
+	pub fn isMate(s: Int) bool {
+		return s == std.math.clamp(s, win, mate);
+	}
 
-	pub fn centipawns(s: Int, mat: Int) Int {
+	pub fn isMated(s: Int) bool {
+		return s == std.math.clamp(s, mated, lose);
+	}
+
+	pub fn mateIn(ply: usize) Int {
+		const i: Int = @intCast(ply);
+		return mate - i;
+	}
+
+	pub fn matedIn(ply: usize) Int {
+		const i: Int = @intCast(ply);
+		return mated + i;
+	}
+
+	pub fn normalize(s: Int, mat: Int) Int {
 		const params = [_]f32 {
 			6.87155862, -39.65226391, 90.68460352, 170.66996364,
 		};
@@ -32,10 +53,8 @@ pub const score = struct {
 	}
 
 	pub fn fromPosition(pos: *const Position) Int {
-		var ev = nnue.net.default.infer(pos);
-		ev *= 128 - pos.ss.top().rule50;
-		ev = @divTrunc(ev, 128);
-		ev = std.math.clamp(ev, score.tblose + 1, score.tbwin - 1);
-		return ev;
+		const inferred = nnue.net.default.infer(pos);
+		const tapered = @divTrunc(inferred * (100 - pos.ss.top().rule50), 100);
+		return std.math.clamp(tapered, lose + 1, win - 1);
 	}
 };

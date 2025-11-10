@@ -127,27 +127,26 @@ pub const Thread = struct {
 		try writer.print(" time {d}", .{mtime});
 		try writer.print(" nps {d}", .{nodes * std.time.ns_per_s / ntime});
 
+		const pvs: evaluation.score.Int = @intCast(pv.score);
 		try writer.print(" score", .{});
-		switch (pv.score) {
-			evaluation.score.lose ... evaluation.score.tblose => |pvs| {
-				const s = @divTrunc(pvs - evaluation.score.lose + 1, 2);
-				try writer.print(" mate {d}", .{-s});
-			},
-			evaluation.score.tbwin ... evaluation.score.win => |pvs| {
-				const s = @divTrunc(evaluation.score.win - pvs + 1, 2);
-				try writer.print(" mate {d}", .{s});
-			},
-			else => |pvs| {
-				const pos = &self.pos;
-				const m
-				  = pos.ptypeOcc(.pawn).count() * 1
-				  + pos.ptypeOcc(.knight).count() * 3
-				  + pos.ptypeOcc(.bishop).count() * 3
-				  + pos.ptypeOcc(.rook).count() * 5
-				  + pos.ptypeOcc(.queen).count() * 9;
-				const s = evaluation.score.centipawns(@intCast(pvs), m);
-				try writer.print(" cp {d}", .{s});
-			},
+		if (evaluation.score.isMated(pvs)) {
+			const ply = pvs - evaluation.score.mated;
+			const moves = @divTrunc(ply + 1, 2);
+			try writer.print(" mate {d}", .{-moves});
+		} else if (evaluation.score.isMate(pvs)) {
+			const ply = evaluation.score.mate - pvs;
+			const moves = @divTrunc(ply + 1, 2);
+			try writer.print(" mate {d}", .{moves});
+		} else {
+			const pos = &self.pos;
+			const mat
+			  = pos.ptypeOcc(.pawn).count() * 1
+			  + pos.ptypeOcc(.knight).count() * 3
+			  + pos.ptypeOcc(.bishop).count() * 3
+			  + pos.ptypeOcc(.rook).count() * 5
+			  + pos.ptypeOcc(.queen).count() * 9;
+			const normalized = evaluation.score.normalize(pvs, mat);
+			try writer.print(" cp {d}", .{normalized});
 		}
 
 		try writer.print(" pv", .{});
@@ -333,14 +332,14 @@ pub const Thread = struct {
 		}
 
 		const has_tteval = tth
-		  and tte.eval >= evaluation.score.tblose
-		  and tte.eval <= evaluation.score.tbwin;
+		  and tte.eval > evaluation.score.lose
+		  and tte.eval < evaluation.score.win;
 		const stat_eval = if (is_checked) evaluation.score.none
 		  else if (has_tteval) tte.eval else pos.evaluate();
 
 		const use_ttscore = tth
-		  and tte.score < evaluation.score.tbwin
-		  and tte.score > evaluation.score.tblose
+		  and tte.score < evaluation.score.win
+		  and tte.score > evaluation.score.lose
 		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
 		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
@@ -361,7 +360,7 @@ pub const Thread = struct {
 		if (!is_pv
 		  and !is_checked
 		  and d >= 3
-		  and b > evaluation.score.tblose
+		  and b > evaluation.score.lose
 		  and corr_eval >= b
 		  and !self.nmp_verif) nmp: {
 			const occ = pos.bothOcc();
@@ -380,7 +379,7 @@ pub const Thread = struct {
 			};
 
 			if (s >= b) {
-				if (s >= evaluation.score.tbwin) {
+				if (evaluation.score.isMate(s)) {
 					s = b;
 				}
 
@@ -595,14 +594,14 @@ pub const Thread = struct {
 		}
 
 		const has_tteval = tth
-		  and tte.eval >= evaluation.score.tblose
-		  and tte.eval <= evaluation.score.tbwin;
+		  and tte.eval > evaluation.score.lose
+		  and tte.eval < evaluation.score.win;
 		const stat_eval = if (is_checked) evaluation.score.none
 		  else if (has_tteval) tte.eval else pos.evaluate();
 
 		const use_ttscore = tth
-		  and tte.score < evaluation.score.tbwin
-		  and tte.score > evaluation.score.tblose
+		  and tte.score < evaluation.score.win
+		  and tte.score > evaluation.score.lose
 		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
 		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
@@ -629,16 +628,12 @@ pub const Thread = struct {
 		}
 
 		move_loop: while (mp.next()) |sm| {
-			const is_mated = best.score <= evaluation.score.tblose;
+			const is_mated = evaluation.score.isMated(best.score);
 			if (!is_mated and mp.stage.isBad()) {
 				break;
 			}
 
 			const m = sm.move;
-			// if (!is_mated and !pos.see(m, evaluation.score.draw)) {
-				// continue;
-			// }
-
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
 				tt.prefetch(pos.ss.top().key);
