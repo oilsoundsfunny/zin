@@ -52,6 +52,7 @@ pub fn build(bld: *std.Build) !void {
 
 	const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
 	const lto = bld.option(bool, "lto", "") orelse false;
+	const net = bld.option([]const u8, "net", "") orelse "zin-nets/hl256.nn";
 	const stack_check = bld.option(bool, "stack-check", "") orelse !ndebug;
 	const strip = bld.option(bool, "strip", "Strip executable(s)") orelse ndebug;
 	const unwind_tables = bld.option(std.builtin.UnwindTables, "unwind-tables", "")
@@ -169,7 +170,7 @@ pub fn build(bld: *std.Build) !void {
 		switch (m) {
 			.nnue => {
 				module.addAnonymousImport("default.nn", .{
-					.root_source_file = bld.path("zin-nets/hl256.nn"),
+					.root_source_file = bld.path(net),
 				});
 				module.addAnonymousImport("test.nn", .{
 					.root_source_file = bld.path("zin-nets/beans.bin"),
