@@ -15,7 +15,7 @@ pub const Entry = packed struct(u80) {
 	age:	u5 = 0,
 	eval:	i16 = evaluation.score.none,
 	score:	i16 = evaluation.score.none,
-	move:	movegen.Move = movegen.Move.zero,
+	move:	movegen.Move = .{},
 
 	pub const Flag = enum(u2) {
 		none,
@@ -81,7 +81,8 @@ pub const Table = struct {
 	}
 
 	pub fn init(allocator: std.mem.Allocator, mb: ?usize) !Table {
-		const len = (mb orelse search.Options.zero.hash) * (1 << 20) / @sizeOf(Cluster);
+		const options: search.Options = .{};
+		const len = (mb orelse options.hash) * (1 << 20) / @sizeOf(Cluster);
 		return .{
 			.allocator = allocator,
 			.slice = try allocator.alloc(Cluster, len),

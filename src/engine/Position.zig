@@ -14,14 +14,17 @@ const zobrist = @import("zobrist.zig");
 
 const Self = @This();
 
-by_color:	std.EnumArray(types.Color, types.Square.Set),
-by_ptype:	std.EnumArray(types.Ptype, types.Square.Set),
-by_square:	std.EnumArray(types.Square, types.Piece),
-castles:	std.EnumMap(types.Castle, Castle),
+by_color:	std.EnumArray(types.Color, types.Square.Set)
+  = std.EnumArray(types.Color, types.Square.Set).initFill(.none),
+by_ptype:	std.EnumArray(types.Ptype, types.Square.Set)
+  = std.EnumArray(types.Ptype, types.Square.Set).initFill(.none),
+by_square:	std.EnumArray(types.Square, types.Piece)
+  = std.EnumArray(types.Square, types.Piece).initFill(.none),
+castles:	std.EnumMap(types.Castle, Castle) = std.EnumMap(types.Castle, Castle).init(.{}),
 
-frc:	bool,
-stm:	types.Color,
-ss:	State.Stack,
+frc:	bool = false,
+stm:	types.Color = .white,
+ss:	State.Stack = .{},
 
 const Ops = enum {
 	none,
@@ -65,7 +68,7 @@ pub const Castle = struct {
 };
 
 pub const State = struct {
-	move:	movegen.Move = movegen.Move.zero,
+	move:	movegen.Move = .{},
 	src_piece:	types.Piece = .none,
 	dst_piece:	types.Piece = .none,
 
@@ -152,17 +155,6 @@ pub const State = struct {
 
 pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
-
-pub const zero: Self = .{
-	.by_color = std.EnumArray(types.Color, types.Square.Set).initFill(.none),
-	.by_ptype = std.EnumArray(types.Ptype, types.Square.Set).initFill(.none),
-	.by_square = std.EnumArray(types.Square, types.Piece).initFill(.none),
-	.castles = std.EnumMap(types.Castle, Castle).init(.{}),
-
-	.frc = false,
-	.stm = .white,
-	.ss = .{},
-};
 
 fn colorOccPtr(self: *Self, c: types.Color) *types.Square.Set {
 	return self.by_color.getPtr(c);
@@ -513,7 +505,7 @@ pub fn parseFen(self: *Self, fen: []const u8) FenError!void {
 
 pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
 	const backup = self.*;
-	self.* = zero;
+	self.* = .{};
 	errdefer self.* = backup;
 
 	const sa = [types.Square.cnt]types.Square {

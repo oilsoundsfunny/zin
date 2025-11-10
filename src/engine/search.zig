@@ -14,38 +14,21 @@ pub const Depth = isize;
 pub const Node = transposition.Entry.Flag;
 
 pub const Thread = struct {
-	pos:	Position,
-	pool:	*Pool,
+	pos:	Position = .{},
+	pool:	*Pool = undefined,
 
-	nodes:	u64,
-	tbhits:	u64,
-	tthits:	u64,
+	nodes:	u64 = 0,
+	tbhits:	u64 = 0,
+	tthits:	u64 = 0,
 
-	depth:		Depth,
-	seldepth:	Depth,
-	root_moves:	movegen.Move.Root.List,
+	depth:		Depth = 0,
+	seldepth:	Depth = 0,
+	root_moves:	movegen.Move.Root.List = .{},
 
-	nmp_verif:	bool,
-	bfhist:	[types.Ptype.cnt][types.Square.cnt]hist.Int,
-
-	const zero: Thread = .{
-		.pos = Position.zero,
-		.pool = undefined,
-
-		.nodes = 0,
-		.tbhits = 0,
-		.tthits = 0,
-
-		.depth = 0,
-		.seldepth = 0,
-		.root_moves = .{},
-
-		.nmp_verif = false,
-		.bfhist = @splat(@splat(evaluation.score.draw)),
-	};
+	nmp_verif:	bool = false,
 
 	fn reset(self: *Thread, pool: *Pool) void {
-		self.* = zero;
+		self.* = .{};
 		self.pool = pool;
 	}
 
@@ -59,7 +42,7 @@ pub const Thread = struct {
 
 	fn bestMove(self: *const Thread) movegen.Move {
 		const pv = &self.root_moves.constSlice()[0];
-		return if (pv.line.len > 0) pv.constSlice()[0] else movegen.Move.zero;
+		return if (pv.line.len > 0) pv.constSlice()[0] else @as(movegen.Move, .{});
 	}
 
 	fn printInfo(self: *const Thread) !void {
@@ -79,7 +62,7 @@ pub const Thread = struct {
 		const seldepth = self.seldepth;
 		const pv = &self.root_moves.constSlice()[0];
 
-		if (best.isZero()) {
+		if (best.isNone()) {
 			return;
 		}
 
@@ -130,7 +113,7 @@ pub const Thread = struct {
 		defer self.pool.io.unlockWriter();
 
 		const m = self.bestMove();
-		if (m.isZero()) {
+		if (m.isNone()) {
 			try self.pool.io.writer().print("bestmove 0000\n", .{});
 			try self.pool.io.writer().flush();
 			return;
@@ -146,11 +129,10 @@ pub const Thread = struct {
 		const is_main = self.idx() == 0;
 		const is_threaded = self.cnt() > 1;
 
-		if (is_main) {
-			defer self.pool.is_searching = true;
-			self.pool.prep();
-			self.pool.timer.reset();
-		} else self.pool.waitStart();
+		defer if (is_main) {
+			self.pool.stop();
+			self.pool.finish();
+		} else self.pool.waitStop();
 
 		const has_moves = self.root_moves.constSlice().len > 0;
 		const max_depth = self.pool.options.depth orelse movegen.Move.Root.capacity;
@@ -166,7 +148,7 @@ pub const Thread = struct {
 			self.asp();
 
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
-			if (!self.pool.is_searching) {
+			if (!self.pool.searching) {
 				break;
 			}
 
@@ -177,10 +159,9 @@ pub const Thread = struct {
 		}
 
 		if (is_main) {
-			defer self.pool.stop();
 			try self.printInfo();
 			try self.printBest();
-		} else self.pool.waitStop();
+		}
 	}
 
 	fn asp(self: *Thread) void {
@@ -200,7 +181,7 @@ pub const Thread = struct {
 
 		while (true) : (w *= 2) {
 			s = self.ab(.exact, 0, a, b, d);
-			if (!self.pool.is_searching) {
+			if (!self.pool.searching) {
 				break;
 			}
 
@@ -233,7 +214,7 @@ pub const Thread = struct {
 		const draw: @TypeOf(a, b) = evaluation.score.draw;
 		const lose: @TypeOf(a, b) = mated;
 
-		if (!self.pool.is_searching) {
+		if (!self.pool.searching) {
 			return draw;
 		}
 
@@ -397,7 +378,7 @@ pub const Thread = struct {
 				break :recur score;
 			};
 
-			if (!self.pool.is_searching) {
+			if (!self.pool.searching) {
 				return draw;
 			}
 
@@ -457,7 +438,7 @@ pub const Thread = struct {
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
 			.score = best.score,
-			.move = if (!best.move.isZero()) best.move else mp.ttm,
+			.move = if (!best.move.isNone()) best.move else mp.ttm,
 		};
 
 		return best.score;
@@ -473,7 +454,7 @@ pub const Thread = struct {
 		const draw = evaluation.score.draw;
 		const lose = evaluation.score.lose + 1;
 
-		if (!self.pool.is_searching) {
+		if (!self.pool.searching) {
 			return draw;
 		}
 
@@ -573,7 +554,7 @@ pub const Thread = struct {
 				break :recur -self.qs(ply + 1, -b, -a);
 			};
 
-			if (!self.pool.is_searching) {
+			if (!self.pool.searching) {
 				return draw;
 			}
 
@@ -604,7 +585,7 @@ pub const Thread = struct {
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
 			.score = best.score,
-			.move = if (!best.move.isZero()) best.move else mp.ttm,
+			.move = if (!best.move.isNone()) best.move else mp.ttm,
 		};
 
 		return best.score;
@@ -617,26 +598,12 @@ pub const Pool = struct {
 	options:	Options,
 
 	timer:	std.time.Timer,
-	is_searching:	bool,
+	searching:	bool,
+	finished:	bool,
 
 	quiet:	bool,
 	io:	*types.Io,
 	tt:	*transposition.Table,
-
-	fn prep(self: *Pool) void {
-		const pos = &self.threads[0].pos;
-		const root_moves = &self.threads[0].root_moves;
-
-		root_moves.* = movegen.Move.Root.List.init(pos);
-		for (self.threads) |*thread| {
-			thread.pos = pos.*;
-			thread.root_moves = root_moves.*;
-
-			thread.nodes = 0;
-			thread.tbhits = 0;
-			thread.tthits = 0;
-		}
-	}
 
 	pub fn deinit(self: *Pool) void {
 		self.allocator.free(self.threads);
@@ -648,13 +615,15 @@ pub const Pool = struct {
 	  quiet: bool,
 	  io: *types.Io,
 	  tt: *transposition.Table) !Pool {
+		const options: Options = .{};
 		return .{
 			.allocator = allocator,
-			.threads = try allocator.alloc(Thread, threads orelse 1),
-			.options = Options.zero,
+			.threads = try allocator.alloc(Thread, threads orelse options.threads),
+			.options = options,
 
 			.timer = try std.time.Timer.start(),
-			.is_searching = false,
+			.searching = false,
+			.finished = false,
 
 			.quiet = quiet,
 			.io = io,
@@ -675,12 +644,18 @@ pub const Pool = struct {
 	}
 
 	pub fn reset(self: *Pool) !void {
-		const frc = self.options.frc;
-		var pos = Position.zero;
+		self.searching = false;
+		self.finished = false;
+
+		self.options.reset();
+		self.timer.reset();
 
 		for (self.threads) |*thread| {
 			thread.reset(self);
 		}
+
+		const frc = self.options.frc;
+		var pos: Position = .{};
 
 		try pos.parseFen(Position.startpos);
 		pos.frc = frc;
@@ -709,17 +684,46 @@ pub const Pool = struct {
 		}
 	}
 
+	pub fn waitFinish(self: *const Pool) void {
+		while (!self.finished) {
+		}
+	}
+
 	pub fn waitStart(self: *const Pool) void {
-		while (!self.is_searching) {
+		while (!self.searching) {
 		}
 	}
 
 	pub fn waitStop(self: *const Pool) void {
-		while (self.is_searching) {
+		while (self.searching) {
 		}
 	}
 
+	pub fn finish(self: *Pool) void {
+		self.finished = true;
+	}
+
 	pub fn start(self: *Pool) !void {
+		const is_threaded = self.threads.len > 1;
+		const pos = &self.threads[0].pos;
+		const root_moves = &self.threads[0].root_moves;
+
+		root_moves.* = movegen.Move.Root.List.init(pos);
+		for (self.threads, 0 ..) |*thread, i| {
+			if (is_threaded and i != 0) {
+				thread.pos = pos.*;
+				thread.root_moves = root_moves.*;
+			}
+
+			thread.nodes = 0;
+			thread.tbhits = 0;
+			thread.tthits = 0;
+		}
+
+		self.searching = true;
+		self.finished = false;
+		self.timer.reset();
+
 		const config: std.Thread.SpawnConfig = .{
 			.stack_size = 16 * 1024 * 1024,
 			.allocator = self.allocator,
@@ -731,43 +735,28 @@ pub const Pool = struct {
 	}
 
 	pub fn stop(self: *Pool) void {
-		self.is_searching = false;
+		self.searching = false;
 	}
 };
 
 pub const Options = struct {
-	frc:	bool,
-	hash:	usize,
-	threads:	usize,
-	overhead:	u64,
+	frc:	bool = false,
+	hash:	usize = 64,
+	threads:	usize = 1,
+	overhead:	u64 = 10,
 
-	infinite:		bool,
-	depth:	?Depth,
-	nodes:	?u64,
+	infinite:		bool = false,
+	depth:	?Depth = null,
+	nodes:	?u64 = null,
 
-	incr: std.EnumMap(types.Color, u64),
-	time: std.EnumMap(types.Color, u64),
+	incr: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
+	time: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
 
-	movetime:	?u64,
-	stop:	?u64,
-
-	pub const zero: Options = .{
-		.frc = false,
-		.hash = 64,
-		.threads = 1,
-		.overhead = 10,
-
-		.infinite = true,
-		.depth = null,
-		.nodes = null,
-		.incr = std.EnumMap(types.Color, u64).init(.{}),
-		.time = std.EnumMap(types.Color, u64).init(.{}),
-		.movetime = null,
-		.stop = null,
-	};
+	movetime:	?u64 = null,
+	stop:	?u64 = null,
 
 	pub fn reset(self: *Options) void {
-		self.* = zero;
+		self.* = .{};
 	}
 
 	pub fn calcStop(self: *Options, stm: types.Color) void {

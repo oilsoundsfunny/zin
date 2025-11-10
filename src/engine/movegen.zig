@@ -11,7 +11,7 @@ const uci = @import("uci.zig");
 
 const RootMove = struct {
 	line:	bounded_array.BoundedArray(Move, capacity) = .{
-		.buffer = .{Move.zero} ** capacity,
+		.buffer = .{@as(Move, .{})} ** capacity,
 		.len = 0,
 	},
 	score:	isize = evaluation.score.none,
@@ -386,7 +386,7 @@ pub const Move = packed struct(u16) {
 
 	pub const List = struct {
 		array:	bounded_array.BoundedArray(Move, capacity) = .{
-			.buffer = .{zero} ** capacity,
+			.buffer = .{@as(Move, .{})} ** capacity,
 			.len = 0,
 		},
 
@@ -411,9 +411,7 @@ pub const Move = packed struct(u16) {
 	pub const Root = RootMove;
 	pub const Scored = ScoredMove;
 
-	pub const zero: Move = .{};
-
-	pub fn isZero(self: Move) bool {
+	pub fn isNone(self: Move) bool {
 		return self == @as(Move, .{});
 	}
 
@@ -501,7 +499,7 @@ pub const Picker = struct {
 			const m = sm.move;
 			self.list.index += 1;
 
-			if (m != Move.zero and m != self.ttm) {
+			if (!m.isNone() and m != self.ttm) {
 				break :loop sm;
 			}
 		} else null;
@@ -535,8 +533,8 @@ pub const Picker = struct {
 			.skip_quiets = false,
 			.stage = .gen_noisy,
 
-			.excluded = Move.zero,
-			.ttm = Move.zero,
+			.excluded = .{},
+			.ttm = .{},
 
 			.noisy_n = 0,
 			.quiet_n = 0,
@@ -545,7 +543,7 @@ pub const Picker = struct {
 			.bad_quiet_n = 0,
 		};
 
-		if (!ttm.isZero() and self.pos.isMovePseudoLegal(ttm)) {
+		if (!ttm.isNone() and self.pos.isMovePseudoLegal(ttm)) {
 			self.ttm = ttm;
 			self.stage = .ttm;
 		}
@@ -556,7 +554,7 @@ pub const Picker = struct {
 	pub fn next(self: *Picker) ?Move.Scored {
 		if (self.stage == .ttm) {
 			self.stage.inc();
-			if (self.ttm != Move.zero) {
+			if (!self.ttm.isNone()) {
 				return .{
 					.move = self.ttm,
 					.score = self.scoreQuiet(self.ttm),

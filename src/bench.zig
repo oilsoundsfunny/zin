@@ -6,7 +6,7 @@ const types = @import("types");
 // from Stormphrax:
 // https://github.com/Ciekce/Stormphrax/blob/main/src/bench.cpp
 const fens = [_][]const u8 {
-		"r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w KQkq - 0 14",
+		// "r3k2r/2pb1ppp/2pp1q2/p7/1nP1B3/1P2P3/P2N1PPP/R2QK2R w KQkq - 0 14",
 		// "4rrk1/2p1b1p1/p1p3q1/4p3/2P2n1p/1P1NR2P/PB3PP1/3R1QK1 b - - 2 24",
 		// "r3qbrk/6p1/2b2pPp/p3pP1Q/PpPpP2P/3P1B2/2PB3K/R5R1 w - - 16 42",
 		// "6k1/1R3p2/6p1/2Bp3p/3P2q1/P7/1P2rQ1K/5R2 b - - 4 44",
@@ -35,10 +35,7 @@ const fens = [_][]const u8 {
 		// "r3k2r/ppp1pp1p/2nqb1pn/3p4/4P3/2PP4/PP1NBPPP/R2QK1NR w KQkq - 1 5",
 		// "3r1rk1/1pp1pn1p/p1n1q1p1/3p4/Q3P3/2P5/PP1NBPPP/4RRK1 w - - 0 12",
 		// "5rk1/1pp1pn1p/p3Brp1/8/1n6/5N2/PP3PPP/2R2RK1 w - - 2 20",
-
-		// TODO: checked pos
 		// "8/1p2pk1p/p1p1r1p1/3n4/8/5R2/PP3PPP/4R1K1 b - - 3 27",
-
 		// "8/4pk2/1p1r2p1/p1p4p/Pn5P/3R4/1P3PP1/4RK2 w - - 1 33",
 		// "8/5k2/1pnrp1p1/p1p4p/P6P/4R1PK/1P3P2/4R3 b - - 1 38",
 		// "8/8/1p1kp1p1/p1pr1n1p/P6P/1R4P1/1P3PK1/1R6 b - - 15 45",
@@ -60,13 +57,12 @@ const fens = [_][]const u8 {
 		// "3br1k1/p1pn3p/1p3n2/5pNq/2P1p3/1PN3PP/P2Q1PB1/4R1K1 w - - 0 23",
 		// "2r2b2/5p2/5k2/p1r1pP2/P2pB3/1P3P2/K1P3R1/7R w - - 23 93",
 
-		// "bb1n1rkr/ppp1Q1pp/3n1p2/3p4/3P4/6Pq/PPP1PP1P/BB1NNRKR w HFhf - 0 5",
-		// "nqbnrkrb/pppppppp/8/8/8/8/PPPPPPPP/NQBNRKRB w GEge - 0 1",
+		"bb1n1rkr/ppp1Q1pp/3n1p2/3p4/3P4/6Pq/PPP1PP1P/BB1NNRKR w HFhf - 0 5",
+		"nqbnrkrb/pppppppp/8/8/8/8/PPPPPPPP/NQBNRKRB w GEge - 0 1",
 };
 
 pub fn run(depth: ?engine.search.Depth) !void {
 	const allocator = std.heap.page_allocator;
-	var sum: u64 = 0;
 
 	var io = try types.Io.init(allocator, null, 4096, null, 4096);
 	defer io.deinit();
@@ -77,19 +73,34 @@ pub fn run(depth: ?engine.search.Depth) !void {
 	var pool = try engine.search.Pool.init(allocator, null, true, &io, &tt);
 	defer pool.deinit();
 
+	_ = try engine.uci.parseCommand("setoption name Hash value 128", &pool);
+	_ = try engine.uci.parseCommand("setoption name Threads value 1", &pool);
+	_ = try engine.uci.parseCommand("setoption name Clear Hash", &pool);
 	try pool.reset();
-	try pool.realloc(1);
-	try pool.tt.clear(1);
-	pool.options.infinite = false;
-	pool.options.depth = depth orelse 1;
+
+	const writer = io.writer();
+	var sum: u64 = 0;
+	var time: u64 = 0;
 
 	for (fens) |fen| {
-		try pool.threads[0].pos.parseFen(fen);
-		try pool.start();
-		pool.waitStop();
+		{
+			try writer.print("position fen {s}", .{fen});
+			_ = try engine.uci.parseCommand(writer.buffered(), &pool);
+			_ = writer.consumeAll();
+		}
+
+		{
+			try writer.print("go depth {d}", .{depth orelse 5});
+			_ = try engine.uci.parseCommand(writer.buffered(), &pool);
+			_ = writer.consumeAll();
+		}
+
+		pool.waitFinish();
+		time += pool.timer.lap();
 		sum += pool.nodes();
 	}
 
-	try io.writer().print("{d}\n", .{sum});
+	const nps = sum * std.time.ns_per_s / time;
+	try io.writer().print("{d} nodes {d} nps\n", .{sum, nps});
 	try io.writer().flush();
 }

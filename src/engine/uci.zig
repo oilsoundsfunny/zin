@@ -39,7 +39,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Comman
 
 		const aux = tokens.next() orelse return error.UnknownCommand;
 		if (std.mem.eql(u8, token, "depth")) {
-			options.depth = std.fmt.parseUnsigned(search.Depth, aux, 10)
+			options.depth = std.fmt.parseUnsigned(u8, aux, 10)
 			  catch return error.UnknownCommand;
 		} else if (std.mem.eql(u8, token, "movetime")) {
 			options.movetime = std.fmt.parseUnsigned(u64, aux, 10)
@@ -118,7 +118,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Co
 
 fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
 	const frc = pool.threads[0].pos.frc;
-	var pos = Position.zero;
+	var pos: Position = .{};
 	defer {
 		pos.frc = frc;
 		pool.setPosition(&pos);
@@ -260,9 +260,9 @@ pub fn loop() !void {
 		};
 
 		if (comm == .quit) {
-			if (pool.is_searching) {
+			if (pool.searching) {
 				pool.stop();
-				std.Thread.sleep(std.time.ns_per_ms / 2);
+				pool.waitFinish();
 			}
 			break;
 		}
