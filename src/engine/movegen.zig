@@ -213,7 +213,7 @@ const ScoredMoveList = struct {
 		const promotion_bb = stm.promotionRank().toSet();
 
 		const src = pos.pieceOcc(types.Piece.init(stm, .pawn));
-		const dst = pos.ss.top().check_mask
+		const dst = pos.ss.top().checks
 		  .bwa(if (is_promote) promotion_bb else promotion_bb.flip())
 		  .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
@@ -266,7 +266,7 @@ const ScoredMoveList = struct {
 		const occ = pos.bothOcc();
 		const target = types.Square.Set
 		  .full
-		  .bwa(if (ptype != .king) pos.ss.top().check_mask else .full)
+		  .bwa(if (ptype != .king) pos.ss.top().checks else .full)
 		  .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
 		var src = pos.pieceOcc(types.Piece.init(stm, ptype));

@@ -26,21 +26,6 @@ frc:	bool = false,
 stm:	types.Color = .white,
 ss:	State.Stack = .{},
 
-const Ops = enum {
-	none,
-	core,
-	more,
-	both,
-
-	fn hasCore(self: Ops) bool {
-		return self == .core or self == .both;
-	}
-
-	fn hasMore(self: Ops) bool {
-		return self == .more or self == .both;
-	}
-};
-
 pub const FenError = error {
 	InvalidPiece,
 	InvalidSquare,
@@ -68,6 +53,13 @@ pub const Castle = struct {
 };
 
 pub const State = struct {
+	by_color:	std.EnumArray(types.Color, types.Square.Set)
+	  = std.EnumArray(types.Color, types.Square.Set).initFill(.none),
+	by_ptype:	std.EnumArray(types.Ptype, types.Square.Set)
+	  = std.EnumArray(types.Ptype, types.Square.Set).initFill(.none),
+	by_square:	std.EnumArray(types.Square, types.Piece)
+	  = std.EnumArray(types.Square, types.Piece).initFill(.none),
+
 	move:	movegen.Move = .{},
 	src_piece:	types.Piece = .none,
 	dst_piece:	types.Piece = .none,
@@ -77,7 +69,7 @@ pub const State = struct {
 	rule50:	 u8 = 0,
 	key:	 zobrist.Int = 0,
 
-	check_mask:	types.Square.Set = .full,
+	checks:	types.Square.Set = .full,
 
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
@@ -182,44 +174,36 @@ fn squarePtrConst(self: *const Self, s: types.Square) *const types.Piece {
 	return self.by_square.getPtrConst(s);
 }
 
-fn popSq(self: *Self, s: types.Square, p: types.Piece, comptime ops: Ops) void {
+fn popSq(self: *Self, s: types.Square, p: types.Piece) void {
 	if (p == .none) {
 		return;
 	}
 
-	if (ops.hasCore()) {
-		const c = p.color();
-		const t = p.ptype();
-		self.squarePtr(s).* = .none;
-		self.colorOccPtr(c).pop(s);
-		self.ptypeOccPtr(t).pop(s);
-	}
+	const c = p.color();
+	const t = p.ptype();
+	self.squarePtr(s).* = .none;
+	self.colorOccPtr(c).pop(s);
+	self.ptypeOccPtr(t).pop(s);
 
-	if (ops.hasMore()) {
-		const z = zobrist.psq(s, p);
-		self.ss.top().key ^= z;
-		self.ss.top().accumulator.pop(s, p);
-	}
+	const z = zobrist.psq(s, p);
+	self.ss.top().key ^= z;
+	self.ss.top().accumulator.pop(s, p);
 }
 
-fn setSq(self: *Self, s: types.Square, p: types.Piece, comptime ops: Ops) void {
+fn setSq(self: *Self, s: types.Square, p: types.Piece) void {
 	if (p == .none) {
 		return;
 	}
 
-	if (ops.hasCore()) {
-		const c = p.color();
-		const t = p.ptype();
-		self.squarePtr(s).* = p;
-		self.colorOccPtr(c).set(s);
-		self.ptypeOccPtr(t).set(s);
-	}
+	const c = p.color();
+	const t = p.ptype();
+	self.squarePtr(s).* = p;
+	self.colorOccPtr(c).set(s);
+	self.ptypeOccPtr(t).set(s);
 
-	if (ops.hasMore()) {
-		const z = zobrist.psq(s, p);
-		self.ss.top().key ^= z;
-		self.ss.top().accumulator.set(s, p);
-	}
+	const z = zobrist.psq(s, p);
+	self.ss.top().key ^= z;
+	self.ss.top().accumulator.set(s, p);
 }
 
 fn popCastle(self: *Self, c: types.Castle) void {
@@ -291,10 +275,15 @@ pub fn getSquare(self: *const Self, s: types.Square) types.Piece {
 }
 
 pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
+	const stm = self.stm;
 	const s = move.src;
 	const d = move.dst;
 	const sp = self.getSquare(s);
 	const dp = self.getSquare(d);
+
+	self.ss.top().by_color = self.by_color;
+	self.ss.top().by_ptype = self.by_ptype;
+	self.ss.top().by_square = self.by_square;
 
 	self.ss.top().move = move;
 	self.ss.top().src_piece = sp;
@@ -306,9 +295,9 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 	self.ss.top().key = self.ss.top().down(1).key;
 	self.ss.top().accumulator = self.ss.top().down(1).accumulator;
 
-	self.popSq(s, sp, .both);
-	self.popSq(d, dp, .both);
-	self.setSq(d, sp, .both);
+	self.popSq(s, sp);
+	self.popSq(d, dp);
+	self.setSq(d, sp);
 
 	switch (move.flag) {
 		.none => {
@@ -316,36 +305,61 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		},
 
 		.en_passant => {
-			const their_pawn = types.Piece.init(self.stm.flip(), .pawn);
-			const enp_target = d.shift(self.stm.forward().flip(), 1);
+			const their_pawn = types.Piece.init(stm.flip(), .pawn);
+			const enp_target = d.shift(stm.forward().flip(), 1);
 
-			self.popSq(enp_target, their_pawn, .both);
+			self.popSq(enp_target, their_pawn);
 		},
 
 		.promote => {
-			const our_pawn = types.Piece.init(self.stm, .pawn);
-			const our_promotion = types.Piece.init(self.stm, move.info.promote.toPtype());
+			const our_pawn = types.Piece.init(stm, .pawn);
+			const our_promotion = types.Piece.init(stm, move.info.promote.toPtype());
 
-			self.popSq(d, our_pawn, .both);
-			self.setSq(d, our_promotion, .both);
+			self.popSq(d, our_pawn);
+			self.setSq(d, our_promotion);
 		},
 
 		.castle => {
 			const info = self.castles.getAssertContains(move.info.castle);
-			const our_rook = types.Piece.init(self.stm, .rook);
-			const our_king = types.Piece.init(self.stm, .king);
+			const our_rook = types.Piece.init(stm, .rook);
+			const our_king = types.Piece.init(stm, .king);
 
-			self.popSq(info.rs, our_king, .both);
-			self.setSq(info.kd, our_king, .both);
-			self.setSq(info.rd, our_rook, .both);
+			self.popSq(info.rs, our_king);
+			self.setSq(info.kd, our_king);
+			self.setSq(info.rd, our_rook);
 		},
+	}
+
+	{
+		const undo = struct {
+			fn inner(pos: *Self) MoveError!void {
+				@branchHint(.unlikely);
+
+				pos.ss.pop();
+				pos.by_color = pos.ss.top().by_color;
+				pos.by_ptype = pos.ss.top().by_ptype;
+				pos.by_square = pos.ss.top().by_square;
+				return error.InvalidMove;
+			}
+		}.inner;
+
+		const king = types.Piece.init(stm, .king);
+		const kb = self.pieceOcc(king);
+		const ks = kb.lowSquare() orelse return undo(self);
+
+		const atkers = self.squareAtkers(ks);
+		const them = self.colorOcc(stm.flip());
+		if (atkers.bwa(them) != .none) {
+			return undo(self);
+		}
 	}
 
 	switch (sp) {
 		.w_pawn, .b_pawn => {
 			self.ss.top().rule50 = 0;
-			if (d.shift(self.stm.forward().flip(), 2) == s) {
-				self.ss.top().en_pas = d.shift(self.stm.forward().flip(), 1);
+
+			if (d.shift(stm.forward().flip(), 2) == s) {
+				self.ss.top().en_pas = d.shift(stm.forward().flip(), 1);
 			}
 		},
 
@@ -363,8 +377,8 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		},
 
 		.w_king, .b_king => {
-			self.popCastle(if (self.stm == .white) .wk else .bk);
-			self.popCastle(if (self.stm == .white) .wq else .bq);
+			self.popCastle(if (stm == .white) .wk else .bk);
+			self.popCastle(if (stm == .white) .wq else .bq);
 
 			const ks = switch (move.flag) {
 				.castle => self.castles.getPtrConstAssertContains(move.info.castle).ks,
@@ -384,7 +398,7 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 				else => false,
 			};
 			if (is_s_mirrored != is_d_mirrored) {
-				self.ss.top().accumulator.mirror(self, self.stm);
+				self.ss.top().accumulator.mirror(self, stm);
 			}
 		},
 
@@ -407,20 +421,13 @@ pub fn doMove(self: *Self, move: movegen.Move) MoveError!void {
 		else => {},
 	}
 
-	self.stm = self.stm.flip();
-	self.ss.top().check_mask = self.genCheckMask();
+	self.stm = stm.flip();
+	self.ss.top().checks = self.genCheckMask();
 	self.ss.top().key ^= zobrist.stm()
 	  ^ zobrist.cas(self.ss.top().down(1).castle)
 	  ^ zobrist.enp(self.ss.top().down(1).en_pas)
 	  ^ zobrist.cas(self.ss.top().castle)
 	  ^ zobrist.enp(self.ss.top().en_pas);
-
-	const kb = self.pieceOcc(types.Piece.init(self.stm.flip(), .king));
-	const ks = kb.lowSquare() orelse std.debug.panic("invalid position", .{});
-	if (self.squareAtkers(ks).bwa(self.colorOcc(self.stm)) != .none) {
-		self.undoMove();
-		return error.InvalidMove;
-	}
 }
 
 pub fn doNull(self: *Self) MoveError!void {
@@ -443,49 +450,12 @@ pub fn doNull(self: *Self) MoveError!void {
 }
 
 pub fn undoMove(self: *Self) void {
-	const move = self.ss.top().down(1).move;
-	const sp = self.ss.top().down(1).src_piece;
-	const dp = self.ss.top().down(1).dst_piece;
-	const s = move.src;
-	const d = move.dst;
-
 	self.stm = self.stm.flip();
-
-	switch (move.flag) {
-		.none => {
-			@branchHint(.likely);
-		},
-
-		.en_passant => {
-			const their_pawn = types.Piece.init(self.stm.flip(), .pawn);
-			const enp_target = d.shift(self.stm.forward().flip(), 1);
-
-			self.setSq(enp_target, their_pawn, .core);
-		},
-
-		.promote => {
-			const our_pawn = types.Piece.init(self.stm, .pawn);
-			const our_promotion = types.Piece.init(self.stm, move.info.promote.toPtype());
-
-			self.popSq(d, our_promotion, .core);
-			self.setSq(d, our_pawn, .core);
-		},
-
-		.castle => {
-			const info = self.castles.getAssertContains(move.info.castle);
-			const our_rook = types.Piece.init(self.stm, .rook);
-			const our_king = types.Piece.init(self.stm, .king);
-
-			self.popSq(info.rd, our_rook, .core);
-			self.popSq(info.kd, our_king, .core);
-			self.setSq(info.rs, our_king, .core);
-		},
-	}
-
-	self.popSq(d, sp, .core);
-	self.setSq(d, dp, .core);
-	self.setSq(s, sp, .core);
 	self.ss.pop();
+
+	self.by_color = self.ss.top().by_color;
+	self.by_ptype = self.ss.top().by_ptype;
+	self.by_square = self.ss.top().by_square;
 }
 
 pub fn undoNull(self: *Self) void {
@@ -532,7 +502,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 		const s = sa[si];
 		const from_c = types.Piece.fromChar(c);
 		si += if (from_c) |p| blk: {
-			self.setSq(s, p, .both);
+			self.setSq(s, p);
 
 			switch (p) {
 				.w_rook => {
@@ -700,7 +670,7 @@ pub fn parseFenTokens(self: *Self, tokens: *std.mem.TokenIterator(u8, .any)) Fen
 	std.mem.doNotOptimizeAway(std.fmt.parseUnsigned(u8, move_token, 10)
 	  catch return error.InvalidMoveClock);
 
-	self.ss.top().check_mask = self.genCheckMask();
+	self.ss.top().checks = self.genCheckMask();
 }
 
 pub fn squareAtkers(self: *const Self, s: types.Square) types.Square.Set {
@@ -734,7 +704,7 @@ pub fn is3peat(self: *const Self) bool {
 }
 
 pub fn isChecked(self: *const Self) bool {
-	return self.ss.top().check_mask != .full;
+	return self.ss.top().checks != .full;
 }
 
 pub fn isDrawn(self: *const Self) bool {
