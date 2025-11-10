@@ -17,9 +17,9 @@ pub const Thread = struct {
 	pos:	Position,
 	pool:	*Pool,
 
-	nodes:	usize,
-	tbhits:	usize,
-	tthits:	usize,
+	nodes:	u64,
+	tbhits:	u64,
+	tthits:	u64,
 
 	depth:		Depth,
 	seldepth:	Depth,
@@ -275,10 +275,10 @@ pub const Thread = struct {
 		const pos = &self.pos;
 		const key = pos.ss.top().key;
 		const is_checked = pos.isChecked();
-		if (pos.isDrawn()) {
-			return draw;
-		} else if (pos.ss.isFull()) {
-			return pos.evaluate();
+		const is_drawn = pos.isDrawn();
+		const is_terminal = pos.ss.isFull();
+		if (is_drawn or is_terminal) {
+			return if (is_drawn) draw else pos.evaluate();
 		}
 
 		const tt = self.pool.tt;
@@ -286,33 +286,30 @@ pub const Thread = struct {
 		const tte = ttf[0].*;
 		const tth = ttf[1]
 		  and tte.key == @as(@TypeOf(tte.key), @truncate(key))
-		  and tte.flag != .none
-		  and (tte.move.isZero() or pos.isMovePseudoLegal(tte.move));
-		const ttm = if (tth) tte.move else movegen.Move.zero;
+		  and tte.flag != .none;
 
-		const has_tteval = tth
-		  and tte.eval >= evaluation.score.tblose
-		  and tte.eval <= evaluation.score.tbwin;
-		const use_ttscore = tth
-		  and tte.score < evaluation.score.tbwin
-		  and tte.score > evaluation.score.tblose
-		  and !(tte.flag == .upperbound and tte.score >  pos.ss.top().stat_eval)
-		  and !(tte.flag == .lowerbound and tte.score <= pos.ss.top().stat_eval);
 		const was_pv = tth and tte.was_pv;
 
 		if (tth and tte.shouldTrust(a, b, d)) {
 			return tte.score;
 		}
 
-		pos.ss.top().stat_eval = if (is_checked) evaluation.score.none
-		  else if (has_tteval) tte.eval
-		  else pos.evaluate();
-		pos.ss.top().corr_eval = if (use_ttscore) tte.score else pos.ss.top().stat_eval;
+		const has_tteval = tth
+		  and tte.eval >= evaluation.score.tblose
+		  and tte.eval <= evaluation.score.tbwin;
+		const stat_eval = if (is_checked) evaluation.score.none
+		  else if (has_tteval) tte.eval else pos.evaluate();
 
-		const stat_eval = pos.ss.top().stat_eval;
-		const corr_eval = pos.ss.top().corr_eval;
-		_ = &stat_eval;
-		_ = &corr_eval;
+		const use_ttscore = tth
+		  and tte.score < evaluation.score.tbwin
+		  and tte.score > evaluation.score.tblose
+		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
+		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
+		// TODO: correct eval in case tt score is unusable
+		const corr_eval = if (use_ttscore) tte.score else stat_eval;
+
+		pos.ss.top().stat_eval = stat_eval;
+		pos.ss.top().corr_eval = corr_eval;
 
 		// reverse futility pruning (rfp)
 		if (!is_pv
@@ -374,7 +371,7 @@ pub const Thread = struct {
 		var flag = transposition.Entry.Flag.upperbound;
 
 		var searched: usize = 0;
-		var mp = movegen.Picker.init(self, ttm);
+		var mp = movegen.Picker.init(self, tte.move);
 
 		move_loop: while (mp.next()) |sm| {
 			const m = sm.move;
@@ -502,44 +499,40 @@ pub const Thread = struct {
 		const pos = &self.pos;
 		const key = pos.ss.top().key;
 		const is_checked = pos.isChecked();
-		if (pos.isDrawn()) {
-			return draw;
-		} else if (pos.ss.isFull()) {
-			return pos.evaluate();
+		const is_drawn = pos.isDrawn();
+		const is_terminal = pos.ss.isFull();
+		if (is_drawn or is_terminal) {
+			return if (is_drawn) draw else pos.evaluate();
 		}
 
 		const tt = self.pool.tt;
 		const ttf = tt.fetch(key);
+
 		const tte = ttf[0].*;
 		const tth = ttf[1]
-		  and tte.key == @as(@TypeOf(tte.key), @truncate(key))
 		  and tte.flag != .none
-		  and (tte.move.isZero() or pos.isMovePseudoLegal(tte.move));
-		const ttm = if (tth) tte.move else movegen.Move.zero;
-
-		const has_tteval = tth
-		  and tte.eval >= evaluation.score.tblose
-		  and tte.eval <= evaluation.score.tbwin;
-		// const is_pv = node == .exact;
-		const use_ttscore = tth
-		  and tte.score < evaluation.score.tbwin
-		  and tte.score > evaluation.score.tblose
-		  and !(tte.flag == .upperbound and tte.score >  pos.ss.top().stat_eval)
-		  and !(tte.flag == .lowerbound and tte.score <= pos.ss.top().stat_eval);
+		  and tte.key == @as(@TypeOf(tte.key), @truncate(key));
 
 		if (tth and tte.shouldTrust(a, b, 0)) {
 			return tte.score;
 		}
 
-		pos.ss.top().stat_eval = if (is_checked) evaluation.score.none
-		  else if (has_tteval) tte.eval
-		  else pos.evaluate();
-		pos.ss.top().corr_eval = if (use_ttscore) tte.score else pos.ss.top().stat_eval;
+		const has_tteval = tth
+		  and tte.eval >= evaluation.score.tblose
+		  and tte.eval <= evaluation.score.tbwin;
+		const stat_eval = if (is_checked) evaluation.score.none
+		  else if (has_tteval) tte.eval else pos.evaluate();
 
-		const stat_eval = pos.ss.top().stat_eval;
-		const corr_eval = pos.ss.top().corr_eval;
-		_ = &stat_eval;
-		_ = &corr_eval;
+		const use_ttscore = tth
+		  and tte.score < evaluation.score.tbwin
+		  and tte.score > evaluation.score.tblose
+		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
+		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
+		// TODO: correct eval in case tt score is unusable
+		const corr_eval = if (use_ttscore) tte.score else pos.ss.top().stat_eval;
+
+		pos.ss.top().stat_eval = stat_eval;
+		pos.ss.top().corr_eval = corr_eval;
 
 		if (stat_eval >= b) {
 			return stat_eval;
@@ -553,7 +546,7 @@ pub const Thread = struct {
 		var flag = transposition.Entry.Flag.upperbound;
 
 		var searched: usize = 0;
-		var mp = movegen.Picker.init(self, ttm);
+		var mp = movegen.Picker.init(self, tte.move);
 		if (!is_checked) {
 			mp.skipQuiets();
 		}
@@ -630,14 +623,6 @@ pub const Pool = struct {
 	io:	*types.Io,
 	tt:	*transposition.Table,
 
-	fn nodes(self: *const Pool) usize {
-		var n: usize = 0;
-		for (self.threads) |*thread| {
-			n += thread.nodes;
-		}
-		return n;
-	}
-
 	fn prep(self: *Pool) void {
 		const pos = &self.threads[0].pos;
 		const root_moves = &self.threads[0].root_moves;
@@ -700,6 +685,14 @@ pub const Pool = struct {
 		try pos.parseFen(Position.startpos);
 		pos.frc = frc;
 		self.setPosition(&pos);
+	}
+
+	pub fn nodes(self: *const Pool) u64 {
+		var n: u64 = 0;
+		for (self.threads) |*thread| {
+			n += thread.nodes;
+		}
+		return n;
 	}
 
 	pub fn setFRC(self: *Pool, frc: bool) void {

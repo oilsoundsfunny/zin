@@ -104,7 +104,7 @@ pub const Self = extern struct {
 	pad:	u8 = 0,
 
 	pub fn fromPosition(pos: *const engine.Position) Self {
-		var self = std.mem.zeroInit(Self, .{});
+		var self: Self = .{};
 		const eval = pos.evaluate();
 
 		self.ply = pos.ss.top().rule50;

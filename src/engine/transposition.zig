@@ -140,10 +140,11 @@ pub const Table = struct {
 
 		for (entries) |entry| {
 			const tte = entry.*;
-			if (tte.key != @as(@TypeOf(tte.key), @truncate(key)) or tte.flag == .none) {
-				continue;
+
+			const match_key = tte.key == @as(@TypeOf(tte.key), @truncate(key));
+			if (tte.flag != .none and match_key) {
+				return .{entry, true};
 			}
-			return .{entry, true};
 		}
 
 		var replace = entries[0];

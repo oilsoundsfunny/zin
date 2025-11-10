@@ -7,9 +7,9 @@ const Keys = struct {
 	castle:	std.EnumArray(types.Castle.Set, Int),
 	en_pas:	std.EnumArray(types.File, Int),
 	stm:	Int,
-};
 
-var keys = std.mem.zeroInit(Keys, .{});
+	var default: Keys = undefined;
+};
 
 pub const Int = types.Square.Set.Tag;
 
@@ -18,38 +18,38 @@ pub fn init() !void {
 
 	for (types.Square.values) |s| {
 		for (types.Piece.w_pieces) |p| {
-			keys.occ.getPtr(s).set(p, r.random().int(Int));
+			Keys.default.occ.getPtr(s).set(p, r.random().int(Int));
 		}
 		for (types.Piece.b_pieces) |p| {
-			keys.occ.getPtr(s).set(p, r.random().int(Int));
+			Keys.default.occ.getPtr(s).set(p, r.random().int(Int));
 		}
 	}
 
-	for (&keys.castle.values) |*p| {
+	for (&Keys.default.castle.values) |*p| {
 		p.* = r.random().int(Int);
 	}
 
-	for (&keys.en_pas.values) |*p| {
+	for (&Keys.default.en_pas.values) |*p| {
 		p.* = r.random().int(Int);
 	}
 
-	keys.stm = r.random().int(Int);
+	Keys.default.stm = r.random().int(Int);
 }
 
 pub fn psq(s: types.Square, p: types.Piece) Int {
-	return keys.occ.getPtrConst(s).getPtrConst(p).*;
+	return Keys.default.occ.getPtrConst(s).getPtrConst(p).*;
 }
 
 pub fn cas(c: types.Castle.Set) Int {
-	return keys.castle.getPtrConst(c).*;
+	return Keys.default.castle.getPtrConst(c).*;
 }
 
 pub fn enp(e: ?types.Square) Int {
-	return if (e) |s| keys.en_pas.getPtrConst(s.file()).* else 0;
+	return if (e) |s| Keys.default.en_pas.getPtrConst(s.file()).* else 0;
 }
 
 pub fn stm() Int {
-	return keys.stm;
+	return Keys.default.stm;
 }
 
 pub fn index(key: Int, len: usize) usize {

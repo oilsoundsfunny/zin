@@ -1,30 +1,16 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const engine = @import("engine");
 const params = @import("params");
 const std = @import("std");
+const types = @import("types");
 
 pub const Result = struct {
 	fen:	[]const u8,
 	nodes:	[6]usize,
 };
 
-const io = struct {
-	const stdin = std.fs.File.stdin();
-	const stdout = std.fs.File.stdout();
-
-	const reader = &std_reader.interface;
-	const writer = &std_writer.interface;
-
-	var reader_buf = std.mem.zeroes([4096]u8);
-	var writer_buf = std.mem.zeroes([4096]u8);
-
-	var std_reader = stdin.reader(&reader_buf);
-	var std_writer = stdout.writer(&writer_buf);
-};
-
-fn divRecursive(pos: *engine.Position, depth: isize, recur: isize) usize {
-	if (depth <= recur) {
+fn divRecursive(comptime root: bool, pos: *engine.Position, depth: engine.search.Depth) usize {
+	if (depth <= 0) {
 		return 1;
 	}
 
@@ -38,24 +24,29 @@ fn divRecursive(pos: *engine.Position, depth: isize, recur: isize) usize {
 		pos.doMove(m) catch continue;
 		defer pos.undoMove();
 
-		const this = divRecursive(pos, depth, recur + 1);
+		const this = divRecursive(false, pos, depth - 1);
 		sum += this;
 
-		if (recur == 0) {
-			const s = m.toString();
+		if (root) {
+			const s = m.toString(pos);
 			const l = m.toStringLen();
 			std.debug.print("{s}:\t{d}\n", .{s[0 .. l], this});
 		}
 	}
 
-	if (recur == 0) {
-		std.debug.print("perft {d}: {d}\n", .{depth, sum});
-	}
 	return sum;
 }
 
-pub fn div(pos: *engine.Position, depth: isize) usize {
-	return divRecursive(pos, depth, 0);
+pub fn div(pos: *engine.Position, depth: isize) !usize {
+	var timer = try std.time.Timer.start();
+
+	timer.reset();
+	const nodes = divRecursive(true, pos, depth);
+	const time = timer.lap();
+	const nps = nodes * std.time.ns_per_s / time;
+
+	std.debug.print("info perft depth {d} nodes {d} nps {d}\n", .{depth, nodes, nps});
+	return nodes;
 }
 
 test {

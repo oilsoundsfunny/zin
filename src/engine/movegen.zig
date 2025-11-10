@@ -57,7 +57,7 @@ const RootMove = struct {
 
 const RootMoveList = struct {
 	array:	bounded_array.BoundedArray(RootMove, capacity) = .{
-		.buffer = .{std.mem.zeroInit(RootMove, .{})} ** capacity,
+		.buffer = .{@as(RootMove, .{})} ** capacity,
 		.len = 0,
 	},
 
@@ -83,8 +83,8 @@ const RootMoveList = struct {
 	}
 
 	pub fn init(pos: *Position) RootMoveList {
-		var rml = std.mem.zeroInit(RootMoveList, .{});
-		var sml = std.mem.zeroInit(Move.Scored.List, .{});
+		var rml: RootMoveList = .{};
+		var sml: Move.Scored.List = .{};
 
 		if (pos.isDrawn()) {
 			return rml;
@@ -110,8 +110,8 @@ const RootMoveList = struct {
 };
 
 const ScoredMove = struct {
-	move:	Move,
-	score:	search.hist.Int,
+	move:	Move = .{},
+	score:	std.meta.Int(.signed, @bitSizeOf(Move)) = evaluation.score.none,
 
 	pub const List = ScoredMoveList;
 
@@ -127,7 +127,7 @@ const ScoredMove = struct {
 
 const ScoredMoveList = struct {
 	array:	bounded_array.BoundedArray(ScoredMove, capacity) = .{
-		.buffer = .{std.mem.zeroInit(ScoredMove, .{})} ** capacity,
+		.buffer = .{@as(ScoredMove, .{})} ** capacity,
 		.len = 0,
 	},
 	index:	usize = 0,
@@ -527,16 +527,16 @@ pub const Picker = struct {
 	}
 
 	pub fn init(thread: *const search.Thread, ttm: Move) Picker {
-		return .{
+		var self: Picker = .{
 			.list = .{},
 			.pos  = &thread.pos,
 			.thread = thread,
 
 			.skip_quiets = false,
-			.stage = if (ttm.isZero()) .gen_noisy else .ttm,
+			.stage = .gen_noisy,
 
 			.excluded = Move.zero,
-			.ttm = ttm,
+			.ttm = Move.zero,
 
 			.noisy_n = 0,
 			.quiet_n = 0,
@@ -544,6 +544,13 @@ pub const Picker = struct {
 			.bad_noisy_n = 0,
 			.bad_quiet_n = 0,
 		};
+
+		if (!ttm.isZero() and self.pos.isMovePseudoLegal(ttm)) {
+			self.ttm = ttm;
+			self.stage = .ttm;
+		}
+
+		return self;
 	}
 
 	pub fn next(self: *Picker) ?Move.Scored {

@@ -1,4 +1,3 @@
-const base = @import("base");
 const bitboard = @import("bitboard");
 const engine = @import("engine");
 const std = @import("std");
@@ -28,17 +27,17 @@ const suite = [_]root.Result {
 };
 
 test {
-	try base.init();
-	defer base.deinit();
-
 	try bitboard.init();
 	defer bitboard.deinit();
 
-	var pos = std.mem.zeroInit(engine.Position, .{});
-	for (suite[0 .. 0]) |result| {
+	const first = 0;
+	const len = 0;
+	for (suite[first ..][0 .. len]) |result| {
+		var pos = engine.Position.zero;
 		try pos.parseFen(result.fen);
 		for (result.nodes, 1 ..) |expected, depth| {
-			try std.testing.expectEqual(expected, root.div(&pos, @intCast(depth)));
+			const actual = try root.div(&pos, @intCast(depth));
+			try std.testing.expectEqual(expected, actual);
 		}
 	}
 }
