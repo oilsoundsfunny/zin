@@ -82,30 +82,27 @@ const RootMoveList = struct {
 		try self.array.resize(len);
 	}
 
-	pub fn init(pos: *Position) RootMoveList {
-		var rml: RootMoveList = .{};
-		var sml: Move.Scored.List = .{};
-
-		if (pos.isDrawn()) {
-			return rml;
+	pub fn init(pos: *const Position) RootMoveList {
+		const is_drawn = pos.isDrawn();
+		const is_terminal = pos.ss.isFull();
+		if (is_drawn or is_terminal) {
+			@branchHint(.cold);
+			return .{};
 		}
 
-		_ = sml.genNoisy(pos);
-		_ = sml.genQuiet(pos);
-		for (sml.constSlice()) |sm| {
-			const m = sm.move;
-			pos.doMove(m) catch continue;
-			defer pos.undoMove();
+		var root_moves: RootMoveList = .{};
+		var gen_moves: Move.Scored.List = .{};
 
-			var rm: RootMove = .{
-				.score = evaluation.score.lose,
-			};
-			rm.push(m);
-			rml.push(rm);
+		_ = gen_moves.genNoisy(pos);
+		_ = gen_moves.genQuiet(pos);
+		for (gen_moves.constSlice()) |sm| {
+			var rm: RootMove = .{};
+			defer root_moves.push(rm);
+
+			rm.push(sm.move);
+			rm.score = evaluation.score.lose;
 		}
-
-		RootMove.sortSlice(rml.slice());
-		return rml;
+		return root_moves;
 	}
 };
 

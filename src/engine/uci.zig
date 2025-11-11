@@ -124,8 +124,10 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !
 		pool.setPosition(&pos);
 	}
 
-	errdefer pos.parseFen(Position.startpos)
-	  catch std.debug.panic("invalid startpos", .{});
+	errdefer {
+		pos.parseFen(Position.startpos) catch std.debug.panic("invalid startpos", .{});
+		pos.frc = frc;
+	}
 
 	const first = tokens.next() orelse return error.UnknownCommand;
 	if (std.mem.eql(u8, first, "fen")) {
@@ -141,6 +143,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !
 		return error.UnknownCommand;
 	}
 
+	pos.frc = frc;
 	move_loop: while (tokens.next()) |token| {
 		var i: usize = 0;
 		var n: usize = 0;
