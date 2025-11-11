@@ -10,7 +10,7 @@ const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
-pub const Depth = isize;
+pub const Depth = evaluation.score.Int;
 pub const Node = transposition.Entry.Flag;
 
 pub const Thread = struct {
@@ -28,12 +28,44 @@ pub const Thread = struct {
 	root_moves:	movegen.Move.Root.List = .{},
 
 	nmp_verif:	bool = false,
+	quiet_hist:	[types.Square.cnt][types.Square.cnt]hist.Int = @splat(@splat(0)),
 
 	fn reset(self: *Thread, pool: *Pool) void {
 		self.* = .{};
 		self.pool = pool;
 		self.idx = self[0 .. 1].ptr - pool.threads.ptr;
 		self.cnt = pool.threads.len;
+	}
+
+	fn quietHistPtr(self: anytype, move: movegen.Move) switch (@TypeOf(self)) {
+		*Thread => *hist.Int,
+		*const Thread => *const hist.Int,
+		else => |T| @compileError("unexpected type " ++ @typeName(T)),
+	} {
+		return &self.quiet_hist[move.src.tag()][move.dst.tag()];
+	}
+
+	fn updateHist(self: *Thread, depth: Depth, move: movegen.Move,
+	  bad_noisy_moves: []const movegen.Move,
+	  bad_quiet_moves: []const movegen.Move) void {
+		const clamped = @min(depth, 12);
+		const bonus = clamped * 64;
+		const malus = bonus;
+
+		const pos = &self.pos;
+		const is_quiet = pos.isMoveQuiet(move);
+		if (is_quiet) {
+			hist.bonus(self.quietHistPtr(move), bonus);
+			for (bad_quiet_moves) |qm| {
+				hist.malus(self.quietHistPtr(qm), malus);
+			}
+		} else {
+			// TODO: bonus noisy hist
+		}
+
+		for (bad_noisy_moves) |_| {
+			// TODO: malus noisy hist
+		}
 	}
 
 	fn printInfo(self: *const Thread) !void {
@@ -120,12 +152,11 @@ pub const Thread = struct {
 		const is_main = self.idx == 0;
 		const is_threaded = self.cnt > 1;
 
-		const has_moves = self.root_moves.constSlice().len > 0;
 		const max_depth = self.pool.options.depth orelse movegen.Move.Root.capacity;
 		const min_depth = 1;
 		var depth: Depth = min_depth;
 
-		while (has_moves and depth <= max_depth) : (depth += 1) {
+		while (depth <= max_depth) : (depth += 1) {
 			self.depth = depth + @intFromBool(is_threaded
 			  and self.idx % 2 == 1
 			  and depth > min_depth
@@ -135,8 +166,9 @@ pub const Thread = struct {
 
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
 			const stop = !self.pool.searching or depth == max_depth;
-			const mated = self.root_moves.constSlice()[0].score == evaluation.score.lose;
-			if (stop or mated) {
+			const no_moves = self.root_moves.constSlice().len == 0
+			  or self.root_moves.constSlice()[0].score == evaluation.score.lose;
+			if (stop or no_moves) {
 				break;
 			}
 
@@ -340,10 +372,15 @@ pub const Thread = struct {
 		var flag = transposition.Entry.Flag.upperbound;
 
 		var searched: usize = 0;
+		var bad_noisy_moves: movegen.Move.List = .{};
+		var bad_quiet_moves: movegen.Move.List = .{};
 		var mp = movegen.Picker.init(self, tte.move);
 
 		move_loop: while (mp.next()) |sm| {
 			const m = sm.move;
+			const is_noisy = pos.isMoveNoisy(m);
+			const is_quiet = !is_noisy;
+
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
 				tt.prefetch(pos.ss.top().key);
@@ -382,7 +419,7 @@ pub const Thread = struct {
 				while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {
 				}
 
-				const next_pv = &pos.ss.top().up(1).pv;
+				const next_pv = &pos.ss.bottom().up(1).pv;
 				const rm = &rms[rmi];
 				if (pv_found or first_rm) {
 					rm.update(s, m, next_pv.constSlice());
@@ -412,10 +449,22 @@ pub const Thread = struct {
 					break :move_loop;
 				}
 			}
+
+			if (is_quiet) {
+				bad_quiet_moves.push(m);
+			} else {
+				bad_noisy_moves.push(m);
+			}
 		}
 
 		if (searched == 0) {
 			return if (is_checked) lose else draw;
+		}
+
+		if (flag == .lowerbound) {
+			self.updateHist(d, best.move,
+			  bad_noisy_moves.constSlice(),
+			  bad_quiet_moves.constSlice());
 		}
 
 		ttf[0].* = .{
@@ -577,6 +626,10 @@ pub const Thread = struct {
 		};
 
 		return best.score;
+	}
+
+	pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {
+		return self.quietHistPtr(move).*;
 	}
 };
 

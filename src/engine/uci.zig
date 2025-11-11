@@ -215,9 +215,9 @@ pub fn parseCommand(command: []const u8, pool: *search.Pool) !Command {
 
 		try pool.io.writer().print("option name {s} type {s}\n", .{"Clear Hash", "button"});
 		try pool.io.writer().print("option name {s} type {s} default {d} min {d} max {d}\n",
-		    .{"Hash", "spin", 64, 1, 1 << 38});
+		    .{"Hash", "spin", 64, 1, 1 << 30});
 		try pool.io.writer().print("option name {s} type {s} default {d} min {d} max {d}\n",
-		    .{"Threads", "spin", 1, 1, 64});
+		    .{"Threads", "spin", 1, 1, 256});
 		try pool.io.writer().print("option name {s} type {s} default {s}\n",
 		    .{"UCI_Chess960", "check", "false"});
 

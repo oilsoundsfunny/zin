@@ -743,16 +743,15 @@ pub fn isDrawn(self: *const Self) bool {
 
 pub fn isMoveNoisy(self: *const Self, move: movegen.Move) bool {
 	const dp = self.getSquare(move.dst);
-	const is_capt = dp.color() != self.stm and dp.ptype() != .none and dp.ptype() != .full;
+	const is_capt = dp != .none and dp.color() != self.stm;
 
-	return switch (move.flag) {
-		.none => is_capt,
+	return is_capt or switch (move.flag) {
 		.en_passant => true,
-		.promote => {
+		.promote => blk: {
 			const promotion = move.info.promote.toPtype();
-			return is_capt or promotion == .queen or promotion == .knight;
+			break :blk promotion == .queen or promotion == .knight;
 		},
-		.castle => false,
+		else => false,
 	};
 }
 

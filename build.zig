@@ -50,9 +50,6 @@ pub fn build(bld: *std.Build) !void {
 	const ndebug = optimize != .Debug and optimize != .ReleaseSafe;
 	const target = bld.standardTargetOptions(.{});
 
-	const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
-	const lto = bld.option(bool, "lto", "") orelse false;
-	const net = bld.option([]const u8, "net", "") orelse "zin-nets/hl256.nn";
 	const stack_check = bld.option(bool, "stack-check", "") orelse !ndebug;
 	const strip = bld.option(bool, "strip", "Strip executable(s)") orelse ndebug;
 	const unwind_tables = bld.option(std.builtin.UnwindTables, "unwind-tables", "")
@@ -153,6 +150,10 @@ pub fn build(bld: *std.Build) !void {
 		test_step.dependOn(&bld.addRunArtifact(test_unit).step);
 	}
 
+	const evalfile = bld.option([]const u8, "evalfile", "");
+	const network: std.Build.LazyPath = if (evalfile) |custom| .{.cwd_relative = custom}
+	  else bld.dependency("networks", .{}).path("hl256.nn");
+
 	for (Modules.values) |m| {
 		const deps = Modules.dependencies.get(m);
 		const module = Modules.array.get(m);
@@ -168,9 +169,7 @@ pub fn build(bld: *std.Build) !void {
 		}
 
 		switch (m) {
-			.nnue => module.addAnonymousImport("default.nn", .{
-				.root_source_file = .{.cwd_relative = net},
-			}),
+			.nnue => module.addAnonymousImport("default.nn", .{.root_source_file = network}),
 			else => {},
 		}
 	}
@@ -182,6 +181,9 @@ pub fn build(bld: *std.Build) !void {
 		.use_llvm = use_llvm,
 	});
 	selfplay_step.dependOn(&bld.addInstallArtifact(selfplay_exe, .{}).step);
+
+	const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
+	const lto = bld.option(bool, "lto", "") orelse false;
 
 	const exe = bld.addExecutable(.{
 		.root_module = root,

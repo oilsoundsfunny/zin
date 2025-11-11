@@ -1,8 +1,6 @@
 # mostly yoinked from pawnocchio
 # https://github.com/JonathanHallstrom/pawnocchio/blob/main/Makefile
 
-.DEFAULT_GOAL	:= default
-
 ifndef	EXE
 EXE	= zin
 endif
@@ -13,15 +11,12 @@ else
 MV	= mv ./zig-out/bin/zin $(EXE)
 endif
 
-net:
-	-git submodule update --init --depth 1 --recursive
-
 ifdef	EVALFILE
-NET	= -Dnet=$(EVALFILE)
+NETWORK	= -Devalfile=$(EVALFILE)
 else
-NET	=
+NETWORK	=
 endif
 
-default:	net
-	-zig build $(NET) --release=fast
+default:
+	-zig build $(NETWORK) --release=fast
 	@$(MV)

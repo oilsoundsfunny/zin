@@ -503,8 +503,7 @@ pub const Picker = struct {
 	}
 
 	fn scoreNoisy(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm) search.hist.max + 1
-		  else if (move == self.excluded) search.hist.min - 1
+		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
 		  else captures: {
 			const sp = self.pos.getSquare(move.src);
 			const dp = self.pos.getSquare(move.dst);
@@ -516,9 +515,8 @@ pub const Picker = struct {
 	}
 
 	fn scoreQuiet(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm) search.hist.max + 1
-		  else if (move == self.excluded) search.hist.min - 1
-		  else evaluation.score.draw;
+		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
+		  else self.thread.getQuietHist(move);
 	}
 
 	pub fn init(thread: *const search.Thread, ttm: Move) Picker {

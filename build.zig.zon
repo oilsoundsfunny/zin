@@ -1,12 +1,16 @@
 .{
-    .name = .engine,
-    .version = "0.15.1",
+    .name = .zin_bfh,
+    .version = "0.15.2",
     .dependencies = .{
         .bounded_array = .{
             .url = "git+https://github.com/jedisct1/zig-bounded-array.git#1dc4361da8ee667a2f352b938045e09bda8ea379",
             .hash = "bounded_array-0.1.0-VF2RKohKAAAnG-uH_4cQr-Vc9eizfnpEgDL9U_g6a2oz",
         },
+        .networks = .{
+            .url = "git+https://github.com/oilsoundsfunny/zin-nets.git#c129a9ab00e43c6071f301cc47076aa41657206b",
+            .hash = "N-V-__8AAMMKBgD2kmMkwjlBkzRYJ35_n-l4QVOjtyu6JjHb",
+        },
     },
     .paths = .{""},
-    .fingerprint = 0xe8a81a8df028723e,
+    .fingerprint = 0x747ee254a8e25b98,
 }
