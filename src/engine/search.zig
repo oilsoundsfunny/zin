@@ -10,6 +10,35 @@ const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
+pub const lmr = struct {
+	var table: [32][32][2]u8 = undefined;
+
+	pub fn get(depth: Depth, searched: usize, quiet: bool) u8 {
+		const clamped_d: usize = @intCast(std.math.clamp(depth, 0, 31));
+		const clamped_i: usize = @min(searched, 31);
+		return table[clamped_d][clamped_i][@intFromBool(quiet)];
+	}
+
+	pub fn init() !void {
+		for (table[0 ..], 0 ..) |*by_depth, depth| {
+			for (by_depth[0 ..], 0 ..) |*by_num, num| {
+				if (depth == 0 or num == 0) {
+					by_num.* = .{0, 0};
+					continue;
+				}
+
+				const d: f32 = @floatFromInt(depth);
+				const n: f32 = @floatFromInt(num);
+
+				// from weiss
+				const noisy = 0.20 + @log(d) * @log(n) / 3.35;
+				const quiet = 1.35 + @log(d) * @log(n) / 2.75;
+				by_num.* = .{@intFromFloat(noisy), @intFromFloat(quiet)};
+			}
+		}
+	}
+};
+
 pub const Depth = evaluation.score.Int;
 pub const Node = transposition.Entry.Flag;
 
@@ -376,10 +405,16 @@ pub const Thread = struct {
 		var bad_quiet_moves: movegen.Move.List = .{};
 		var mp = movegen.Picker.init(self, tte.move);
 
+		const is_ttm_noisy = !mp.ttm.isNone() and pos.isMoveNoisy(mp.ttm);
+		// const is_ttm_quiet = !mp.ttm.isNone() and !is_ttm_noisy;
+
 		move_loop: while (mp.next()) |sm| {
 			const m = sm.move;
 			const is_noisy = pos.isMoveNoisy(m);
 			const is_quiet = !is_noisy;
+
+			var loop_d = d - 1;
+			var r: Depth = 0;
 
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
@@ -388,18 +423,39 @@ pub const Thread = struct {
 				defer pos.undoMove();
 				defer searched += 1;
 
-				const child: Node = switch (node) {
-					.upperbound => .lowerbound,
-					.lowerbound => if (searched == 0) .upperbound else .lowerbound,
-					.exact => if (searched == 0) .exact else .lowerbound,
-					else => std.debug.panic("invalid node", .{}),
-				};
-
-				var score = -self.ab(child, ply + 1,
-				  if (child == .exact) -b else -a - 1, -a, d - 1);
-				if (child != .exact and score > a and score < b) {
-					score = -self.ab(.exact, ply + 1, -b, -a, d - 1);
+				var score: @TypeOf(a, b) = evaluation.score.none;
+				if (is_pv and searched == 0) {
+					score = -self.ab(.exact, ply + 1, -b, -a, loop_d);
+					break :recur score;
 				}
+
+				var lmr_min: usize = 0;
+				lmr_min += @intFromBool(is_pv);
+				lmr_min += @intFromBool(is_root);
+				lmr_min += @intFromBool(is_noisy);
+				lmr_min += @intFromBool(mp.ttm.isNone());
+				lmr_min = @max(1, lmr_min);
+
+				score = if (d >= 3 and searched > lmr_min) reduced: {
+					r += lmr.get(d, searched, is_quiet);
+					r += @intFromBool(node == .lowerbound);
+					r += @intFromBool(is_ttm_noisy);
+					r -= @intFromBool(is_pv);
+
+					const lmr_d = std.math.clamp(loop_d -| r, 1, loop_d);
+					var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, lmr_d);
+					if (score > a and lmr_d < d - 1) {
+						loop_d += @intFromBool(score > best.score);
+						rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, loop_d);
+					}
+
+					break :reduced rs;
+				} else -self.ab(node.flip(), ply + 1, -a - 1, -a, loop_d);
+
+				if (is_pv and score > a) {
+					score = -self.ab(.exact, ply + 1, -b, -a, loop_d);
+				}
+
 				break :recur score;
 			};
 

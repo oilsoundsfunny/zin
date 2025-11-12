@@ -10,5 +10,6 @@ pub fn deinit() void {
 }
 
 pub fn init() !void {
+	try search.lmr.init();
 	try zobrist.init();
 }

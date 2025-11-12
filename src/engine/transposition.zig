@@ -29,6 +29,14 @@ pub const Entry = packed struct(u80) {
 			return @intFromEnum(self);
 		}
 
+		pub fn flip(self: Flag) Flag {
+			return switch (self) {
+				.upperbound => .lowerbound,
+				.lowerbound => .upperbound,
+				else => self,
+			};
+		}
+
 		pub fn hasLower(self: Flag) bool {
 			return self.tag() & Flag.lowerbound.tag() != 0;
 		}
