@@ -56,6 +56,7 @@ pub fn build(bld: *std.Build) !void {
 	  orelse if (ndebug) std.builtin.UnwindTables.none else std.builtin.UnwindTables.@"async";
 	const use_llvm = bld.option(bool, "use-llvm", "Use the LLVM code backend")
 	  orelse (optimize != .Debug);
+	const valgrind = bld.option(bool, "valgrind", "") orelse false;
 
 	const bounded_array = bld.dependency("bounded_array", .{});
 
@@ -93,6 +94,7 @@ pub fn build(bld: *std.Build) !void {
 		.strip = strip,
 		.unwind_tables = unwind_tables,
 		.stack_check = stack_check,
+		.valgrind = valgrind,
 		.pic = true,
 	});
 
