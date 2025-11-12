@@ -1,5 +1,5 @@
 .{
-    .name = .zin_bfh,
+    .name = .zin,
     .version = "0.15.2",
     .dependencies = .{
         .bounded_array = .{
@@ -12,5 +12,5 @@
         },
     },
     .paths = .{""},
-    .fingerprint = 0x747ee254a8e25b98,
+    .fingerprint = 0xb812a825151d95ec,
 }
