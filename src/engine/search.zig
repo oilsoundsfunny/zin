@@ -138,7 +138,14 @@ pub const Thread = struct {
 				try writer.print(" mate {d}", .{s});
 			},
 			else => |pvs| {
-				const s = evaluation.score.centipawns(@intCast(pvs));
+				const pos = &self.pos;
+				const m
+				  = pos.ptypeOcc(.pawn).count() * 1
+				  + pos.ptypeOcc(.knight).count() * 3
+				  + pos.ptypeOcc(.bishop).count() * 3
+				  + pos.ptypeOcc(.rook).count() * 5
+				  + pos.ptypeOcc(.queen).count() * 9;
+				const s = evaluation.score.centipawns(@intCast(pvs), m);
 				try writer.print(" cp {d}", .{s});
 			},
 		}
@@ -221,7 +228,7 @@ pub const Thread = struct {
 		const pvs: evaluation.score.Int = @intCast(pv.score);
 
 		var s: @TypeOf(pvs) = evaluation.score.none;
-		var w: @TypeOf(pvs) = evaluation.score.unit;
+		var w: @TypeOf(pvs) = 256;
 
 		const d = self.depth;
 		var a: @TypeOf(pvs) = evaluation.score.lose;
@@ -264,7 +271,7 @@ pub const Thread = struct {
 		const lose: @TypeOf(a, b) = mated;
 
 		if (!self.pool.searching) {
-			return draw;
+			return a;
 		}
 
 		// mate dist pruning
@@ -283,7 +290,8 @@ pub const Thread = struct {
 		const is_root = ply == 0;
 
 		if (is_pv) {
-			self.seldepth = @max(self.seldepth, @as(Depth, @intCast(ply + 1)));
+			const len: Depth = @intCast(ply + 1);
+			self.seldepth = @max(self.seldepth, len);
 		}
 
 		if (is_main and !self.pool.options.infinite) {
@@ -298,7 +306,7 @@ pub const Thread = struct {
 
 			if (exceed_time or exceed_nodes) {
 				self.pool.stop();
-				return draw;
+				return a;
 			}
 		}
 
@@ -368,12 +376,7 @@ pub const Thread = struct {
 				pos.doNull() catch std.debug.panic("invalid null move", .{});
 				defer pos.undoNull();
 
-				const child: Node = switch (node) {
-					.upperbound => .lowerbound,
-					.lowerbound => .upperbound,
-					else => std.debug.panic("invalid node", .{}),
-				};
-				break :null_search -self.ab(child, ply + 1, -b, 1 - b, d - r);
+				break :null_search -self.ab(node.flip(), ply + 1, -b, 1 - b, d - r);
 			};
 
 			if (s >= b) {
@@ -460,7 +463,7 @@ pub const Thread = struct {
 			};
 
 			if (!self.pool.searching) {
-				return draw;
+				return a;
 			}
 
 			std.debug.assert(best.score <= a);
@@ -547,8 +550,11 @@ pub const Thread = struct {
 		const draw = evaluation.score.draw;
 		const lose = evaluation.score.lose + 1;
 
+		const b = beta;
+		var a = alpha;
+
 		if (!self.pool.searching) {
-			return draw;
+			return a;
 		}
 
 		if (self.idx == 0 and !self.pool.options.infinite) {
@@ -563,12 +569,9 @@ pub const Thread = struct {
 
 			if (exceed_time or exceed_nodes) {
 				self.pool.stop();
-				return draw;
+				return a;
 			}
 		}
-
-		const b = beta;
-		var a = alpha;
 
 		const pos = &self.pos;
 		const key = pos.ss.top().key;
@@ -648,7 +651,7 @@ pub const Thread = struct {
 			};
 
 			if (!self.pool.searching) {
-				return draw;
+				return a;
 			}
 
 			if (s > best.score) {
