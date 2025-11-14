@@ -397,6 +397,10 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_i
 		return Ptype.fromTag(@truncate(i));
 	}
 
+	pub fn score(self: Piece) i16 {
+		return if (self != .none) self.ptype().score() else 0;
+	}
+
 	pub fn fromChar(c: u8) ?Piece {
 		for (values) |v| {
 			const from_v = v.char() orelse continue;

@@ -202,7 +202,7 @@ pub const Thread = struct {
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
 			const stop = !self.pool.searching or depth == max_depth;
 			const no_moves = self.root_moves.constSlice().len == 0
-			  or self.root_moves.constSlice()[0].score == evaluation.score.lose;
+			  or self.root_moves.constSlice()[0].score == evaluation.score.none;
 			if (stop or no_moves) {
 				break;
 			}
@@ -482,7 +482,7 @@ pub const Thread = struct {
 				if (pv_found or first_rm) {
 					rm.update(s, m, next_pv.constSlice());
 				} else {
-					rm.score = evaluation.score.lose;
+					rm.score = evaluation.score.none;
 				}
 			}
 
@@ -628,12 +628,17 @@ pub const Thread = struct {
 		}
 
 		move_loop: while (mp.next()) |sm| {
-			const is_mated = evaluation.score.isMated(best.score);
-			if (!is_mated and mp.stage.isBad()) {
-				break;
+			const m = sm.move;
+			if (searched > 0) {
+				if (mp.stage.isBad()) {
+					break;
+				}
+
+				if (!pos.see(m, draw)) {
+					continue;
+				}
 			}
 
-			const m = sm.move;
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
 				tt.prefetch(pos.ss.top().key);

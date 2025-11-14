@@ -156,6 +156,8 @@ pub const State = struct {
 pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
 
+pub const see = @import("see.zig").func;
+
 fn colorOccPtr(self: *Self, c: types.Color) *types.Square.Set {
 	return self.by_color.getPtr(c);
 }
@@ -843,98 +845,4 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 
 pub fn evaluate(self: *const Self) evaluation.score.Int {
 	return evaluation.score.fromPosition(self);
-}
-
-// yoinked from berserk
-// https://raw.githubusercontent.com/jhonnold/berserk/refs/heads/main/src/see.c
-pub fn see(self: *const Self, move: movegen.Move, bound: evaluation.score.Int) bool {
-	if (move.flag != .none) {
-		return true;
-	}
-
-	const s = move.src;
-	const d = move.dst;
-	const sp = self.getSquare(s);
-	const dp = self.getSquare(d);
-
-	var v = if (dp != .none) dp.ptype().score() - bound else -bound;
-	if (v < 0) {
-		return false;
-	}
-
-	v = sp.ptype().score() - v;
-	if (v <= 0) {
-		return true;
-	}
-
-	const by_color = self.by_color;
-	const by_ptype = self.by_ptype;
-
-	const diag = by_ptype.get(.queen).bwo(by_ptype.get(.bishop));
-	const line = by_ptype.get(.queen).bwo(by_ptype.get(.rook));
-
-	var atkers = self.squareAtkers(d);
-	var occ = self.bothOcc();
-	var stm = self.stm;
-	var ret = true;
-
-	while (true) {
-		stm = stm.flip();
-		atkers.popOther(occ.flip());
-
-		const mine = atkers.bwa(by_color.get(stm));
-		ret = if (mine == .none) break else !ret;
-
-		if (mine.bwa(by_ptype.get(.pawn)) != .none) {
-			v = types.Ptype.pawn.score() - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
-
-			const atker = mine.bwa(by_ptype.get(.pawn));
-			occ.popOther(atker.getLow());
-
-			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
-		} else if (mine.bwa(by_ptype.get(.knight)) != .none) {
-			v = types.Ptype.knight.score() - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
-
-			const atker = mine.bwa(by_ptype.get(.pawn));
-			occ.popOther(atker.getLow());
-		} else if (mine.bwa(by_ptype.get(.bishop)) != .none) {
-			v = types.Ptype.bishop.score() - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
-
-			const atker = mine.bwa(by_ptype.get(.bishop));
-			occ.popOther(atker.getLow());
-
-			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
-		} else if (mine.bwa(by_ptype.get(.rook)) != .none) {
-			v = types.Ptype.rook.score() - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
-
-			const atker = mine.bwa(by_ptype.get(.rook));
-			occ.popOther(atker.getLow());
-
-			atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
-		} else if (mine.bwa(by_ptype.get(.queen)) != .none) {
-			v = types.Ptype.queen.score() - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
-
-			const atker = mine.bwa(by_ptype.get(.queen));
-			occ.popOther(atker.getLow());
-
-			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
-			atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
-		} else return if (atkers.bwa(by_color.get(stm.flip())) == .none) ret else !ret;
-	}
-	return ret;
 }
