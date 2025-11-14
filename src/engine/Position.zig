@@ -156,6 +156,8 @@ pub const State = struct {
 pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
 
+pub const see = @import("see.zig").func;
+
 fn colorOccPtr(self: *Self, c: types.Color) *types.Square.Set {
 	return self.by_color.getPtr(c);
 }
@@ -844,6 +846,3 @@ pub fn isMovePseudoLegal(self: *const Self, move: movegen.Move) bool {
 pub fn evaluate(self: *const Self) evaluation.score.Int {
 	return evaluation.score.fromPosition(self);
 }
-
-// pub fn see(self: *const Self, move: movegen.Move, min: evaluation.score.Int) bool {
-// }

@@ -628,12 +628,17 @@ pub const Thread = struct {
 		}
 
 		move_loop: while (mp.next()) |sm| {
-			const is_mated = evaluation.score.isMated(best.score);
-			if (!is_mated and mp.stage.isBad()) {
-				break;
+			const m = sm.move;
+			if (searched > 0) {
+				if (mp.stage.isBad()) {
+					break;
+				}
+
+				if (!pos.see(m, draw)) {
+					continue;
+				}
 			}
 
-			const m = sm.move;
 			const s = recur: {
 				pos.doMove(m) catch continue :move_loop;
 				tt.prefetch(pos.ss.top().key);
