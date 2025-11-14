@@ -544,7 +544,7 @@ pub const Thread = struct {
 		self.pos.ss.top().pv.line.resize(0) catch unreachable;
 
 		const draw = evaluation.score.draw;
-		const lose = evaluation.score.matedIn(1);
+		const lose = evaluation.score.lose + 1;
 
 		const b = beta;
 		var a = alpha;
