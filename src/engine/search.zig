@@ -202,7 +202,7 @@ pub const Thread = struct {
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
 			const stop = !self.pool.searching or depth == max_depth;
 			const no_moves = self.root_moves.constSlice().len == 0
-			  or self.root_moves.constSlice()[0].score == evaluation.score.lose;
+			  or self.root_moves.constSlice()[0].score == evaluation.score.none;
 			if (stop or no_moves) {
 				break;
 			}
@@ -482,7 +482,7 @@ pub const Thread = struct {
 				if (pv_found or first_rm) {
 					rm.update(s, m, next_pv.constSlice());
 				} else {
-					rm.score = evaluation.score.lose;
+					rm.score = evaluation.score.none;
 				}
 			}
 
