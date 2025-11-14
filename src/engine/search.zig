@@ -631,11 +631,19 @@ pub const Thread = struct {
 			const m = sm.move;
 			if (searched > 0) {
 				if (mp.stage.isBad()) {
-					break;
+					break :move_loop;
 				}
 
 				if (!pos.see(m, draw)) {
-					continue;
+					continue :move_loop;
+				}
+			}
+
+			if (!is_checked) {
+				const margin = corr_eval + 64;
+				if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
+					best.score = @intCast(@max(best.score, corr_eval + margin));
+					continue :move_loop;
 				}
 			}
 
