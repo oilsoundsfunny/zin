@@ -263,11 +263,11 @@ pub const Thread = struct {
 		var b = beta;
 		var a = alpha;
 
-		const mate: @TypeOf(a, b) = @intCast(evaluation.score.win - ply);
-		const mated = -mate;
+		const mate = evaluation.score.mateIn(ply);
+		const mated = evaluation.score.matedIn(ply);
 
-		const draw: @TypeOf(a, b) = evaluation.score.draw;
-		const lose: @TypeOf(a, b) = mated;
+		const draw = mated + mate;
+		const lose = mated;
 
 		if (!self.pool.searching) {
 			return a;
@@ -338,8 +338,8 @@ pub const Thread = struct {
 		  else if (has_tteval) tte.eval else pos.evaluate();
 
 		const use_ttscore = tth
-		  and tte.score < evaluation.score.win
 		  and tte.score > evaluation.score.lose
+		  and tte.score < evaluation.score.win
 		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
 		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
@@ -468,18 +468,15 @@ pub const Thread = struct {
 			std.debug.assert(best.score <= a);
 			std.debug.assert(a < b);
 
-			const first_rm = is_root and searched == 1;
-			const pv_found = is_pv and s > a;
-
 			if (is_root) {
 				const rms = self.root_moves.slice();
 				var rmi: usize = 0;
 				while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {
 				}
 
-				const next_pv = &pos.ss.bottom().up(1).pv;
+				const next_pv = &pos.ss.top().up(1).pv;
 				const rm = &rms[rmi];
-				if (pv_found or first_rm) {
+				if (searched == 1 or s > a) {
 					rm.update(s, m, next_pv.constSlice());
 				} else {
 					rm.score = evaluation.score.none;
@@ -489,7 +486,7 @@ pub const Thread = struct {
 			if (s > best.score) {
 				best.score = @intCast(s);
 
-				if (pv_found or first_rm) {
+				if (!is_root and is_pv and s > a) {
 					const next_pv = &pos.ss.top().up(1).pv;
 					const this_pv = &pos.ss.top().pv;
 
@@ -600,8 +597,8 @@ pub const Thread = struct {
 		  else if (has_tteval) tte.eval else pos.evaluate();
 
 		const use_ttscore = tth
-		  and tte.score < evaluation.score.win
 		  and tte.score > evaluation.score.lose
+		  and tte.score < evaluation.score.win
 		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
 		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
