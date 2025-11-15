@@ -259,9 +259,9 @@ pub const Thread = struct {
 		self.nodes += 1;
 		self.pos.ss.top().pv.line.resize(0) catch unreachable;
 
-		const d = depth;
-		var b = beta;
 		var a = alpha;
+		var b = beta;
+		var d = depth;
 
 		const mate = evaluation.score.mateIn(ply);
 		const mated = evaluation.score.matedIn(ply);
@@ -347,6 +347,12 @@ pub const Thread = struct {
 
 		pos.ss.top().stat_eval = stat_eval;
 		pos.ss.top().corr_eval = corr_eval;
+
+		// internal iterative reduction (iir)
+		const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
+		if (node.hasLower() and depth >= 4 and !has_ttm) {
+			d -= 1;
+		}
 
 		// reverse futility pruning (rfp)
 		if (!is_pv
