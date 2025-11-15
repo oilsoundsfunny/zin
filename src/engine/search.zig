@@ -414,14 +414,24 @@ pub const Thread = struct {
 		var mp = movegen.Picker.init(self, tte.move);
 
 		const is_ttm_noisy = !mp.ttm.isNone() and pos.isMoveNoisy(mp.ttm);
-		// const is_ttm_quiet = !mp.ttm.isNone() and !is_ttm_noisy;
+		const is_ttm_quiet = !mp.ttm.isNone() and !is_ttm_noisy;
 
 		move_loop: while (mp.next()) |sm| {
 			const m = sm.move;
-			const is_noisy = pos.isMoveNoisy(m);
-			const is_quiet = !is_noisy;
 
-			var loop_d = d - 1;
+			const is_ttm = m == mp.ttm;
+			const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
+			const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
+
+			if (!is_root and best.score > evaluation.score.lose) {
+				// late move pruning (lmp)
+				const very_late: usize = @intCast(d * d + 4);
+				if (searched > very_late) {
+					break :move_loop;
+				}
+			}
+
+			var recur_d = d - 1;
 			var r: Depth = 0;
 
 			const s = recur: {
@@ -433,35 +443,34 @@ pub const Thread = struct {
 
 				var score: @TypeOf(a, b) = evaluation.score.none;
 				if (is_pv and searched == 0) {
-					score = -self.ab(.exact, ply + 1, -b, -a, loop_d);
+					score = -self.ab(.exact, ply + 1, -b, -a, recur_d);
 					break :recur score;
 				}
 
-				var lmr_min: usize = 0;
-				lmr_min += @intFromBool(is_pv);
-				lmr_min += @intFromBool(is_root);
-				lmr_min += @intFromBool(is_noisy);
-				lmr_min += @intFromBool(mp.ttm.isNone());
-				lmr_min = @max(1, lmr_min);
+				const is_late = searched
+				  > @as(usize, @intFromBool(is_pv))
+				  + @as(usize, @intFromBool(is_root))
+				  + @as(usize, @intFromBool(is_noisy))
+				  + @as(usize, @intFromBool(mp.ttm.isNone()));
 
-				score = if (d >= 3 and searched > lmr_min) reduced: {
+				score = if (d >= 3 and searched > 1 and is_late) reduced: {
 					r += lmr.get(d, searched, is_quiet);
 					r += @intFromBool(node == .lowerbound);
 					r += @intFromBool(is_ttm_noisy);
 					r -= @intFromBool(is_pv);
 
-					const lmr_d = std.math.clamp(loop_d -| r, 1, loop_d);
-					var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, lmr_d);
-					if (score > a and lmr_d < d - 1) {
-						loop_d += @intFromBool(score > best.score);
-						rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, loop_d);
+					const rd = std.math.clamp(recur_d -| r, 1, recur_d);
+					var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
+					if (score > a and rd < d - 1) {
+						recur_d += @intFromBool(score > best.score);
+						rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
 					}
 
 					break :reduced rs;
-				} else -self.ab(node.flip(), ply + 1, -a - 1, -a, loop_d);
+				} else -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
 
 				if (is_pv and score > a) {
-					score = -self.ab(.exact, ply + 1, -b, -a, loop_d);
+					score = -self.ab(.exact, ply + 1, -b, -a, recur_d);
 				}
 
 				break :recur score;
