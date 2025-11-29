@@ -4,7 +4,7 @@ const types = @import("types");
 
 const Keys = struct {
 	occ:	std.EnumArray(types.Square, std.EnumArray(types.Piece, Int)),
-	castle:	std.EnumArray(types.Castle.Set, Int),
+	castle:	std.EnumArray(types.Castle, Int),
 	en_pas:	std.EnumArray(types.File, Int),
 	stm:	Int,
 
@@ -25,12 +25,12 @@ pub fn init() !void {
 		}
 	}
 
-	for (&Keys.default.castle.values) |*p| {
-		p.* = r.random().int(Int);
+	for (types.Castle.values) |e| {
+		Keys.default.castle.set(e, r.random().int(Int));
 	}
 
-	for (&Keys.default.en_pas.values) |*p| {
-		p.* = r.random().int(Int);
+	for (types.File.values) |e| {
+		Keys.default.en_pas.set(e, r.random().int(Int));
 	}
 
 	Keys.default.stm = r.random().int(Int);
@@ -40,7 +40,7 @@ pub fn psq(s: types.Square, p: types.Piece) Int {
 	return Keys.default.occ.getPtrConst(s).getPtrConst(p).*;
 }
 
-pub fn cas(c: types.Castle.Set) Int {
+pub fn cas(c: types.Castle) Int {
 	return Keys.default.castle.getPtrConst(c).*;
 }
 

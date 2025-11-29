@@ -1,8 +1,8 @@
 const std = @import("std");
 const types = @import("types");
 
+const Board = @import("Board.zig");
 const movegen = @import("movegen.zig");
-const Position = @import("Position.zig");
 const search = @import("search.zig");
 const transposition = @import("transposition.zig");
 
@@ -25,7 +25,7 @@ const Command = enum {
 
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
 	const options = &pool.options;
-	const stm = pool.threads[0].pos.stm;
+	const stm = pool.threads[0].board.top().stm;
 
 	options.reset();
 	errdefer options.reset();
@@ -117,25 +117,20 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Co
 }
 
 fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
-	const frc = pool.threads[0].pos.frc;
-	var pos: Position = .{};
-	defer {
-		pos.frc = frc;
-		pool.setPosition(&pos);
-	}
+	var board: Board = .{};
+	const frc = pool.threads[0].board.frc;
 
-	errdefer {
-		pos.parseFen(Position.startpos) catch std.debug.panic("invalid startpos", .{});
-		pos.frc = frc;
-	}
+	defer pool.setPosition(board.top(), frc);
+	errdefer board.top().parseFen(Board.One.startpos)
+	  catch std.debug.panic("invalid startpos", .{});
 
 	const first = tokens.next() orelse return error.UnknownCommand;
 	if (std.mem.eql(u8, first, "fen")) {
-		try pos.parseFenTokens(tokens);
+		try board.top().parseFenTokens(tokens);
 	} else if (std.mem.eql(u8, first, "kiwipete")) {
-		try pos.parseFen(Position.kiwipete);
+		try board.top().parseFen(Board.One.kiwipete);
 	} else if (std.mem.eql(u8, first, "startpos")) {
-		try pos.parseFen(Position.startpos);
+		try board.top().parseFen(Board.One.startpos);
 	} else return error.UnknownCommand;
 
 	const aux = tokens.next() orelse return .position;
@@ -143,23 +138,23 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !
 		return error.UnknownCommand;
 	}
 
-	pos.frc = frc;
+	board.frc = frc;
 	move_loop: while (tokens.next()) |token| {
 		var i: usize = 0;
 		var n: usize = 0;
 		var list: movegen.Move.Scored.List = .{};
 
-		n += list.genNoisy(&pos);
-		n += list.genQuiet(&pos);
+		n += list.genNoisy(board.top());
+		n += list.genQuiet(board.top());
 		while (i < n) : (i += 1) {
 			const m = list.constSlice()[i].move;
-			const s = m.toString(&pos);
+			const s = m.toString(&board);
 			const l = m.toStringLen();
 			if (!std.mem.eql(u8, token, s[0 .. l])) {
 				continue;
 			}
 
-			pos.doMove(m) catch return error.UnknownCommand;
+			board.doMove(m) catch return error.UnknownCommand;
 			continue :move_loop;
 		} else return error.UnknownCommand;
 	} else return .position;

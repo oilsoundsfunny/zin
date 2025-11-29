@@ -51,7 +51,10 @@ pub fn set(self: *Self, s: types.Square, p: types.Piece) void {
 	}
 }
 
-pub fn mirror(self: *Self, pos: *const engine.Position, stm: types.Color) void {
+pub fn mirror(self: *Self, pos: *const engine.Board.One, stm: types.Color) void {
+	const mirrored = self.mirrored.getPtr(stm);
+	mirrored.* = !mirrored.*;
+
 	const ptr = self.perspectives.getPtr(stm);
 	ptr.* = net.default.hl0_b;
 

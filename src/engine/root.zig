@@ -1,6 +1,6 @@
+pub const Board = @import("Board.zig");
 pub const evaluation = @import("evaluation.zig");
 pub const movegen = @import("movegen.zig");
-pub const Position = @import("Position.zig");
 pub const search = @import("search.zig");
 pub const transposition = @import("transposition.zig");
 pub const uci = @import("uci.zig");

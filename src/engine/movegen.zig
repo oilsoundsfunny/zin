@@ -4,8 +4,8 @@ const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
+const Board = @import("Board.zig");
 const evaluation = @import("evaluation.zig");
-const Position = @import("Position.zig");
 const search = @import("search.zig");
 const uci = @import("uci.zig");
 
@@ -82,9 +82,9 @@ const RootMoveList = struct {
 		try self.array.resize(len);
 	}
 
-	pub fn init(pos: *const Position) RootMoveList {
-		const is_drawn = pos.isDrawn();
-		const is_terminal = pos.ss.isFull();
+	pub fn init(board: *Board) RootMoveList {
+		const is_drawn = board.isDrawn();
+		const is_terminal = board.isTerminal();
 		if (is_drawn or is_terminal) {
 			@branchHint(.cold);
 			return .{};
@@ -93,9 +93,12 @@ const RootMoveList = struct {
 		var root_moves: RootMoveList = .{};
 		var gen_moves: Move.Scored.List = .{};
 
-		_ = gen_moves.genNoisy(pos);
-		_ = gen_moves.genQuiet(pos);
+		_ = gen_moves.genNoisy(board.top());
+		_ = gen_moves.genQuiet(board.top());
 		for (gen_moves.constSlice()) |sm| {
+			board.doMove(sm.move) catch continue;
+			defer board.undoMove();
+
 			var rm: RootMove = .{};
 			defer root_moves.push(rm);
 
@@ -135,7 +138,7 @@ const ScoredMoveList = struct {
 		self.array.appendAssumeCapacity(sm);
 	}
 
-	fn genCastle(self: *ScoredMoveList, pos: *const Position, is_k: bool) usize {
+	fn genCastle(self: *ScoredMoveList, pos: *const Board.One, is_k: bool) usize {
 		const len = self.slice().len;
 		const stm = pos.stm;
 		const occ = pos.bothOcc();
@@ -146,7 +149,7 @@ const ScoredMoveList = struct {
 		};
 		const info = pos.castles.getPtrConst(cas) orelse return self.slice().len - len;
 
-		if (!pos.ss.top().castle.get(cas)
+		if (!pos.castles.contains(cas)
 		  or pos.isChecked()
 		  or occ.bwa(info.occ) != .none) {
 			return self.slice().len - len;
@@ -170,10 +173,10 @@ const ScoredMoveList = struct {
 		return self.slice().len - len;
 	}
 
-	fn genEnPas(self: *ScoredMoveList, pos: *const Position) usize {
+	fn genEnPas(self: *ScoredMoveList, pos: *const Board.One) usize {
 		const len = self.slice().len;
 		const stm = pos.stm;
-		const enp = pos.ss.top().en_pas orelse return self.slice().len - len;
+		const enp = pos.en_pas orelse return self.slice().len - len;
 
 		const src = pos.pieceOcc(types.Piece.init(stm, .pawn));
 		const dst = enp.toSet();
@@ -199,7 +202,7 @@ const ScoredMoveList = struct {
 		return self.slice().len - len;
 	}
 
-	fn genPawnMoves(self: *ScoredMoveList, pos: *const Position,
+	fn genPawnMoves(self: *ScoredMoveList, pos: *const Board.One,
 	  comptime promo: ?types.Ptype,
 	  comptime noisy: bool) usize {
 		const is_promote = promo != null;
@@ -213,7 +216,7 @@ const ScoredMoveList = struct {
 		const promotion_bb = stm.promotionRank().toSet();
 
 		const src = pos.pieceOcc(types.Piece.init(stm, .pawn));
-		const dst = pos.ss.top().checks
+		const dst = pos.checks
 		  .bwa(if (is_promote) promotion_bb else promotion_bb.flip())
 		  .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
@@ -258,7 +261,7 @@ const ScoredMoveList = struct {
 		return self.slice().len - len;
 	}
 
-	fn genPtMoves(self: *ScoredMoveList, pos: *const Position,
+	fn genPtMoves(self: *ScoredMoveList, pos: *const Board.One,
 	  comptime ptype: types.Ptype,
 	  comptime noisy: bool) usize {
 		const len = self.slice().len;
@@ -266,7 +269,7 @@ const ScoredMoveList = struct {
 		const occ = pos.bothOcc();
 		const target = types.Square.Set
 		  .full
-		  .bwa(if (ptype != .king) pos.ss.top().checks else .full)
+		  .bwa(if (ptype != .king) pos.checks else .full)
 		  .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
 		var src = pos.pieceOcc(types.Piece.init(stm, ptype));
@@ -298,7 +301,7 @@ const ScoredMoveList = struct {
 		return self.array.slice();
 	}
 
-	pub fn genNoisy(self: *ScoredMoveList, pos: *const Position) usize {
+	pub fn genNoisy(self: *ScoredMoveList, pos: *const Board.One) usize {
 		var cnt: usize = 0;
 
 		cnt += self.genPawnMoves(pos, .queen, true);
@@ -321,7 +324,7 @@ const ScoredMoveList = struct {
 		return cnt;
 	}
 
-	pub fn genQuiet(self: *ScoredMoveList, pos: *const Position) usize {
+	pub fn genQuiet(self: *ScoredMoveList, pos: *const Board.One) usize {
 		var cnt: usize = 0;
 
 		cnt += self.genPawnMoves(pos, .rook,   false);
@@ -412,7 +415,7 @@ pub const Move = packed struct(u16) {
 		return self == @as(Move, .{});
 	}
 
-	pub fn toString(self: Move, pos: *const Position) [8]u8 {
+	pub fn toString(self: Move, board: *const Board) [8]u8 {
 		var buf: [8]u8 = undefined;
 
 		buf[0] = self.src.file().char();
@@ -426,8 +429,9 @@ pub const Move = packed struct(u16) {
 				}
 			},
 			.castle => {
-				const castle = pos.castles.getPtrConstAssertContains(self.info.castle);
-				const s = if (pos.frc) castle.rs else castle.kd;
+				const info = self.info.castle;
+				const castle = board.top().castles.getPtrConstAssertContains(info);
+				const s = if (board.frc) castle.rs else castle.kd;
 				buf[2] = s.file().char();
 				buf[3] = s.rank().char();
 			},
@@ -443,7 +447,7 @@ pub const Move = packed struct(u16) {
 
 pub const Picker = struct {
 	list:	Move.Scored.List,
-	pos:	*const Position,
+	board:	*const Board,
 	thread:	*const search.Thread,
 
 	skip_quiets:	bool,
@@ -505,8 +509,8 @@ pub const Picker = struct {
 	fn scoreNoisy(self: *const Picker, move: Move) search.hist.Int {
 		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
 		  else captures: {
-			const sp = self.pos.getSquare(move.src);
-			const dp = self.pos.getSquare(move.dst);
+			const sp = self.board.top().getSquare(move.src);
+			const dp = self.board.top().getSquare(move.dst);
 
 			const s = if (sp == .none) evaluation.score.draw else sp.ptype().score() * 7;
 			const d = if (dp == .none) evaluation.score.draw else dp.ptype().score() * 7;
@@ -522,7 +526,7 @@ pub const Picker = struct {
 	pub fn init(thread: *const search.Thread, ttm: Move) Picker {
 		var self: Picker = .{
 			.list = .{},
-			.pos  = &thread.pos,
+			.board = &thread.board,
 			.thread = thread,
 
 			.skip_quiets = false,
@@ -538,7 +542,7 @@ pub const Picker = struct {
 			.bad_quiet_n = 0,
 		};
 
-		if (!ttm.isNone() and self.pos.isMovePseudoLegal(ttm)) {
+		if (!ttm.isNone() and self.board.top().isMovePseudoLegal(ttm)) {
 			self.ttm = ttm;
 			self.stage = .ttm;
 		}
@@ -560,7 +564,7 @@ pub const Picker = struct {
 		if (self.stage == .gen_noisy) {
 			self.stage.inc();
 
-			self.noisy_n = self.list.genNoisy(self.pos);
+			self.noisy_n = self.list.genNoisy(self.board.top());
 			const noisy_slice = self.list.slice()[self.list.index ..][0 .. self.noisy_n];
 			for (noisy_slice) |*sm| {
 				sm.score = self.scoreNoisy(sm.move);
@@ -587,7 +591,7 @@ pub const Picker = struct {
 				break :gen_quiet;
 			}
 
-			self.quiet_n = self.list.genQuiet(self.pos);
+			self.quiet_n = self.list.genQuiet(self.board.top());
 			const quiet_slice = self.list.slice()[self.list.index ..][0 .. self.quiet_n];
 			for (quiet_slice) |*sm| {
 				sm.score = self.scoreQuiet(sm.move);

@@ -3,8 +3,8 @@ const nnue = @import("nnue");
 const std = @import("std");
 const types = @import("types");
 
+const Board = @import("Board.zig");
 const movegen = @import("movegen.zig");
-const Position = @import("Position.zig");
 
 pub const score = struct {
 	const max = std.math.maxInt(i16);
@@ -50,11 +50,5 @@ pub const score = struct {
 			x = @mulAdd(f32, x, fm / 58.0, k);
 		}
 		return @intFromFloat(@round(100.0 * fs / x));
-	}
-
-	pub fn fromPosition(pos: *const Position) Int {
-		const inferred = nnue.net.default.infer(pos);
-		const tapered = @divTrunc(inferred * (100 - pos.ss.top().rule50), 100);
-		return std.math.clamp(tapered, lose + 1, win - 1);
 	}
 };

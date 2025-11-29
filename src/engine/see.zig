@@ -13,11 +13,11 @@ const bitboard = @import("bitboard");
 const std = @import("std");
 const types = @import("types");
 
+const Board = @import("Board.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
-const Position = @import("Position.zig");
 
-pub fn func(pos: *const Position, move: movegen.Move, min: evaluation.score.Int) bool {
+pub fn func(pos: *const Board.One, move: movegen.Move, min: evaluation.score.Int) bool {
 	if (move.flag != .none) {
 		return true;
 	}

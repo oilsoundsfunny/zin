@@ -3,9 +3,9 @@ const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
+const Board = @import("Board.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
-const Position = @import("Position.zig");
 const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
@@ -43,7 +43,7 @@ pub const Depth = evaluation.score.Int;
 pub const Node = transposition.Entry.Flag;
 
 pub const Thread = struct {
-	pos:	 Position = .{},
+	board:	 Board = .{},
 	pool:	*Pool = undefined,
 	idx:	 usize = 0,
 	cnt:	 usize = 0,
@@ -81,7 +81,7 @@ pub const Thread = struct {
 		const bonus = clamped * 64;
 		const malus = bonus;
 
-		const pos = &self.pos;
+		const pos = self.board.top();
 		const is_quiet = pos.isMoveQuiet(move);
 		if (is_quiet) {
 			hist.bonus(self.quietHistPtr(move), bonus);
@@ -138,7 +138,7 @@ pub const Thread = struct {
 			const moves = @divTrunc(ply + 1, 2);
 			try writer.print(" mate {d}", .{moves});
 		} else {
-			const pos = &self.pos;
+			const pos = self.board.top();
 			const mat
 			  = pos.ptypeOcc(.pawn).count() * 1
 			  + pos.ptypeOcc(.knight).count() * 3
@@ -151,7 +151,7 @@ pub const Thread = struct {
 
 		try writer.print(" pv", .{});
 		for (pv.constSlice()) |m| {
-			const s = m.toString(&self.pos);
+			const s = m.toString(&self.board);
 			const l = m.toStringLen();
 			try writer.print(" {s}", .{s[0 .. l]});
 		}
@@ -177,7 +177,7 @@ pub const Thread = struct {
 		}
 
 		const m = self.root_moves.constSlice()[0].constSlice()[0];
-		const s = m.toString(&self.pos);
+		const s = m.toString(&self.board);
 		const l = m.toStringLen();
 		try self.pool.io.writer().print("bestmove {s}\n", .{s[0 .. l]});
 		try self.pool.io.writer().flush();
@@ -257,7 +257,7 @@ pub const Thread = struct {
 	  beta:  evaluation.score.Int,
 	  depth: Depth) evaluation.score.Int {
 		self.nodes += 1;
-		self.pos.ss.top().pv.line.resize(0) catch unreachable;
+		self.board.top().pv.line.resize(0) catch unreachable;
 
 		var a = alpha;
 		var b = beta;
@@ -309,13 +309,14 @@ pub const Thread = struct {
 			}
 		}
 
-		const pos = &self.pos;
-		const key = pos.ss.top().key;
+		const board = &self.board;
+		const pos = board.top();
+		const key = pos.key;
 		const is_checked = pos.isChecked();
-		const is_drawn = pos.isDrawn();
-		const is_terminal = pos.ss.isFull();
-		if (is_drawn or is_terminal) {
-			return if (is_drawn) draw else pos.evaluate();
+		if (self.board.isDrawn()) {
+			return draw;
+		} else if (self.board.isTerminal()) {
+			return self.board.top().evaluate();
 		}
 
 		const tt = self.pool.tt;
@@ -345,8 +346,8 @@ pub const Thread = struct {
 		// TODO: correct eval in case tt score is unusable
 		const corr_eval = if (use_ttscore) tte.score else stat_eval;
 
-		pos.ss.top().stat_eval = stat_eval;
-		pos.ss.top().corr_eval = corr_eval;
+		pos.stat_eval = stat_eval;
+		pos.corr_eval = corr_eval;
 
 		// internal iterative reduction (iir)
 		const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
@@ -378,8 +379,8 @@ pub const Thread = struct {
 
 			const r = @divTrunc(d, 4) + 3;
 			var s = null_search: {
-				pos.doNull() catch std.debug.panic("invalid null move", .{});
-				defer pos.undoNull();
+				board.doNull() catch std.debug.panic("invalid null move", .{});
+				defer board.undoNull();
 
 				break :null_search -self.ab(node.flip(), ply + 1, -b, 1 - b, d - r);
 			};
@@ -399,6 +400,14 @@ pub const Thread = struct {
 				if (verified) {
 					return s;
 				}
+			}
+		}
+
+		// razoring
+		if (!is_pv and !is_checked and d < 8 and corr_eval + 460 * d <= a) {
+			const rs = self.qs(ply + 1, a, b);
+			if (rs <= a) {
+				return rs;
 			}
 		}
 
@@ -435,10 +444,10 @@ pub const Thread = struct {
 			var r: Depth = 0;
 
 			const s = recur: {
-				pos.doMove(m) catch continue :move_loop;
-				tt.prefetch(pos.ss.top().key);
+				board.doMove(m) catch continue :move_loop;
+				tt.prefetch(board.top().key);
 
-				defer pos.undoMove();
+				defer board.undoMove();
 				defer searched += 1;
 
 				var score: @TypeOf(a, b) = evaluation.score.none;
@@ -491,7 +500,7 @@ pub const Thread = struct {
 				while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {
 				}
 
-				const next_pv = &pos.ss.top().up(1).pv;
+				const next_pv = &self.board.top().up(1).pv;
 				const rm = &rms[rmi];
 				if (searched == 1 or s > a) {
 					rm.update(s, m, next_pv.constSlice());
@@ -504,8 +513,8 @@ pub const Thread = struct {
 				best.score = @intCast(s);
 
 				if (!is_root and is_pv and s > a) {
-					const next_pv = &pos.ss.top().up(1).pv;
-					const this_pv = &pos.ss.top().pv;
+					const next_pv = &self.board.top().up(1).pv;
+					const this_pv = &self.board.top().pv;
 
 					this_pv.update(s, m, next_pv.constSlice());
 				}
@@ -558,7 +567,7 @@ pub const Thread = struct {
 	  alpha: evaluation.score.Int,
 	  beta:  evaluation.score.Int) evaluation.score.Int {
 		self.nodes += 1;
-		self.pos.ss.top().pv.line.resize(0) catch unreachable;
+		self.board.top().pv.line.resize(0) catch unreachable;
 
 		const draw = evaluation.score.draw;
 		const lose = evaluation.score.lose + 1;
@@ -586,13 +595,14 @@ pub const Thread = struct {
 			}
 		}
 
-		const pos = &self.pos;
-		const key = pos.ss.top().key;
+		const board = &self.board;
+		const pos = board.top();
+		const key = pos.key;
 		const is_checked = pos.isChecked();
-		const is_drawn = pos.isDrawn();
-		const is_terminal = pos.ss.isFull();
-		if (is_drawn or is_terminal) {
-			return if (is_drawn) draw else pos.evaluate();
+		if (self.board.isDrawn()) {
+			return draw;
+		} else if (self.board.isTerminal()) {
+			return self.board.top().evaluate();
 		}
 
 		const tt = self.pool.tt;
@@ -619,10 +629,10 @@ pub const Thread = struct {
 		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
 		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
-		const corr_eval = if (use_ttscore) tte.score else pos.ss.top().stat_eval;
+		const corr_eval = if (use_ttscore) tte.score else stat_eval;
 
-		pos.ss.top().stat_eval = stat_eval;
-		pos.ss.top().corr_eval = corr_eval;
+		pos.stat_eval = stat_eval;
+		pos.corr_eval = corr_eval;
 
 		if (stat_eval >= b) {
 			return stat_eval;
@@ -662,10 +672,10 @@ pub const Thread = struct {
 			}
 
 			const s = recur: {
-				pos.doMove(m) catch continue :move_loop;
-				tt.prefetch(pos.ss.top().key);
+				board.doMove(m) catch continue :move_loop;
+				tt.prefetch(board.top().key);
 
-				defer pos.undoMove();
+				defer board.undoMove();
 				defer mp.skipQuiets();
 				defer searched += 1;
 
@@ -777,11 +787,10 @@ pub const Pool = struct {
 		}
 
 		const frc = self.options.frc;
-		var pos: Position = .{};
+		var pos: Board.One = .{};
 
-		try pos.parseFen(Position.startpos);
-		pos.frc = frc;
-		self.setPosition(&pos);
+		try pos.parseFen(Board.One.startpos);
+		self.setPosition(&pos, frc);
 	}
 
 	pub fn nodes(self: *const Pool) u64 {
@@ -795,14 +804,15 @@ pub const Pool = struct {
 	pub fn setFRC(self: *Pool, frc: bool) void {
 		self.options.frc = frc;
 		for (self.threads) |*thread| {
-			thread.pos.frc = frc;
+			thread.board.frc = frc;
 		}
 	}
 
-	pub fn setPosition(self: *Pool, src: *const Position) void {
+	pub fn setPosition(self: *Pool, src: *const Board.One, frc: bool) void {
 		for (self.threads) |*thread| {
-			const dst = &thread.pos;
-			@memcpy(dst[0 .. 1], src[0 .. 1]);
+			thread.board = .{};
+			thread.board.top().* = src.*;
+			thread.board.frc = frc;
 		}
 	}
 
@@ -832,13 +842,13 @@ pub const Pool = struct {
 
 	pub fn start(self: *Pool) !void {
 		const is_threaded = self.threads.len > 1;
-		const pos = &self.threads[0].pos;
+		const board = &self.threads[0].board;
 		const root_moves = &self.threads[0].root_moves;
 
-		root_moves.* = movegen.Move.Root.List.init(pos);
+		root_moves.* = movegen.Move.Root.List.init(board);
 		for (self.threads, 0 ..) |*thread, i| {
 			if (is_threaded and i != 0) {
-				thread.pos = pos.*;
+				thread.board = board.*;
 				thread.root_moves = root_moves.*;
 			}
 

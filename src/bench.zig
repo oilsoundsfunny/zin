@@ -85,7 +85,7 @@ pub fn run(depth: ?engine.search.Depth) !void {
 	var time: u64 = 0;
 
 	for (fens) |fen| {
-		try pool.threads[0].pos.parseFen(fen);
+		try pool.threads[0].board.top().parseFen(fen);
 		try pool.start();
 
 		pool.waitFinish();
