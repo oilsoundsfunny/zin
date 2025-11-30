@@ -105,8 +105,7 @@ pub const Thread = struct {
 		const writer = self.pool.io.writer();
 		const timer = &self.pool.timer;
 
-		const has_pv = self.root_moves.constSlice().len > 0
-		  and self.root_moves.constSlice()[0].score != evaluation.score.lose;
+		const has_pv = self.root_moves.constSlice().len > 0;
 		const pv = if (has_pv) &self.root_moves.constSlice()[0] else return;
 
 		const nodes = self.pool.nodes();
@@ -170,8 +169,7 @@ pub const Thread = struct {
 		self.pool.io.lockWriter();
 		defer self.pool.io.unlockWriter();
 
-		const has_pv = self.root_moves.constSlice().len > 0
-		  and self.root_moves.constSlice()[0].score != evaluation.score.lose;
+		const has_pv = self.root_moves.constSlice().len > 0;
 		if (!has_pv) {
 			try self.pool.io.writer().print("bestmove 0000\n", .{});
 			try self.pool.io.writer().flush();
@@ -193,7 +191,8 @@ pub const Thread = struct {
 		const min_depth = 1;
 		var depth: Depth = min_depth;
 
-		while (depth <= max_depth) : (depth += 1) {
+		const no_moves = self.root_moves.constSlice().len == 0;
+		while (!no_moves and depth <= max_depth) : (depth += 1) {
 			self.depth = depth + @intFromBool(is_threaded
 			  and self.idx % 2 == 1
 			  and depth > min_depth
@@ -202,10 +201,7 @@ pub const Thread = struct {
 			self.asp();
 
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
-			const stop = !self.pool.searching or depth == max_depth;
-			const no_moves = self.root_moves.constSlice().len == 0
-			  or self.root_moves.constSlice()[0].score == evaluation.score.none;
-			if (stop or no_moves) {
+			if (!self.pool.searching) {
 				break;
 			}
 
@@ -217,11 +213,27 @@ pub const Thread = struct {
 
 		if (is_main) {
 			self.pool.stop();
-			self.pool.finish();
+			defer self.pool.finish();
 
 			try self.printInfo();
 			try self.printBest();
 		} else self.pool.waitStop();
+	}
+
+	fn hardStop(self: *Thread) bool {
+		const pool = self.pool;
+		const options = pool.options;
+
+		const nodes = self.nodes;
+		if (options.nodes) |lim| {
+			if (nodes >= lim) {
+				return true;
+			}
+		}
+
+		return nodes % 2048 == 0
+		  and options.stop != null
+		  and options.stop.? * std.time.ns_per_ms <= pool.timer.read();
 	}
 
 	fn asp(self: *Thread) void {
@@ -239,8 +251,12 @@ pub const Thread = struct {
 			b = std.math.clamp(pvs + w, evaluation.score.lose, evaluation.score.win);
 		}
 
-		while (self.pool.searching) : (w *= 2) {
+		while (true) : (w *= 2) {
 			s = self.ab(.exact, 0, a, b, d);
+
+			if (!self.pool.searching) {
+				break;
+			}
 
 			if (s <= a) {
 				b = @divTrunc(a + b, 2);
@@ -261,6 +277,16 @@ pub const Thread = struct {
 		self.nodes += 1;
 		self.board.top().pv.line.resize(0) catch unreachable;
 
+		const is_main = self.idx == 0;
+		if (is_main and self.hardStop()) {
+			self.pool.stop();
+			return alpha;
+		}
+
+		if (!self.pool.searching) {
+			return alpha;
+		}
+
 		var a = alpha;
 		var b = beta;
 		var d = depth;
@@ -270,10 +296,6 @@ pub const Thread = struct {
 
 		const draw = mated + mate;
 		const lose = mated;
-
-		if (!self.pool.searching) {
-			return a;
-		}
 
 		// mate dist pruning
 		a = @max(a, mated);
@@ -287,28 +309,11 @@ pub const Thread = struct {
 		}
 
 		const is_pv = node == .exact;
-		const is_main = self.idx == 0;
 		const is_root = ply == 0;
 
 		if (is_pv) {
 			const len: Depth = @intCast(ply + 1);
 			self.seldepth = @max(self.seldepth, len);
-		}
-
-		if (is_main and !self.pool.options.infinite) {
-			const options = &self.pool.options;
-			const nodes = self.nodes;
-			const timer = &self.pool.timer;
-
-			const exceed_time = options.stop != null
-			  and nodes % 2048 == 0
-			  and timer.read() / std.time.ns_per_ms >= options.stop.?;
-			const exceed_nodes = options.nodes != null and nodes >= options.nodes.?;
-
-			if (exceed_time or exceed_nodes) {
-				self.pool.stop();
-				return a;
-			}
 		}
 
 		const board = &self.board;
@@ -570,6 +575,16 @@ pub const Thread = struct {
 	  beta:  evaluation.score.Int) evaluation.score.Int {
 		self.nodes += 1;
 		self.board.top().pv.line.resize(0) catch unreachable;
+
+		const is_main = self.idx == 0;
+		if (is_main and self.hardStop()) {
+			self.pool.stop();
+			return alpha;
+		}
+
+		if (!self.pool.searching) {
+			return alpha;
+		}
 
 		const draw = evaluation.score.draw;
 		const lose = evaluation.score.lose + 1;
@@ -837,9 +852,7 @@ pub const Pool = struct {
 	}
 
 	pub fn finish(self: *Pool) void {
-		std.mem.doNotOptimizeAway({
-			self.finished = true;
-		});
+		self.finished = true;
 	}
 
 	pub fn start(self: *Pool) !void {
@@ -859,11 +872,9 @@ pub const Pool = struct {
 			thread.tthits = 0;
 		}
 
-		std.mem.doNotOptimizeAway({
-			self.searching = true;
-			self.finished = false;
-			self.timer.reset();
-		});
+		self.searching = true;
+		self.finished = false;
+		self.timer.reset();
 
 		const config: std.Thread.SpawnConfig = .{
 			.stack_size = 16 * 1024 * 1024,
@@ -876,9 +887,7 @@ pub const Pool = struct {
 	}
 
 	pub fn stop(self: *Pool) void {
-		std.mem.doNotOptimizeAway({
-			self.searching = false;
-		});
+		self.searching = false;
 	}
 };
 
