@@ -867,6 +867,9 @@ pub const Pool = struct {
 				thread.root_moves = root_moves.*;
 			}
 
+			thread.idx = i;
+			thread.cnt = self.threads.len;
+
 			thread.nodes = 0;
 			thread.tbhits = 0;
 			thread.tthits = 0;
