@@ -3,12 +3,19 @@
 ## features
 - uci-compatible
 - evaluation:
-	- smallnet
+	- l1=256 neural net
 - search:
+	- iterative deepening
 	- aspiration windows
+	- mate distance pruning
+	- internal iterative reduction
+	- reverse futility pruning
+	- null move pruning
+	- razoring
+	- late move pruning / reduction
+	- see pruning
 
-## requisites
-- git
+## dependency
 - zig 0.15.2
 
 ## building
