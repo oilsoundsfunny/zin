@@ -123,6 +123,7 @@ pub const Thread = struct {
 		try writer.print(" depth {d}", .{depth});
 		try writer.print(" seldepth {d}", .{seldepth});
 
+		try writer.print(" hashfull {d}", .{self.pool.tt.hashfull()});
 		try writer.print(" nodes {d}", .{nodes});
 		try writer.print(" time {d}", .{mtime});
 		try writer.print(" nps {d}", .{nodes * std.time.ns_per_s / ntime});
@@ -132,11 +133,11 @@ pub const Thread = struct {
 		if (evaluation.score.isMated(pvs)) {
 			const ply = pvs - evaluation.score.mated;
 			const moves = @divTrunc(ply + 1, 2);
-			try writer.print(" mate {d}", .{-moves});
+			try writer.print(" mate {d} wdl 0 0 1000", .{-moves});
 		} else if (evaluation.score.isMate(pvs)) {
 			const ply = evaluation.score.mate - pvs;
 			const moves = @divTrunc(ply + 1, 2);
-			try writer.print(" mate {d}", .{moves});
+			try writer.print(" mate {d} wdl 1000 0 0", .{moves});
 		} else {
 			const pos = self.board.top();
 			const mat
@@ -147,6 +148,7 @@ pub const Thread = struct {
 			  + pos.ptypeOcc(.queen).count() * 9;
 			const normalized = evaluation.score.normalize(pvs, mat);
 			try writer.print(" cp {d}", .{normalized});
+			try writer.print(" wdl {d} {d} {d}", evaluation.score.wdl(pvs, mat));
 		}
 
 		try writer.print(" pv", .{});

@@ -129,6 +129,14 @@ pub const Table = struct {
 		};
 	}
 
+	pub fn hashfull(self: *const Table) usize {
+		var full: usize = 0;
+		for (self.slice[0 .. 1000]) |*p| {
+			full += @intFromBool(p.* != @as(Cluster, .{}));
+		}
+		return full;
+	}
+
 	pub fn doAge(self: *Table) void {
 		self.age += 1;
 	}
