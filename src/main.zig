@@ -24,20 +24,18 @@ pub fn main() !void {
 	try engine.init();
 	defer engine.deinit();
 
-	const allocator = std.heap.page_allocator;
-	const args = try std.process.argsAlloc(allocator);
-	var i: usize = 1;
+	var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+	defer _ = gpa.deinit();
 
-	while (i < args.len) : (i += 1) {
-		const arg = args[i];
+	const allocator = gpa.allocator();
+	var args = try std.process.argsWithAllocator(allocator);
 
+	_ = args.skip();
+	while (args.next()) |arg| {
 		if (std.mem.eql(u8, arg, "bench")) {
-			i += 1;
-			const depth: ?engine.search.Depth = if (i >= args.len) null
-			  else try std.fmt.parseUnsigned(u8, args[i], 10);
-			return bench.run(depth);
+			const depth: ?engine.search.Depth
+			  = if (args.next()) |aux| try std.fmt.parseUnsigned(u8, aux, 10) else null;
+			return bench.run(allocator, depth);
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
-	}
-
-	try engine.uci.loop();
+	} else try engine.uci.loop(allocator);
 }

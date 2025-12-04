@@ -84,8 +84,8 @@ pub fn build(bld: *std.Build) !void {
 	});
 	perft.dependOn(&bld.addRunArtifact(perft_unit).step);
 
-	const root = bld.createModule(.{
-		.root_source_file = bld.path("src/root.zig"),
+	const main = bld.createModule(.{
+		.root_source_file = bld.path("src/main.zig"),
 		.target = target,
 		.optimize = optimize,
 		.link_libc = false,
@@ -119,9 +119,8 @@ pub fn build(bld: *std.Build) !void {
 		});
 
 		Modules.array.set(m, module);
-		switch (m) {
-			.selfplay => {},
-			else => root.addImport(name, module),
+		if (m != .selfplay) {
+			main.addImport(name, module);
 		}
 
 		const test_src = Modules.test_files.get(m);
@@ -184,13 +183,13 @@ pub fn build(bld: *std.Build) !void {
 	});
 	selfplay_step.dependOn(&bld.addInstallArtifact(selfplay_exe, .{}).step);
 
-	const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
+	const exe_name = bld.option([]const u8, "name", "") orelse @import("src/main.zig").name;
 	const lto = bld.option(bool, "lto", "") orelse false;
 
 	const exe = bld.addExecutable(.{
-		.root_module = root,
+		.root_module = main,
 		.name = exe_name,
-		.version = @import("src/root.zig").version,
+		.version = @import("src/main.zig").version,
 		.use_lld = use_llvm,
 		.use_llvm = use_llvm,
 	});

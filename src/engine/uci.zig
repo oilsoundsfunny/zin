@@ -230,9 +230,7 @@ pub fn parseCommand(command: []const u8, pool: *search.Pool) !Command {
 	} else return error.UnknownCommand;
 }
 
-pub fn loop() !void {
-	const allocator = std.heap.page_allocator;
-
+pub fn loop(allocator: std.mem.Allocator) !void {
 	var io = try types.Io.init(allocator, null, 16384, null, 16384);
 	var tt = try transposition.Table.init(allocator, null);
 	var pool = try search.Pool.init(allocator, null, false, &io, &tt);

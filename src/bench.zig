@@ -61,9 +61,7 @@ const fens = [_][]const u8 {
 		"nqbnrkrb/pppppppp/8/8/8/8/PPPPPPPP/NQBNRKRB w GEge - 0 1",
 };
 
-pub fn run(depth: ?engine.search.Depth) !void {
-	const allocator = std.heap.page_allocator;
-
+pub fn run(allocator: std.mem.Allocator, depth: ?engine.search.Depth) !void {
 	var io = try types.Io.init(allocator, null, 4096, null, 4096);
 	defer io.deinit();
 
@@ -74,12 +72,10 @@ pub fn run(depth: ?engine.search.Depth) !void {
 	defer pool.deinit();
 
 	try pool.reset();
-	pool.options.threads = 1;
+	try pool.tt.clear(pool.options.threads);
+
 	pool.options.infinite = false;
 	pool.options.depth = depth orelse 13;
-
-	try pool.realloc(pool.options.threads);
-	try pool.tt.clear(pool.options.threads);
 
 	var sum: u64 = 0;
 	var time: u64 = 0;
