@@ -7,17 +7,17 @@ const Accumulator = @import("Accumulator.zig");
 const arch = @import("arch.zig");
 
 pub const Self = extern struct {
-	hl0_w:	[arch.inp_len][arch.hl0_len]arch.Int align(32),
-	hl0_b:	[arch.hl0_len]arch.Int align(32),
+	hl0_w:	[arch.inp_len][arch.hl0_len]arch.Int align(64),
+	hl0_b:	[arch.hl0_len]arch.Int align(64),
 
-	out_w:	[arch.color_n][arch.hl0_len]arch.Int align(32),
-	out_b:	arch.Int align(32),
+	out_w:	[arch.color_n][arch.hl0_len]arch.Int align(64),
+	out_b:	arch.Int align(64),
 
 	pub fn infer(self: *const Self, pos: *const engine.Board.One) engine.evaluation.score.Int {
 		const stm = pos.stm;
 		const accumulator = &pos.accumulator;
 
-		const Vec = *align(32) const Accumulator.Vec;
+		const Vec = *align(64) const Accumulator.Vec;
 		const vecs = std.EnumArray(types.Color, Vec).init(.{
 			.white = accumulator.perspectives.getPtrConst(stm),
 			.black = accumulator.perspectives.getPtrConst(stm.flip()),
@@ -46,8 +46,8 @@ pub const Self = extern struct {
 
 pub const default = init: {
 	const bin = @embedFile("default.nn");
-	var net: Self align(32) = undefined;
-	@memcpy(std.mem.asBytes(&net), bin[0 .. @sizeOf(Self)]);
+	var net: Self align(64) = undefined;
+	@memcpy(std.mem.asBytes(&net), bin);
 	break :init net;
 };
 

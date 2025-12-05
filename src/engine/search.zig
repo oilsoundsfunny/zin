@@ -747,8 +747,8 @@ pub const Pool = struct {
 	options:	Options,
 
 	timer:	std.time.Timer,
-	searching:	bool,
 	finished:	bool,
+	searching:	bool align(64),
 
 	quiet:	bool,
 	io:	*types.Io,

@@ -33,9 +33,9 @@ fn index(self: *const Self, c: types.Color, s: types.Square, p: types.Piece) usi
 
 pub fn pop(self: *Self, s: types.Square, p: types.Piece) void {
 	for (types.Color.values) |c| {
-		const v: *align(32) Vec
+		const v: *align(64) Vec
 		  = self.perspectives.getPtr(c);
-		const w: *align(32) const Vec
+		const w: *align(64) const Vec
 		  = @ptrCast(&net.default.hl0_w[self.index(c, s, p)]);
 		v.* -%= w.*;
 	}
@@ -43,9 +43,9 @@ pub fn pop(self: *Self, s: types.Square, p: types.Piece) void {
 
 pub fn set(self: *Self, s: types.Square, p: types.Piece) void {
 	for (types.Color.values) |c| {
-		const v: *align(32) Vec
+		const v: *align(64) Vec
 		  = self.perspectives.getPtr(c);
-		const w: *align(32) const Vec
+		const w: *align(64) const Vec
 		  = @ptrCast(&net.default.hl0_w[self.index(c, s, p)]);
 		v.* +%= w.*;
 	}
