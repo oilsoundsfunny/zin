@@ -8,13 +8,12 @@ const viri = @import("viri.zig");
 
 const Self = @This();
 
+const max_cp = 400;
 const random_ply = 8;
 const random_games = 4;
 
-const max_cp = 400;
-
 pool:	engine.search.Pool,
-prng:	std.Random.Sfc64,
+prng:	std.Random.Xoroshiro128,
 opening:	[]const u8 = &.{},
 
 games:	?usize,
@@ -68,7 +67,7 @@ pub const Tourney = struct {
 
 			player.* = .{
 				.pool = try @TypeOf(player.pool).init(self.allocator, 1, true, io, tt),
-				.prng = std.Random.Sfc64.init(0xaaaaaaaaaaaaaaaa),
+				.prng = std.Random.Xoroshiro128.init(0xaaaaaaaaaaaaaaaa),
 				.opening = undefined,
 
 				.games = if (options.games) |lim| lim / n + @intFromBool(i < lim % n) else null,
@@ -96,9 +95,10 @@ pub const Tourney = struct {
 		}
 	}
 
-	pub fn stop(self: *const Tourney) void {
-		for (self.threads) |thread| {
-			std.Thread.join(thread);
+	pub fn stop(self: *Tourney) void {
+		for (self.threads) |*thread| {
+			std.Thread.join(thread.*);
+			thread.* = undefined;
 		}
 	}
 };
@@ -128,57 +128,63 @@ fn playRandom(self: *Self) !void {
 	const threads = self.pool.threads;
 	const thread = &threads[0];
 
-	var pos = thread.pos;
+	var board = thread.board;
 	var ply: usize = 0;
-	defer thread.pos = pos;
+	defer thread.board = board;
 
-	find_line: while (true) : ({
+	while (true) : ({
 		ply = 0;
-		pos = thread.pos;
+		board = thread.board;
 	}) {
 		while (ply <= random_ply) : (ply += 1) {
-			const root_moves = engine.movegen.Move.Root.List.init(&pos);
+			const root_moves = engine.movegen.Move.Root.List.init(&board);
 			const rms = root_moves.constSlice();
 			const rmn = rms.len;
 			if (rmn == 0) {
-				continue :find_line;
+				break;
 			}
 
 			if (ply < random_ply) {
 				const i = self.prng.random().uintLessThan(usize, rmn);
 				const m = rms[i].constSlice()[0];
-				pos.doMove(m) catch continue :find_line;
+				board.doMove(m) catch break;
 			} else {
-				const ev = pos.evaluate();
-				const cp = engine.evaluation.score.centipawns(ev);
-				if (cp < -max_cp or cp > max_cp) {
-					continue :find_line;
+				const mat
+				  = @as(engine.evaluation.score.Int, board.top().ptypeOcc(.pawn).count()) * 1
+				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.knight).count()) * 3
+				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.bishop).count()) * 3
+				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.rook).count()) * 5
+				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.queen).count()) * 9;
+				const ev = board.top().evaluate();
+				const cp = engine.evaluation.score.normalize(ev, mat);
+				if (cp != std.math.clamp(cp, -max_cp, max_cp)) {
+					break;
 				}
 			}
-		} else break :find_line;
+		} else break;
 	}
 }
 
 fn playOut(self: *Self) !void {
 	const threads = self.pool.threads;
 	const thread = &threads[0];
-	const pos = &thread.pos;
+	const board = &thread.board;
 
-	self.data = viri.Self.fromPosition(pos);
+	self.data = viri.Self.fromPosition(board);
 	self.line = try @TypeOf(self.line).init(0);
 
 	while (true) {
 		try self.pool.start();
-		self.pool.waitStop();
+		self.pool.waitFinish();
 
 		const root_moves = &thread.root_moves;
 		const rms = root_moves.constSlice();
 		const rmn = rms.len;
 
-		if (rmn == 0 or pos.isDrawn()) {
-			const is_checked = pos.isChecked();
-			const is_drawn = pos.isDrawn();
-			const stm = pos.stm;
+		if (rmn == 0) {
+			const is_checked = board.top().isChecked();
+			const is_drawn = board.isDrawn() or board.isTerminal();
+			const stm = board.top().stm;
 
 			defer self.data.result = if (!is_checked or is_drawn) .draw else switch (stm) {
 				.white => .black,
@@ -191,10 +197,16 @@ fn playOut(self: *Self) !void {
 		const pv = &rms[0];
 		const pvm = pv.constSlice()[0];
 		const pvs = pv.score;
-		try pos.doMove(pvm);
+		try board.doMove(pvm);
 
+		const mat
+		  = @as(engine.evaluation.score.Int, board.top().ptypeOcc(.pawn).count()) * 1
+		  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.knight).count()) * 3
+		  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.bishop).count()) * 3
+		  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.rook).count()) * 5
+		  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.queen).count()) * 9;
 		const m = viri.Move.fromMove(pvm);
-		const s = engine.evaluation.score.centipawns(@intCast(pvs));
+		const s = engine.evaluation.score.normalize(@intCast(pvs), mat);
 		try self.line.append(.{
 			.move = m,
 			.score = @intCast(s),
@@ -204,12 +216,15 @@ fn playOut(self: *Self) !void {
 
 fn match(self: *Self) !void {
 	while (self.readOpening()) {
+		var pos: engine.Board.One = .{};
+		try pos.parseFen(self.opening);
 		defer self.pool.allocator.free(self.opening);
 
 		const played = self.played;
 		const games = self.games orelse std.math.maxInt(usize);
 
 		while (self.played - played < random_games and self.played < games) {
+			self.pool.setPosition(&pos, true);
 			self.playRandom() catch |err| {
 				std.debug.panic("error: {s} @ game {d}", .{@errorName(err), self.played});
 				return err;
@@ -222,6 +237,10 @@ fn match(self: *Self) !void {
 
 			defer self.played += 1;
 			try self.writeData();
+		}
+
+		if (self.played >= games) {
+			break;
 		}
 	} else |err| switch (err) {
 		error.EndOfStream => {},

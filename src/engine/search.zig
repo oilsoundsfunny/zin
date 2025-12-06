@@ -592,26 +592,6 @@ pub const Thread = struct {
 		const b = beta;
 		var a = alpha;
 
-		if (!self.pool.searching) {
-			return a;
-		}
-
-		if (self.idx == 0 and !self.pool.options.infinite) {
-			const options = &self.pool.options;
-			const nodes = self.nodes;
-			const timer = &self.pool.timer;
-
-			const exceed_nodes = if (options.nodes) |lim| nodes >= lim else false;
-			const exceed_time = options.stop != null
-			  and nodes % 2048 == 0
-			  and timer.read() / std.time.ns_per_ms >= options.stop.?;
-
-			if (exceed_time or exceed_nodes) {
-				self.pool.stop();
-				return a;
-			}
-		}
-
 		const board = &self.board;
 		const pos = board.top();
 		const key = pos.key;
@@ -900,7 +880,6 @@ pub const Options = struct {
 	threads:	usize = 1,
 	overhead:	u64 = 10,
 
-	infinite:		bool = false,
 	depth:	?Depth = null,
 	nodes:	?u64 = null,
 
@@ -916,14 +895,12 @@ pub const Options = struct {
 
 	pub fn calcStop(self: *Options, stm: types.Color) void {
 		const has_clock = self.incr.get(stm) != null and self.time.get(stm) != null;
-		const inf = self.infinite;
 		const overhead = self.overhead;
 
 		const incr = self.incr.get(stm) orelse undefined;
 		const time = self.time.get(stm) orelse undefined;
 
-		self.stop = if (inf) null
-		  else if (self.movetime) |mt| mt -| overhead
+		self.stop = if (self.movetime) |mt| mt -| overhead
 		  else if (has_clock) time / 20 + incr / 2 -| overhead
 		  else null;
 	}

@@ -35,7 +35,6 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Comman
 			options.reset();
 			continue;
 		}
-		defer options.infinite = false;
 
 		const aux = tokens.next() orelse return error.UnknownCommand;
 		if (std.mem.eql(u8, token, "depth")) {

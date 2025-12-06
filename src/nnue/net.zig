@@ -17,7 +17,7 @@ pub const Self = extern struct {
 		const stm = pos.stm;
 		const accumulator = &pos.accumulator;
 
-		const Vec = *align(64) const Accumulator.Vec;
+		const Vec = *align(32) const Accumulator.Vec;
 		const vecs = std.EnumArray(types.Color, Vec).init(.{
 			.white = accumulator.perspectives.getPtrConst(stm),
 			.black = accumulator.perspectives.getPtrConst(stm.flip()),
@@ -47,7 +47,7 @@ pub const Self = extern struct {
 pub const default = init: {
 	const bin = @embedFile("default.nn");
 	var net: Self align(64) = undefined;
-	@memcpy(std.mem.asBytes(&net), bin);
+	@memcpy(std.mem.asBytes(&net), bin[0 ..]);
 	break :init net;
 };
 

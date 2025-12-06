@@ -10,9 +10,19 @@ pub const author = "oilsoundsfunny";
 pub const name = "selfplay";
 
 pub fn main() !void {
+	try bitboard.init();
+	defer bitboard.deinit();
+
+	try engine.init();
+	defer engine.deinit();
+
+	var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
 	const allocator = std.heap.page_allocator;
-	const args = try std.process.argsAlloc(allocator);
-	var i: usize = 1;
+	defer _ = gpa.deinit();
+
+	var args = try std.process.argsWithAllocator(allocator);
+	_ = args.skip();
+	defer args.deinit();
 
 	var book_path: ?[]const u8 = null;
 	var data_path: ?[]const u8 = null;
@@ -21,69 +31,55 @@ pub fn main() !void {
 	var nodes: ?usize = null;
 	var threads: ?usize = null;
 
-	while (i < args.len) : (i += 1) {
-		const arg = args[i];
-
+	while (args.next()) |arg| {
 		if (std.mem.eql(u8, arg, "--book")) {
-			i += 1;
-			if (i > args.len) {
-				std.process.fatal("expected arg after '{s}'", .{arg});
-			}
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
 
 			if (book_path) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			book_path = args[i];
+			book_path = aux;
 		} else if (std.mem.eql(u8, arg, "--data")) {
-			i += 1;
-			if (i > args.len) {
-				std.process.fatal("expected arg after '{s}'", .{arg});
-			}
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
 
 			if (data_path) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			data_path = args[i];
+			data_path = aux;
 		} else if (std.mem.eql(u8, arg, "--depth")) {
-			i += 1;
-			if (i > args.len) {
-				std.process.fatal("expected arg after '{s}'", .{arg});
-			}
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
 
 			if (depth) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			depth = try std.fmt.parseUnsigned(u8, args[i], 10);
+			depth = try std.fmt.parseUnsigned(u8, aux, 10);
 		} else if (std.mem.eql(u8, arg, "--games")) {
-			i += 1;
-			if (i > args.len) {
-				std.process.fatal("expected arg after '{s}'", .{arg});
-			}
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
 
 			if (games) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			games = try std.fmt.parseUnsigned(usize, args[i], 10);
+			games = try std.fmt.parseUnsigned(usize, aux, 10);
 		} else if (std.mem.eql(u8, arg, "--nodes")) {
-			i += 1;
-			if (i > args.len) {
-				std.process.fatal("expected arg after '{s}'", .{arg});
-			}
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
 
 			if (nodes) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			nodes = try std.fmt.parseUnsigned(usize, args[i], 10);
+			nodes = try std.fmt.parseUnsigned(usize, aux, 10);
 		} else if (std.mem.eql(u8, arg, "--threads")) {
-			i += 1;
-			if (i > args.len) {
-				std.process.fatal("expected arg after '{s}'", .{arg});
-			}
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
 
 			if (threads) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			threads = try std.fmt.parseUnsigned(usize, args[i], 10);
+			threads = try std.fmt.parseUnsigned(usize, aux, 10);
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
 
@@ -95,12 +91,6 @@ pub fn main() !void {
 	var tt = try engine.transposition.Table.init(allocator, 128);
 	try tt.clear(threads orelse 1);
 	defer tt.deinit();
-
-	try bitboard.init();
-	defer bitboard.deinit();
-
-	try engine.init();
-	defer engine.deinit();
 
 	var tourney = try Player.Tourney.init(.{
 		.allocator = allocator,

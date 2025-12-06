@@ -24,7 +24,7 @@ const Piece = enum(u4) {
 
 	const tag_info = @typeInfo(Tag).int;
 
-	fn fromSquare(pos: *const engine.Position, s: types.Square) Piece {
+	fn fromSquare(pos: *const engine.Board.One, s: types.Square) Piece {
 		var iter = @constCast(pos).castles.iterator();
 
 		return switch (pos.getSquare(s)) {
@@ -32,7 +32,7 @@ const Piece = enum(u4) {
 				const k = entry.key;
 				const v = entry.value;
 
-				if (pos.ss.top().castle.get(k) and v.rs == s) {
+				if (pos.castles.contains(k) and v.rs == s) {
 					break :loop Piece.w_castle;
 				}
 			} else Piece.w_rook,
@@ -41,7 +41,7 @@ const Piece = enum(u4) {
 				const k = entry.key;
 				const v = entry.value;
 
-				if (pos.ss.top().castle.get(k) and v.rs == s) {
+				if (pos.castles.contains(k) and v.rs == s) {
 					break :loop Piece.b_castle;
 				}
 			} else Piece.b_rook,
@@ -103,11 +103,12 @@ pub const Self = extern struct {
 	result:	Result = .draw,
 	pad:	u8 = 0,
 
-	pub fn fromPosition(pos: *const engine.Position) Self {
+	pub fn fromPosition(board: *const engine.Board) Self {
 		var self: Self = .{};
+		const pos = board.top();
 		const eval = pos.evaluate();
 
-		self.ply = pos.ss.top().rule50;
+		self.ply = pos.rule50;
 		self.length = 0;
 		self.score = @intCast(switch (pos.stm) {
 			.white => eval,
@@ -125,7 +126,7 @@ pub const Self = extern struct {
 			self.pieces |= std.math.shl(u128, t, i * Piece.tag_info.bits);
 		}
 
-		self.flag = if (pos.ss.top().en_pas) |s| s.tag() else types.Square.cnt;
+		self.flag = if (pos.en_pas) |s| s.tag() else types.Square.cnt;
 		if (pos.stm == .black) {
 			self.flag |= 1 << 7;
 		}
