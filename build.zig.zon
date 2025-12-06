@@ -7,7 +7,7 @@
             .hash = "bounded_array-0.1.0-VF2RKohKAAAnG-uH_4cQr-Vc9eizfnpEgDL9U_g6a2oz",
         },
         .networks = .{
-            .url = "git+https://github.com/oilsoundsfunny/zin-nets.git#c129a9ab00e43c6071f301cc47076aa41657206b",
+            .url = "git+https://codeberg.org/oilsoundsfunny/zin-nets.git#c129a9ab00e43c6071f301cc47076aa41657206b",
             .hash = "N-V-__8AAMMKBgD2kmMkwjlBkzRYJ35_n-l4QVOjtyu6JjHb",
         },
     },
