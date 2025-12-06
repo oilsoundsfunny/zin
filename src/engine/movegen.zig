@@ -453,6 +453,7 @@ pub const Picker = struct {
 	stage:	Stage,
 
 	excluded:	Move,
+	killer:	Move,
 	ttm:	Move,
 
 	noisy_n:	usize,
@@ -464,6 +465,7 @@ pub const Picker = struct {
 	pub const Stage = enum(u8) {
 		ttm,
 		gen_noisy, good_noisy,
+		killer,
 		gen_quiet, good_quiet,
 		bad_noisy,
 		bad_quiet,
@@ -506,7 +508,7 @@ pub const Picker = struct {
 	}
 
 	fn scoreNoisy(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
+		return if (self.isMoveSpecial(move)) search.hist.min - 1
 		  else captures: {
 			const mvv = self.board.top().getSquare(move.dst).ptype().score() * 7;
 			const lva = self.thread.getNoisyHist(move);
@@ -515,12 +517,12 @@ pub const Picker = struct {
 	}
 
 	fn scoreQuiet(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
+		return if (self.isMoveSpecial(move)) search.hist.min - 1
 		  else self.thread.getQuietHist(move);
 	}
 
 	pub fn init(thread: *const search.Thread, ttm: Move) Picker {
-		var self: Picker = .{
+		var mp: Picker = .{
 			.list = .{},
 			.board = &thread.board,
 			.thread = thread,
@@ -529,6 +531,7 @@ pub const Picker = struct {
 			.stage = .gen_noisy,
 
 			.excluded = .{},
+			.killer = .{},
 			.ttm = .{},
 
 			.noisy_n = 0,
@@ -538,12 +541,21 @@ pub const Picker = struct {
 			.bad_quiet_n = 0,
 		};
 
-		if (!ttm.isNone() and self.board.top().isMovePseudoLegal(ttm)) {
-			self.ttm = ttm;
-			self.stage = .ttm;
+		const pos = mp.board.top();
+		if (!ttm.isNone() and ttm != mp.excluded and pos.isMovePseudoLegal(ttm)) {
+			mp.ttm = ttm;
+			mp.stage = .ttm;
 		}
 
-		return self;
+		const killer = pos.killer;
+		if (!killer.isNone()
+		  and killer != mp.excluded
+		  and killer != mp.ttm
+		  and pos.isMovePseudoLegal(killer)) {
+			mp.killer = killer;
+		}
+
+		return mp;
 	}
 
 	pub fn next(self: *Picker) ?Move.Scored {
@@ -579,6 +591,16 @@ pub const Picker = struct {
 				self.list.slice()[self.bad_noisy_n] = sm;
 				self.bad_noisy_n += 1;
 			} else return sm;
+		}
+
+		if (self.stage == .killer) {
+			self.stage.inc();
+			if (!self.killer.isNone()) {
+				return .{
+					.move = self.killer,
+					.score = self.scoreQuiet(self.killer),
+				};
+			}
 		}
 
 		if (self.stage == .gen_quiet) gen_quiet: {
@@ -636,5 +658,9 @@ pub const Picker = struct {
 
 	pub fn skipQuiets(self: *Picker) void {
 		self.skip_quiets = true;
+	}
+
+	pub fn isMoveSpecial(self: *const Picker, move: Move) bool {
+		return move == self.excluded or move == self.ttm or move == self.killer;
 	}
 };

@@ -525,7 +525,7 @@ pub const Thread = struct {
 				while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {
 				}
 
-				const next_pv = &self.board.top().up(1).pv;
+				const next_pv = &pos.up(1).pv;
 				const rm = &rms[rmi];
 				if (searched == 1 or s > a) {
 					rm.update(s, m, next_pv.constSlice());
@@ -538,8 +538,8 @@ pub const Thread = struct {
 				best.score = @intCast(s);
 
 				if (!is_root and is_pv and s > a) {
-					const next_pv = &self.board.top().up(1).pv;
-					const this_pv = &self.board.top().pv;
+					const next_pv = &pos.up(1).pv;
+					const this_pv = &pos.pv;
 
 					this_pv.update(s, m, next_pv.constSlice());
 				}
@@ -551,6 +551,10 @@ pub const Thread = struct {
 				}
 
 				if (s >= b) {
+					if (is_quiet and pos.killer.isNone()) {
+						pos.killer = m;
+					}
+
 					flag = .lowerbound;
 					break :move_loop;
 				}

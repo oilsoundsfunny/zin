@@ -56,6 +56,7 @@ pub const One = struct {
 	castles:	std.EnumMap(types.Castle, Castle) = std.EnumMap(types.Castle, Castle).init(.{}),
 
 	stm:	types.Color = .white,
+	killer:	movegen.Move = .{},
 	move:	movegen.Move = .{},
 	src_piece:	types.Piece = .none,
 	dst_piece:	types.Piece = .none,
@@ -580,6 +581,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 
 	const pos = self.ss.addOneAssumeCapacity();
 	pos.* = pos.down(1).*;
+	pos.killer = .{};
 	pos.en_pas = null;
 	pos.rule50 += 1;
 
@@ -725,6 +727,7 @@ pub fn doNull(self: *Board) MoveError!void {
 
 	const pos = self.ss.addOneAssumeCapacity();
 	pos.* = pos.down(1).*;
+	pos.killer = .{};
 	pos.en_pas = null;
 	pos.rule50 = 0;
 
