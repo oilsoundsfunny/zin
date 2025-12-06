@@ -58,6 +58,8 @@ pub const Thread = struct {
 
 	nmp_verif:	bool = false,
 	quiet_hist:	[types.Square.cnt][types.Square.cnt]hist.Int = @splat(@splat(0)),
+	noisy_hist:	[types.Color.cnt][types.Ptype.cnt][types.Square.cnt][types.Ptype.cnt]hist.Int
+	  = @splat(@splat(@splat(@splat(0)))),
 
 	fn reset(self: *Thread, pool: *Pool) void {
 		self.* = .{};
@@ -74,26 +76,41 @@ pub const Thread = struct {
 		return &self.quiet_hist[move.src.tag()][move.dst.tag()];
 	}
 
+	fn noisyHistPtr(self: anytype, move: movegen.Move) switch (@TypeOf(self)) {
+		*Thread => *hist.Int,
+		*const Thread => *const hist.Int,
+		else => |T| @compileError("unexpected type " ++ @typeName(T)),
+	} {
+		const sp = self.board.top().getSquare(move.src);
+		const dp = self.board.top().getSquare(move.dst);
+
+		return &self.noisy_hist
+		  [sp.color().tag()]
+		  [sp.ptype().tag()]
+		  [move.dst.tag()]
+		  [dp.ptype().tag()];
+	}
+
 	fn updateHist(self: *Thread, depth: Depth, move: movegen.Move,
 	  bad_noisy_moves: []const movegen.Move,
 	  bad_quiet_moves: []const movegen.Move) void {
 		const clamped = @min(depth, 12);
 		const bonus = clamped * 64;
-		const malus = bonus;
+		const malus = -bonus;
 
 		const pos = self.board.top();
 		const is_quiet = pos.isMoveQuiet(move);
 		if (is_quiet) {
-			hist.bonus(self.quietHistPtr(move), bonus);
+			hist.update(self.quietHistPtr(move), bonus);
 			for (bad_quiet_moves) |qm| {
-				hist.malus(self.quietHistPtr(qm), malus);
+				hist.update(self.quietHistPtr(qm), malus);
 			}
 		} else {
-			// TODO: bonus noisy hist
+			hist.update(self.noisyHistPtr(move), bonus);
 		}
 
-		for (bad_noisy_moves) |_| {
-			// TODO: malus noisy hist
+		for (bad_noisy_moves) |nm| {
+			hist.update(self.noisyHistPtr(nm), malus);
 		}
 	}
 
@@ -343,7 +360,8 @@ pub const Thread = struct {
 		  and tte.eval > evaluation.score.lose
 		  and tte.eval < evaluation.score.win;
 		const stat_eval = if (is_checked) evaluation.score.none
-		  else if (has_tteval) tte.eval else pos.evaluate();
+		  else if (has_tteval) tte.eval
+		  else pos.evaluate();
 
 		const use_ttscore = tth
 		  and tte.score > evaluation.score.lose
@@ -618,7 +636,8 @@ pub const Thread = struct {
 		  and tte.eval > evaluation.score.lose
 		  and tte.eval < evaluation.score.win;
 		const stat_eval = if (is_checked) evaluation.score.none
-		  else if (has_tteval) tte.eval else pos.evaluate();
+		  else if (has_tteval) tte.eval
+		  else pos.evaluate();
 
 		const use_ttscore = tth
 		  and tte.score > evaluation.score.lose
@@ -718,6 +737,10 @@ pub const Thread = struct {
 
 	pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {
 		return self.quietHistPtr(move).*;
+	}
+
+	pub fn getNoisyHist(self: *const Thread, move: movegen.Move) hist.Int {
+		return self.noisyHistPtr(move).*;
 	}
 };
 
@@ -912,7 +935,7 @@ pub const hist = struct {
 	pub const min = std.math.minInt(Int) / 2;
 	pub const max = -min;
 
-	pub fn bonus(p: *Int, b: evaluation.score.Int) void {
+	pub fn update(p: *Int, b: evaluation.score.Int) void {
 		const clamped = std.math.clamp(b, min, max);
 		const abs = switch (clamped) {
 			min ... -1 => -clamped,
@@ -923,9 +946,5 @@ pub const hist = struct {
 		const curr: evaluation.score.Int = p.*;
 		const next = curr + clamped - @divTrunc(curr * abs, max);
 		p.* = @intCast(next);
-	}
-
-	pub fn malus(p: *Int, m: evaluation.score.Int) void {
-		bonus(p, -m);
 	}
 };

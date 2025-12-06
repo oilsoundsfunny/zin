@@ -309,9 +309,6 @@ const ScoredMoveList = struct {
 		cnt += self.genPawnMoves(pos, .bishop, true);
 		cnt += self.genPawnMoves(pos, .knight, true);
 
-		cnt += self.genPawnMoves(pos, .queen,  false);
-		cnt += self.genPawnMoves(pos, .knight, false);
-
 		cnt += self.genPawnMoves(pos, null, true);
 		cnt += self.genEnPas(pos);
 
@@ -327,8 +324,10 @@ const ScoredMoveList = struct {
 	pub fn genQuiet(self: *ScoredMoveList, pos: *const Board.One) usize {
 		var cnt: usize = 0;
 
-		cnt += self.genPawnMoves(pos, .rook,   false);
+		cnt += self.genPawnMoves(pos, .queen, false);
+		cnt += self.genPawnMoves(pos, .rook,  false);
 		cnt += self.genPawnMoves(pos, .bishop, false);
+		cnt += self.genPawnMoves(pos, .knight, false);
 
 		cnt += self.genPawnMoves(pos, null, false);
 
@@ -509,12 +508,9 @@ pub const Picker = struct {
 	fn scoreNoisy(self: *const Picker, move: Move) search.hist.Int {
 		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
 		  else captures: {
-			const sp = self.board.top().getSquare(move.src);
-			const dp = self.board.top().getSquare(move.dst);
-
-			const s = if (sp == .none) evaluation.score.draw else sp.ptype().score() * 7;
-			const d = if (dp == .none) evaluation.score.draw else dp.ptype().score() * 7;
-			break :captures @intCast(d - s);
+			const mvv = self.board.top().getSquare(move.dst).ptype().score() * 7;
+			const lva = self.thread.getNoisyHist(move);
+			break :captures mvv + lva;
 		};
 	}
 
