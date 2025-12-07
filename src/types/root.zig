@@ -1,7 +1,6 @@
 const std = @import("std");
 
 pub const Io = @import("Io.zig");
-pub const SplitMix32 = @import("SplitMix32.zig");
 
 const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
 	none = (1 << (Square.cnt * 0)) - 1,
