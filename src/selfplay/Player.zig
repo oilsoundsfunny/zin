@@ -13,7 +13,7 @@ const random_ply = 8;
 const random_games = 4;
 
 pool:	engine.search.Pool,
-prng:	std.Random.Xoroshiro128,
+prng:	types.SplitMix32,
 opening:	[]const u8 = &.{},
 
 games:	?usize,
@@ -67,7 +67,7 @@ pub const Tourney = struct {
 
 			player.* = .{
 				.pool = try @TypeOf(player.pool).init(self.allocator, 1, true, io, tt),
-				.prng = std.Random.Xoroshiro128.init(0xaaaaaaaaaaaaaaaa),
+				.prng = types.SplitMix32.init(0xaaaaaaaa),
 				.opening = undefined,
 
 				.games = if (options.games) |lim| lim / n + @intFromBool(i < lim % n) else null,
