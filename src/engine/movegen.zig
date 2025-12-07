@@ -515,8 +515,16 @@ pub const Picker = struct {
 	}
 
 	fn scoreQuiet(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
-		  else self.thread.getQuietHist(move);
+		return if (move == self.ttm or move == self.excluded) search.hist.min - 1 else blk: {
+			const score
+			  = @as(evaluation.score.Int, self.thread.getQuietHist(move))
+			  + @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2
+			  + @as(evaluation.score.Int, self.thread.getContHist(move, 2))
+			  + @as(evaluation.score.Int, self.thread.getContHist(move, 4))
+			  + @as(evaluation.score.Int, self.thread.getContHist(move, 6));
+			const scaled = @divTrunc(score, 6);
+			break :blk @intCast(scaled);
+		};
 	}
 
 	pub fn init(thread: *const search.Thread, ttm: Move) Picker {

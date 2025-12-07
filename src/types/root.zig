@@ -201,13 +201,13 @@ pub const Color = enum(u1) {
 	white,
 	black,
 
-	const Tag = std.meta.Tag(Color);
-	const tag_info = @typeInfo(Tag).int;
-
 	const char_array = std.EnumArray(Color, u8).init(.{
 		.white = 'w',
 		.black = 'b',
 	});
+
+	pub const Tag = std.meta.Tag(Color);
+	pub const tag_info = @typeInfo(Tag).int;
 
 	pub const cnt: comptime_int = values.len;
 	pub const values = std.enums.values(Color);
@@ -274,9 +274,6 @@ pub const Ptype = enum(u3) {
 	queen,
 	king,
 
-	const Tag = std.meta.Tag(Ptype);
-	const tag_info = @typeInfo(Tag).int;
-
 	const char_array = std.EnumArray(Ptype, u8).init(.{
 		.pawn = 'p',
 		.knight = 'n',
@@ -294,6 +291,9 @@ pub const Ptype = enum(u3) {
 		.queen = 256 * 9,
 		.king  = 0,
 	});
+
+	pub const Tag = std.meta.Tag(Ptype);
+	pub const tag_info = @typeInfo(Tag).int;
 
 	pub const cnt: comptime_int = values.len;
 	pub const values = std.enums.values(Ptype);
@@ -345,9 +345,6 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_i
 
 	none = Ptype.cnt,
 
-	const Tag = std.meta.Tag(Piece);
-	const tag_info = @typeInfo(Tag).int;
-
 	const char_map = std.EnumMap(Piece, u8).init(.{
 		.w_pawn = 'P',
 		.w_knight = 'N',
@@ -363,6 +360,9 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_i
 		.b_queen = 'q',
 		.b_king = 'k',
 	});
+
+	pub const Tag = std.meta.Tag(Piece);
+	pub const tag_info = @typeInfo(Tag).int;
 
 	pub const cnt: comptime_int = values.len;
 	pub const values = std.enums.values(Piece);

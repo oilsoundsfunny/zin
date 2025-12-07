@@ -57,9 +57,14 @@ pub const Thread = struct {
 	root_moves:	movegen.Move.Root.List = .{},
 
 	nmp_verif:	bool = false,
-	quiet_hist:	[types.Square.cnt][types.Square.cnt]hist.Int = @splat(@splat(0)),
-	noisy_hist:	[types.Color.cnt][types.Ptype.cnt][types.Square.cnt][types.Ptype.cnt]hist.Int
+	quiethist:	[types.Color.cnt][types.Ptype.cnt][types.Square.cnt]hist.Int
+	  = @splat(@splat(@splat(0))),
+	noisyhist:	[types.Color.cnt][types.Ptype.cnt][types.Square.cnt][types.Ptype.cnt]hist.Int
 	  = @splat(@splat(@splat(@splat(0)))),
+	conthist:	[types.Color.cnt][4]
+	  [1 << types.Ptype.tag_info.bits][types.Square.cnt]
+	  [1 << types.Ptype.tag_info.bits][types.Square.cnt]hist.Int
+	  = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
 
 	fn reset(self: *Thread, pool: *Pool) void {
 		self.* = .{};
@@ -73,7 +78,8 @@ pub const Thread = struct {
 		*const Thread => *const hist.Int,
 		else => |T| @compileError("unexpected type " ++ @typeName(T)),
 	} {
-		return &self.quiet_hist[move.src.tag()][move.dst.tag()];
+		const sp = self.board.top().getSquare(move.src);
+		return &self.quiethist[sp.color().tag()][sp.ptype().tag()][move.dst.tag()];
 	}
 
 	fn noisyHistPtr(self: anytype, move: movegen.Move) switch (@TypeOf(self)) {
@@ -84,11 +90,30 @@ pub const Thread = struct {
 		const sp = self.board.top().getSquare(move.src);
 		const dp = self.board.top().getSquare(move.dst);
 
-		return &self.noisy_hist
+		return &self.noisyhist
 		  [sp.color().tag()]
 		  [sp.ptype().tag()]
 		  [move.dst.tag()]
 		  [dp.ptype().tag()];
+	}
+
+	fn contHistPtr(self: anytype, move: movegen.Move, ply: usize) switch (@TypeOf(self)) {
+		*Thread => *hist.Int,
+		*const Thread => *const hist.Int,
+		else => |T| @compileError("unexpected type " ++ @typeName(T)),
+	} {
+		const last_m = self.board.top().down(ply).move;
+		const last_spt = if (last_m.isNone()) types.Ptype.cnt
+		  else self.board.top().down(ply).src_piece.ptype().tag();
+		const last_dst = last_m.dst.tag();
+
+		const this_spt = self.board.top().getSquare(move.src).ptype().tag();
+		const this_dst = move.dst.tag();
+
+		return &self.conthist
+		  [self.board.top().stm.tag()][ply / 2]
+		  [last_spt][last_dst]
+		  [this_spt][this_dst];
 	}
 
 	fn updateHist(self: *Thread, depth: Depth, move: movegen.Move,
@@ -104,6 +129,14 @@ pub const Thread = struct {
 			hist.update(self.quietHistPtr(move), bonus);
 			for (bad_quiet_moves) |qm| {
 				hist.update(self.quietHistPtr(qm), malus);
+			}
+
+			const cont_plies = [_]usize {1, 2, 4, 6};
+			for (cont_plies) |ply| {
+				hist.update(self.contHistPtr(move, ply), bonus);
+				for (bad_quiet_moves) |qm| {
+					hist.update(self.contHistPtr(qm, ply), malus);
+				}
 			}
 		} else {
 			hist.update(self.noisyHistPtr(move), bonus);
@@ -741,6 +774,10 @@ pub const Thread = struct {
 
 	pub fn getNoisyHist(self: *const Thread, move: movegen.Move) hist.Int {
 		return self.noisyHistPtr(move).*;
+	}
+
+	pub fn getContHist(self: *const Thread, move: movegen.Move, ply: usize) hist.Int {
+		return self.contHistPtr(move, ply).*;
 	}
 };
 
