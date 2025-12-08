@@ -105,7 +105,6 @@ pub const One = struct {
 
 		const z = zobrist.psq(s, p);
 		self.key ^= z;
-		self.accumulator.pop(s, p);
 	}
 
 	fn setSq(self: *One, s: types.Square, p: types.Piece) void {
@@ -121,7 +120,6 @@ pub const One = struct {
 
 		const z = zobrist.psq(s, p);
 		self.key ^= z;
-		self.accumulator.set(s, p);
 	}
 
 	fn popCastle(self: *One, c: types.Castle) void {
@@ -250,6 +248,8 @@ pub const One = struct {
 			const from_c = types.Piece.fromChar(c);
 			si += if (from_c) |p| blk: {
 				self.setSq(s, p);
+				self.accumulator.add(.white, .{.piece = p, .square = s});
+				self.accumulator.add(.black, .{.piece = p, .square = s});
 
 				switch (p) {
 					.w_rook => {
@@ -589,6 +589,28 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.popSq(s, sp);
 			pos.popSq(d, dp);
 			pos.setSq(d, sp);
+
+			if (dp == .none) {
+				pos.accumulator.fusedAddSub(.white,
+				  .{.piece = sp, .square = d},
+				  .{.piece = sp, .square = s},
+				);
+				pos.accumulator.fusedAddSub(.black,
+				  .{.piece = sp, .square = d},
+				  .{.piece = sp, .square = s},
+				);
+			} else {
+				pos.accumulator.fusedAddSubSub(.white,
+				  .{.piece = sp, .square = d},
+				  .{.piece = sp, .square = s},
+				  .{.piece = dp, .square = d},
+				);
+				pos.accumulator.fusedAddSubSub(.black,
+				  .{.piece = sp, .square = d},
+				  .{.piece = sp, .square = s},
+				  .{.piece = dp, .square = d},
+				);
+			}
 		},
 
 		.en_passant => {
@@ -599,6 +621,17 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.popSq(s, our_pawn);
 			pos.setSq(d, our_pawn);
 			pos.popSq(enp_target, their_pawn);
+
+			pos.accumulator.fusedAddSubSub(.white,
+			  .{.piece = our_pawn, .square = d},
+			  .{.piece = our_pawn, .square = s},
+			  .{.piece = their_pawn, .square = enp_target},
+			);
+			pos.accumulator.fusedAddSubSub(.black,
+			  .{.piece = our_pawn, .square = d},
+			  .{.piece = our_pawn, .square = s},
+			  .{.piece = their_pawn, .square = enp_target},
+			);
 		},
 
 		.promote => {
@@ -608,6 +641,28 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.popSq(s, our_pawn);
 			pos.popSq(d, dp);
 			pos.setSq(d, our_promotion);
+
+			if (dp == .none) {
+				pos.accumulator.fusedAddSub(.white,
+				  .{.piece = our_promotion, .square = d},
+				  .{.piece = our_pawn, .square = s},
+				);
+				pos.accumulator.fusedAddSub(.black,
+				  .{.piece = our_promotion, .square = d},
+				  .{.piece = our_pawn, .square = s},
+				);
+			} else {
+				pos.accumulator.fusedAddSubSub(.white,
+				  .{.piece = our_promotion, .square = d},
+				  .{.piece = our_pawn, .square = s},
+				  .{.piece = dp, .square = d},
+				);
+				pos.accumulator.fusedAddSubSub(.black,
+				  .{.piece = our_promotion, .square = d},
+				  .{.piece = our_pawn, .square = s},
+				  .{.piece = dp, .square = d},
+				);
+			}
 		},
 
 		.castle => {
@@ -620,6 +675,19 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 
 			pos.setSq(info.kd, our_king);
 			pos.setSq(info.rd, our_rook);
+
+			pos.accumulator.fusedAddAddSubSub(.white,
+			  .{.piece = our_king, .square = info.kd},
+			  .{.piece = our_rook, .square = info.rd},
+			  .{.piece = our_king, .square = info.ks},
+			  .{.piece = our_rook, .square = info.rs},
+			);
+			pos.accumulator.fusedAddAddSubSub(.black,
+			  .{.piece = our_king, .square = info.kd},
+			  .{.piece = our_rook, .square = info.rd},
+			  .{.piece = our_king, .square = info.ks},
+			  .{.piece = our_rook, .square = info.rs},
+			);
 		},
 	}
 
