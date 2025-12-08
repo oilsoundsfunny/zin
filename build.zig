@@ -153,7 +153,7 @@ pub fn build(bld: *std.Build) !void {
 
 	const evalfile = bld.option([]const u8, "evalfile", "");
 	const network: std.Build.LazyPath = if (evalfile) |custom| .{.cwd_relative = custom}
-	  else bld.dependency("networks", .{}).path("hl256.nn");
+	  else bld.dependency("networks", .{}).path("hl320.nn");
 
 	for (Modules.values) |m| {
 		const deps = Modules.dependencies.get(m);

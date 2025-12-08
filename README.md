@@ -3,7 +3,9 @@
 ## features
 - uci-compatible
 - evaluation:
-	- l1=256 neural net
+	- hl320 neural net
+	- horizontal mirroring
+	- pairwise multiplication
 - search:
 	- iterative deepening
 	- aspiration windows

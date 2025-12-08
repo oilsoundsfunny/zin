@@ -8,7 +8,7 @@ pub const ptype_n = types.Ptype.cnt;
 pub const square_n = types.Square.cnt;
 
 pub const inp_len = color_n * ptype_n * square_n;
-pub const hl0_len = 256;
+pub const hl0_len = 320;
 pub const out_len = 1;
 
 pub const scale = 400;

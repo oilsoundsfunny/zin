@@ -14,7 +14,8 @@ perspectives:	std.EnumArray(types.Color, Vec)
 mirrored:	std.EnumArray(types.Color, bool)
   = std.EnumArray(types.Color, bool).initFill(false),
 
-pub const Madd = @Vector(arch.hl0_len / 2, engine.evaluation.score.Int);
+pub const Half = @Vector(arch.hl0_len / 2, arch.Int);
+pub const Madd = @Vector(arch.hl0_len / 4, engine.evaluation.score.Int);
 pub const Vec = @Vector(arch.hl0_len, arch.Int);
 
 fn index(self: *const Self, c: types.Color, s: types.Square, p: types.Piece) usize {

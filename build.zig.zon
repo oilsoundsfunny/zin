@@ -7,8 +7,8 @@
             .hash = "bounded_array-0.1.0-VF2RKohKAAAnG-uH_4cQr-Vc9eizfnpEgDL9U_g6a2oz",
         },
         .networks = .{
-            .url = "git+https://codeberg.org/oilsoundsfunny/zin-nets.git#dff61ce2c86ab13c6d3418ff7a70c287d3f8dc28",
-            .hash = "N-V-__8AAMMKBgABxE_WKbkfv68zBoPbwPmHoxpb1hOXVfj9",
+            .url = "git+https://codeberg.org/oilsoundsfunny/zin-nets.git#fe5570e05938dabae041d00b3f6cfa89688849a1",
+            .hash = "N-V-__8AAAOQDQDEvIzrJKp5LPCcpKF5BGEo43B544JcFXoK",
         },
     },
     .paths = .{""},
