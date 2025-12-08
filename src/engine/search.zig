@@ -59,7 +59,8 @@ pub const Thread = struct {
 	nmp_verif:	bool = false,
 	quiethist:	[types.Color.cnt][types.Ptype.cnt][types.Square.cnt]hist.Int
 	  = @splat(@splat(@splat(0))),
-	noisyhist:	[types.Color.cnt][types.Ptype.cnt][types.Square.cnt][types.Ptype.cnt]hist.Int
+	noisyhist:	[types.Color.cnt][types.Ptype.cnt][types.Square.cnt]
+	  [1 << types.Ptype.tag_info.bits]hist.Int
 	  = @splat(@splat(@splat(@splat(0)))),
 	conthist:	[types.Color.cnt][4]
 	  [1 << types.Ptype.tag_info.bits][types.Square.cnt]
@@ -88,13 +89,16 @@ pub const Thread = struct {
 		else => |T| @compileError("unexpected type " ++ @typeName(T)),
 	} {
 		const sp = self.board.top().getSquare(move.src);
-		const dp = self.board.top().getSquare(move.dst);
+		const dp = switch (move.flag) {
+			// color doesnt matter
+			.en_passant => types.Ptype.cnt,
+			else => self.board.top().getSquare(move.dst).ptype().tag(),
+		};
 
 		return &self.noisyhist
 		  [sp.color().tag()]
 		  [sp.ptype().tag()]
-		  [move.dst.tag()]
-		  [dp.ptype().tag()];
+		  [move.dst.tag()][dp];
 	}
 
 	fn contHistPtr(self: anytype, move: movegen.Move, ply: usize) switch (@TypeOf(self)) {

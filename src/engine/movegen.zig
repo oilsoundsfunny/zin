@@ -508,9 +508,12 @@ pub const Picker = struct {
 	fn scoreNoisy(self: *const Picker, move: Move) search.hist.Int {
 		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
 		  else captures: {
-			const mvv = self.board.top().getSquare(move.dst).ptype().score() * 7;
+			const mvv = switch (move.flag) {
+				.en_passant => types.Ptype.pawn.score() * 7,
+				else => self.board.top().getSquare(move.dst).ptype().score() * 7,
+			};
 			const lva = self.thread.getNoisyHist(move);
-			break :captures mvv + lva;
+			break :captures @divTrunc(mvv + lva, 2);
 		};
 	}
 
