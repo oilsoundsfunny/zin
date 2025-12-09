@@ -81,8 +81,8 @@ pub fn run(allocator: std.mem.Allocator, depth: ?engine.search.Depth) !void {
 	for (fens) |fen| {
 		try pool.threads[0].board.top().parseFen(fen);
 		try pool.start();
+		pool.join(.main);
 
-		pool.waitFinish();
 		time += pool.timer.lap();
 		sum += pool.nodes();
 	}

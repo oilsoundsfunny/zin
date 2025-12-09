@@ -44,7 +44,9 @@ pub const Node = transposition.Entry.Flag;
 
 pub const Thread = struct {
 	board:	 Board = .{},
+
 	pool:	*Pool = undefined,
+	handle:	 std.Thread = undefined,
 	idx:	 usize = 0,
 	cnt:	 usize = 0,
 
@@ -267,11 +269,11 @@ pub const Thread = struct {
 
 		if (is_main) {
 			self.pool.stop();
-			defer self.pool.finish();
+			defer self.pool.join(.helpers);
 
 			try self.printInfo();
 			try self.printBest();
-		} else self.pool.waitStop();
+		}
 	}
 
 	fn hardStop(self: *Thread) bool {
@@ -791,7 +793,6 @@ pub const Pool = struct {
 	options:	Options,
 
 	timer:	std.time.Timer,
-	finished:	bool,
 	searching:	bool align(64),
 
 	quiet:	bool,
@@ -816,7 +817,6 @@ pub const Pool = struct {
 
 			.timer = try std.time.Timer.start(),
 			.searching = false,
-			.finished = false,
 
 			.quiet = quiet,
 			.io = io,
@@ -838,8 +838,6 @@ pub const Pool = struct {
 
 	pub fn reset(self: *Pool) !void {
 		self.searching = false;
-		self.finished = false;
-
 		self.options.reset();
 		self.timer.reset();
 
@@ -877,26 +875,16 @@ pub const Pool = struct {
 		}
 	}
 
-	pub fn waitFinish(self: *const Pool) void {
-		while (!self.finished) {
-			std.mem.doNotOptimizeAway(self);
+	pub fn join(self: *Pool, comptime which: enum {main, helpers}) void {
+		if (which == .main) {
+			std.Thread.join(self.threads[0].handle);
+			self.threads[0].handle = undefined;
+		} else if (self.threads[0].cnt > 1) {
+			for (self.threads[1 ..]) |*thread| {
+				std.Thread.join(thread.handle);
+				thread.handle = undefined;
+			}
 		}
-	}
-
-	pub fn waitStart(self: *const Pool) void {
-		while (!self.searching) {
-			std.mem.doNotOptimizeAway(self);
-		}
-	}
-
-	pub fn waitStop(self: *const Pool) void {
-		while (self.searching) {
-			std.mem.doNotOptimizeAway(self);
-		}
-	}
-
-	pub fn finish(self: *Pool) void {
-		self.finished = true;
 	}
 
 	pub fn start(self: *Pool) !void {
@@ -920,7 +908,6 @@ pub const Pool = struct {
 		}
 
 		self.searching = true;
-		self.finished = false;
 		self.timer.reset();
 
 		const config: std.Thread.SpawnConfig = .{
@@ -928,8 +915,7 @@ pub const Pool = struct {
 			.allocator = self.allocator,
 		};
 		for (self.threads) |*thread| {
-			const handle = try std.Thread.spawn(config, Thread.iid, .{thread});
-			std.Thread.detach(handle);
+			thread.handle = try std.Thread.spawn(config, Thread.iid, .{thread});
 		}
 	}
 

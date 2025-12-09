@@ -9,7 +9,7 @@ const viri = @import("viri.zig");
 const Self = @This();
 
 const max_cp = 400;
-const random_ply = 8;
+const random_moves = 4;
 const random_games = 4;
 
 pool:	engine.search.Pool,
@@ -103,19 +103,20 @@ pub const Tourney = struct {
 };
 
 fn readOpening(self: *Self) !void {
-	self.pool.io.lockReader();
-	defer self.pool.io.unlockReader();
+	const io = self.pool.io;
+	io.lockReader();
+	defer io.unlockReader();
 
-	const reader = self.pool.io.reader();
-	const line = try reader.takeDelimiterInclusive('\n');
+	const line = try io.reader().takeDelimiterInclusive('\n');
 	self.opening = try self.pool.allocator.dupe(u8, line);
 }
 
 fn writeData(self: *Self) !void {
-	self.pool.io.lockWriter();
-	defer self.pool.io.unlockWriter();
+	const io = self.pool.io;
+	io.lockWriter();
+	defer io.unlockWriter();
 
-	const writer = self.pool.io.writer();
+	const writer = io.writer();
 	try writer.writeAll(std.mem.asBytes(&self.data));
 	for (self.line.constSlice()) |sm| {
 		try writer.writeAll(std.mem.asBytes(&sm));
@@ -135,7 +136,7 @@ fn playRandom(self: *Self) !void {
 		ply = 0;
 		board = thread.board;
 	}) {
-		while (ply <= random_ply) : (ply += 1) {
+		while (ply <= random_moves) : (ply += 1) {
 			const root_moves = engine.movegen.Move.Root.List.init(&board);
 			const rms = root_moves.constSlice();
 			const rmn = rms.len;
@@ -143,7 +144,7 @@ fn playRandom(self: *Self) !void {
 				break;
 			}
 
-			if (ply < random_ply) {
+			if (ply < random_moves) {
 				const i = self.prng.random().uintLessThan(usize, rmn);
 				const m = rms[i].constSlice()[0];
 				board.doMove(m) catch break;
@@ -174,7 +175,7 @@ fn playOut(self: *Self) !void {
 
 	while (true) {
 		try self.pool.start();
-		self.pool.waitFinish();
+		self.pool.join(.main);
 
 		const root_moves = &thread.root_moves;
 		const rms = root_moves.constSlice();

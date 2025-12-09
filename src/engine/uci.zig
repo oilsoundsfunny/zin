@@ -257,7 +257,7 @@ pub fn loop(allocator: std.mem.Allocator) !void {
 		if (comm == .quit) {
 			if (pool.searching) {
 				pool.stop();
-				pool.waitFinish();
+				pool.join(.main);
 			}
 			break;
 		}
