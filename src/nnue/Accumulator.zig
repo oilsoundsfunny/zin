@@ -40,9 +40,12 @@ pub fn fusedAddSub(self: *Self, c: types.Color, add_m: Mail, sub_m: Mail) void {
 	const add_i = self.index(c, add_m.square, add_m.piece);
 	const sub_i = self.index(c, sub_m.square, sub_m.piece);
 
+	const add_w: *const Vec = @alignCast(net.default.hl0_w[add_i][0 .. arch.hl0_len]);
+	const sub_w: *const Vec = @alignCast(net.default.hl0_w[sub_i][0 .. arch.hl0_len]);
+
 	const v = self.perspectives.getPtr(c);
-	v.* +%= net.default.hl0_w[add_i];
-	v.* -%= net.default.hl0_w[sub_i];
+	v.* +%= add_w.*;
+	v.* -%= sub_w.*;
 }
 
 pub fn fusedAddSubSub(self: *Self, c: types.Color, add0: Mail, sub0: Mail, sub1: Mail) void {
@@ -50,10 +53,14 @@ pub fn fusedAddSubSub(self: *Self, c: types.Color, add0: Mail, sub0: Mail, sub1:
 	const sub0_i = self.index(c, sub0.square, sub0.piece);
 	const sub1_i = self.index(c, sub1.square, sub1.piece);
 
+	const add0_w: *const Vec = @alignCast(net.default.hl0_w[add0_i][0 .. arch.hl0_len]);
+	const sub0_w: *const Vec = @alignCast(net.default.hl0_w[sub0_i][0 .. arch.hl0_len]);
+	const sub1_w: *const Vec = @alignCast(net.default.hl0_w[sub1_i][0 .. arch.hl0_len]);
+
 	const v = self.perspectives.getPtr(c);
-	v.* +%= net.default.hl0_w[add0_i];
-	v.* -%= net.default.hl0_w[sub0_i];
-	v.* -%= net.default.hl0_w[sub1_i];
+	v.* +%= add0_w.*;
+	v.* -%= sub0_w.*;
+	v.* -%= sub1_w.*;
 }
 
 pub fn fusedAddAddSubSub(self: *Self,
@@ -65,29 +72,30 @@ pub fn fusedAddAddSubSub(self: *Self,
 	const sub0_i = self.index(c, sub0.square, sub0.piece);
 	const sub1_i = self.index(c, sub1.square, sub1.piece);
 
+	const add0_w: *const Vec = @alignCast(net.default.hl0_w[add0_i][0 .. arch.hl0_len]);
+	const add1_w: *const Vec = @alignCast(net.default.hl0_w[add1_i][0 .. arch.hl0_len]);
+	const sub0_w: *const Vec = @alignCast(net.default.hl0_w[sub0_i][0 .. arch.hl0_len]);
+	const sub1_w: *const Vec = @alignCast(net.default.hl0_w[sub1_i][0 .. arch.hl0_len]);
+
 	const v = self.perspectives.getPtr(c);
-	v.* +%= net.default.hl0_w[add0_i];
-	v.* +%= net.default.hl0_w[add1_i];
-	v.* -%= net.default.hl0_w[sub0_i];
-	v.* -%= net.default.hl0_w[sub1_i];
+	v.* +%= add0_w.*;
+	v.* +%= add1_w.*;
+	v.* -%= sub0_w.*;
+	v.* -%= sub1_w.*;
 }
 
 pub fn add(self: *Self, c: types.Color, mail: Mail) void {
+	const v = self.perspectives.getPtr(c);
 	const i = self.index(c, mail.square, mail.piece);
-	const w = &net.default.hl0_w[i];
-	const v: *align(1024) [arch.hl0_len]arch.Int = self.perspectives.getPtr(c);
-	inline for (0 .. arch.hl0_len) |k| {
-		v[0 ..][k] +%= w[0 ..][k];
-	}
+	const w: *const Vec = @alignCast(net.default.hl0_w[i][0 .. arch.hl0_len]);
+	v.* +%= w.*;
 }
 
 pub fn sub(self: *Self, c: types.Color, mail: Mail) void {
+	const v = self.perspectives.getPtr(c);
 	const i = self.index(c, mail.square, mail.piece);
-	const w = &net.default.hl0_w[i];
-	const v: *align(1024) [arch.hl0_len]arch.Int = self.perspectives.getPtr(c);
-	inline for (0 .. arch.hl0_len) |k| {
-		v[0 ..][k] -%= w[0 ..][k];
-	}
+	const w: *const Vec = @alignCast(net.default.hl0_w[i][0 .. arch.hl0_len]);
+	v.* -%= w.*;
 }
 
 pub fn mirror(self: *Self, pos: *const engine.Board.One, c: types.Color) void {

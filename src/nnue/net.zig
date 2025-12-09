@@ -19,15 +19,15 @@ pub const Self = extern struct {
 		const stm = pos.stm;
 		const accumulator = &pos.accumulator;
 
-		const vecs = std.EnumArray(types.Color, *const [arch.hl0_len]arch.Int).init(.{
+		const vecs = std.EnumArray(types.Color, *align(1024) const [arch.hl0_len]arch.Int).init(.{
 			.white = accumulator.perspectives.getPtrConst(stm),
 			.black = accumulator.perspectives.getPtrConst(stm.flip()),
 		});
 
 		const half_len = arch.hl0_len / 2;
 		const wgts = std.EnumArray(types.Color, *const [half_len]arch.Int).init(.{
-			.white = &self.out_w[types.Color.white.tag()],
-			.black = &self.out_w[types.Color.black.tag()],
+			.white = self.out_w[types.Color.white.tag()][0 .. half_len],
+			.black = self.out_w[types.Color.black.tag()][0 .. half_len],
 		});
 
 		var out: Madd = @splat(engine.evaluation.score.draw);
@@ -39,14 +39,14 @@ pub const Self = extern struct {
 			var i: usize = 0;
 
 			while (i < half_len) : (i += native_len) {
-				const v0: arch.Native = v[i + half_len * 0 ..][0 .. native_len].*;
-				const v1: arch.Native = v[i + half_len * 1 ..][0 .. native_len].*;
-				const wgt: arch.Native = w[i ..][0 .. native_len].*;
+				const v0: *const arch.Native = @alignCast(v[i + half_len * 0 ..][0 .. native_len]);
+				const v1: *const arch.Native = @alignCast(v[i + half_len * 1 ..][0 .. native_len]);
 
-				const clamped0 = crelu(v0);
-				const clamped1 = crelu(v1);
+				const clamped0 = crelu(v0.*);
+				const clamped1 = crelu(v1.*);
 
-				out +%= madd(clamped0, clamped1 *% wgt);
+				const wgt: *const arch.Native = @alignCast(w[i ..][0 .. native_len]);
+				out +%= madd(clamped0, clamped1 *% wgt.*);
 			}
 		}
 
