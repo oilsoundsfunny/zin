@@ -167,6 +167,8 @@ fn playRandom(self: *Self) !void {
 
 fn playOut(self: *Self) !void {
 	const threads = self.pool.threads;
+	std.debug.assert(threads.len == 1);
+
 	const thread = &threads[0];
 	const board = &thread.board;
 
@@ -174,8 +176,7 @@ fn playOut(self: *Self) !void {
 	self.line = try @TypeOf(self.line).init(0);
 
 	while (true) {
-		try self.pool.start();
-		self.pool.join(.main);
+		try self.pool.threads[0].search();
 
 		const root_moves = &thread.root_moves;
 		const rms = root_moves.constSlice();

@@ -239,43 +239,6 @@ pub const Thread = struct {
 		try self.pool.io.writer().flush();
 	}
 
-	fn iid(self: *Thread) !void {
-		const is_main = self.idx == 0;
-		const is_threaded = self.cnt > 1;
-
-		const max_depth = self.pool.options.depth orelse movegen.Move.Root.capacity;
-		const min_depth = 1;
-		var depth: Depth = min_depth;
-
-		const no_moves = self.root_moves.constSlice().len == 0;
-		while (!no_moves and depth <= max_depth) : (depth += 1) {
-			self.depth = depth + @intFromBool(is_threaded
-			  and self.idx % 2 == 1
-			  and depth > min_depth
-			  and depth < max_depth);
-			self.seldepth = 0;
-			self.asp();
-
-			movegen.Move.Root.sortSlice(self.root_moves.slice());
-			if (!self.pool.searching) {
-				break;
-			}
-
-			if (is_main) {
-				self.pool.tt.doAge();
-				try self.printInfo();
-			}
-		}
-
-		if (is_main) {
-			self.pool.stop();
-			defer self.pool.join(.helpers);
-
-			try self.printInfo();
-			try self.printBest();
-		}
-	}
-
 	fn hardStop(self: *Thread) bool {
 		const pool = self.pool;
 		const options = pool.options;
@@ -774,6 +737,67 @@ pub const Thread = struct {
 		return best.score;
 	}
 
+	pub fn search(self: *Thread) !void {
+		const is_main = self.idx == 0;
+		const is_threaded = self.cnt > 1;
+
+		if (is_main) {
+			const pool = self.pool;
+			pool.searching = true;
+			pool.timer.reset();
+			for (pool.threads) |*thread| {
+				thread.nodes = 0;
+				thread.tbhits = 0;
+				thread.tthits = 0;
+			}
+
+			const board = &self.board;
+			const root_moves = &self.root_moves;
+
+			root_moves.* = movegen.Move.Root.List.init(board);
+			if (is_threaded) {
+				defer pool.cond.broadcast();
+				for (pool.threads[1 ..]) |*thread| {
+					thread.board = board.*;
+					thread.root_moves = root_moves.*;
+				}
+			}
+		} else if (is_threaded) {
+			self.pool.cond.wait(&self.pool.mtx);
+		}
+
+		const max_depth = self.pool.options.depth orelse movegen.Move.Root.capacity;
+		const min_depth = 1;
+		var depth: Depth = min_depth;
+
+		const no_moves = self.root_moves.constSlice().len == 0;
+		while (!no_moves and depth <= max_depth) : (depth += 1) {
+			self.depth = depth;
+			self.seldepth = 0;
+			self.asp();
+
+			movegen.Move.Root.sortSlice(self.root_moves.slice());
+			if (!self.pool.searching) {
+				break;
+			}
+
+			if (is_main) {
+				self.pool.tt.doAge();
+				try self.printInfo();
+			}
+		}
+
+		if (is_main) {
+			self.pool.stop();
+			defer if (is_threaded) {
+				self.pool.join(.helpers);
+			};
+
+			try self.printInfo();
+			try self.printBest();
+		}
+	}
+
 	pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {
 		return self.quietHistPtr(move).*;
 	}
@@ -791,6 +815,9 @@ pub const Pool = struct {
 	allocator:	std.mem.Allocator,
 	threads:	[]Thread,
 	options:	Options,
+
+	cond:	std.Thread.Condition = .{},
+	mtx:	std.Thread.Mutex = .{},
 
 	timer:	std.time.Timer,
 	searching:	bool align(64),
@@ -888,34 +915,14 @@ pub const Pool = struct {
 	}
 
 	pub fn start(self: *Pool) !void {
-		const is_threaded = self.threads.len > 1;
-		const board = &self.threads[0].board;
-		const root_moves = &self.threads[0].root_moves;
-
-		root_moves.* = movegen.Move.Root.List.init(board);
-		for (self.threads, 0 ..) |*thread, i| {
-			if (is_threaded and i != 0) {
-				thread.board = board.*;
-				thread.root_moves = root_moves.*;
-			}
-
-			thread.idx = i;
-			thread.cnt = self.threads.len;
-
-			thread.nodes = 0;
-			thread.tbhits = 0;
-			thread.tthits = 0;
-		}
-
-		self.searching = true;
-		self.timer.reset();
-
 		const config: std.Thread.SpawnConfig = .{
 			.stack_size = 16 * 1024 * 1024,
 			.allocator = self.allocator,
 		};
-		for (self.threads) |*thread| {
-			thread.handle = try std.Thread.spawn(config, Thread.iid, .{thread});
+		for (self.threads, 0 ..) |*thread, i| {
+			thread.idx = i;
+			thread.cnt = self.threads.len;
+			thread.handle = try std.Thread.spawn(config, Thread.search, .{thread});
 		}
 	}
 
