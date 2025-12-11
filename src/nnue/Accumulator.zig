@@ -40,7 +40,7 @@ pub fn fusedAddSub(self: *Self, c: types.Color, add_m: Mail, sub_m: Mail) void {
 	const add_i = self.index(c, add_m.square, add_m.piece);
 	const sub_i = self.index(c, sub_m.square, sub_m.piece);
 
-	const v: *align(1024) [arch.hl0_len]arch.Int = self.perspectives.getPtr(c);
+	const v: *align(64) [arch.hl0_len]arch.Int = self.perspectives.getPtr(c);
 	var i: usize = 0;
 	while (i < arch.hl0_len) : (i += arch.native_len) {
 		const add_w: *const arch.Native
@@ -59,7 +59,7 @@ pub fn fusedAddSubSub(self: *Self, c: types.Color, add0: Mail, sub0: Mail, sub1:
 	const sub0_i = self.index(c, sub0.square, sub0.piece);
 	const sub1_i = self.index(c, sub1.square, sub1.piece);
 
-	const v: *align(1024) [arch.hl0_len]arch.Int = self.perspectives.getPtr(c);
+	const v: *align(64) [arch.hl0_len]arch.Int = self.perspectives.getPtr(c);
 	var i: usize = 0;
 	while (i < arch.hl0_len) : (i += arch.native_len) {
 		const add0_w: *const arch.Native
@@ -85,7 +85,7 @@ pub fn fusedAddAddSubSub(self: *Self,
 	const sub0_i = self.index(c, sub0.square, sub0.piece);
 	const sub1_i = self.index(c, sub1.square, sub1.piece);
 
-	const v: *align(1024) [arch.hl0_len]arch.Int = self.perspectives.getPtr(c);
+	const v: *align(64) [arch.hl0_len]arch.Int = self.perspectives.getPtr(c);
 	var i: usize = 0;
 	while (i < arch.hl0_len) : (i += arch.native_len) {
 		const add0_w: *const arch.Native

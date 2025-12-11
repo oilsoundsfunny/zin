@@ -412,8 +412,8 @@ pub const One = struct {
 		  catch return error.InvalidPlyClock;
 
 		const move_token = tokens.next() orelse return error.InvalidFen;
-		std.mem.doNotOptimizeAway(std.fmt.parseUnsigned(u8, move_token, 10)
-		  catch return error.InvalidMoveClock);
+		_ = std.fmt.parseUnsigned(usize, move_token, 10)
+		  catch return error.InvalidMoveClock;
 
 		self.checks = self.genCheckMask();
 		self.key ^= zobrist.enp(self.en_pas);

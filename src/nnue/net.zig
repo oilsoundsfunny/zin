@@ -19,7 +19,7 @@ pub const Self = extern struct {
 		const stm = pos.stm;
 		const accumulator = &pos.accumulator;
 
-		const vecs = std.EnumArray(types.Color, *align(1024) const [arch.hl0_len]arch.Int).init(.{
+		const vecs = std.EnumArray(types.Color, *align(64) const [arch.hl0_len]arch.Int).init(.{
 			.white = accumulator.perspectives.getPtrConst(stm),
 			.black = accumulator.perspectives.getPtrConst(stm.flip()),
 		});
