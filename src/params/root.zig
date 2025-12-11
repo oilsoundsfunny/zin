@@ -9,9 +9,9 @@ pub const TunableRef = if (tuning) *Tunable else *const Tunable;
 
 pub const Tunable = struct {
 	name:	[]const u8,
-	value:	i32,
-	min:	?i32 = null,
-	max:	?i32 = null,
+	value:	Int,
+	min:	?Int = null,
+	max:	?Int = null,
 	c_end:	?f32 = null,
 
 	fn range(self: Tunable) Int {
@@ -45,56 +45,35 @@ pub const Tunable = struct {
 	}
 };
 
-const tuning = false;
+const tuning = true;
 const defaults = struct {
-	pub const iir_min_depth = 4;
-	pub const iir_reduction = 1;
+	pub const iir_min_depth: Int = 4;
 
-	pub const rfp_max_depth = 8;
-	pub const rfp_depth_mult = 78;
-	pub const rfp_ntm_worsening = 14;
-	pub const rfp_min = 20;
+	pub const rfp_max_depth: Int = 8;
+	pub const rfp_depth_mult: Int = 78;
+	pub const rfp_ntm_worsening: Int = 14;
 
-	pub const nmp_min_depth = 3;
-	pub const nmp_base_reduction = 3;
-	pub const nmp_depth_divisor = 4;
-	pub const nmp_eval_diff_divisor = 400;
-	pub const nmp_eval_diff_div_floor = 3;
-	pub const nmp_min_verif_depth = 15;
+	pub const razoring_depth_mult: Int = 460;
 };
 
 pub const tunables = [_]Tunable {
-	.{.name = "iir_min_depth", .value = defaults.iir_min_depth, .min = null, .max = null, .c_end = null},
-	.{.name = "iir_reduction", .value = defaults.iir_reduction, .min = null, .max = null, .c_end = null},
+	.{.name = "iir_min_depth", .value = defaults.iir_min_depth, .min = 2, .max = 9, .c_end = 1.0},
 
-	.{.name = "rfp_max_depth", .value = defaults.rfp_max_depth, .min = null, .max = null, .c_end = null},
-	.{.name = "rfp_depth_mult", .value = defaults.rfp_depth_mult, .min = null, .max = null, .c_end = null},
-	.{.name = "rfp_ntm_worsening", .value = defaults.rfp_ntm_worsening, .min = null, .max = null, .c_end = null},
-	.{.name = "rfp_min", .value = defaults.rfp_min, .min = null, .max = null, .c_end = null},
+	.{.name = "rfp_max_depth", .value = defaults.rfp_max_depth, .min = 4, .max = 10, .c_end = 1.0},
+	.{.name = "rfp_depth_mult", .value = defaults.rfp_depth_mult, .min = 50, .max = 100, .c_end = 8.0},
+	.{.name = "rfp_ntm_worsening", .value = defaults.rfp_ntm_worsening, .min = 5, .max = 100, .c_end = 8.0},
 
-	.{.name = "nmp_min_depth", .value = defaults.nmp_min_depth, .min = null, .max = null, .c_end = null},
-	.{.name = "nmp_base_reduction", .value = defaults.nmp_base_reduction, .min = null, .max = null, .c_end = null},
-	.{.name = "nmp_depth_divisor", .value = defaults.nmp_depth_divisor, .min = null, .max = null, .c_end = null},
-	.{.name = "nmp_eval_diff_divisor", .value = defaults.nmp_eval_diff_divisor, .min = null, .max = null, .c_end = null},
-	.{.name = "nmp_eval_diff_div_floor", .value = defaults.nmp_eval_diff_div_floor, .min = null, .max = null, .c_end = null},
-	.{.name = "nmp_min_verif_depth", .value = defaults.nmp_min_verif_depth, .min = null, .max = null, .c_end = null},
+	.{.name = "razoring_depth_mult", .value = defaults.razoring_depth_mult, .min = null, .max = null, .c_end = null},
 };
 
 pub const values = if (tuning) struct {
 	pub var iir_min_depth = defaults.iir_min_depth;
-	pub var iir_reduction = defaults.iir_reduction;
 
 	pub var rfp_max_depth = defaults.rfp_max_depth;
 	pub var rfp_depth_mult = defaults.rfp_depth_mult;
 	pub var rfp_ntm_worsening = defaults.rfp_ntm_worsening;
-	pub var rfp_min = defaults.rfp_min;
 
-	pub var nmp_min_depth = defaults.nmp_min_depth;
-	pub var nmp_base_reduction = defaults.nmp_base_reduction;
-	pub var nmp_depth_divisor = defaults.nmp_depth_divisor;
-	pub var nmp_eval_diff_divisor = defaults.nmp_eval_diff_divisor;
-	pub var nmp_eval_diff_div_floor = defaults.nmp_eval_diff_div_floor;
-	pub var nmp_min_verif_depth = defaults.nmp_min_verif_depth;
+	pub var razoring_depth_mult = defaults.razoring_depth_mult;
 } else defaults;
 
 pub fn deinit() void {
@@ -107,16 +86,18 @@ pub fn init() !void {
 pub fn parseTunable(name: []const u8, aux: []const u8,
   tokens: *std.mem.TokenIterator(u8, .any)) engine.uci.Error!void {
 	if (!tuning) {
-		return;
+		return error.UnknownCommand;
 	}
 
-	var opt_match: ?*Int = null;
+	var opt_tunable: ?*const Tunable = null;
+	var opt_value: ?*Int = null;
 	inline for (tunables[0 ..]) |*tunable| {
 		if (std.mem.eql(u8, name, tunable.name)) {
-			opt_match = &@field(values, tunable.name);
+			opt_tunable = tunable;
+			opt_value = &@field(values, tunable.name);
 		}
 	}
-	const match = opt_match orelse return error.UnknownCommand;
+	const tunable = opt_tunable orelse return error.UnknownCommand;
 
 	if (!std.mem.eql(u8, aux, "value")) {
 		return error.UnknownCommand;
@@ -128,13 +109,18 @@ pub fn parseTunable(name: []const u8, aux: []const u8,
 	}
 
 	const value = std.fmt.parseInt(Int, value_token, 10) catch return error.UnknownCommand;
-	if (value != std.math.clamp(value, match.getMin(), match.getMax())) {
+	if (value != std.math.clamp(value, tunable.getMin(), tunable.getMax())) {
 		return error.UnknownCommand;
 	}
-	match.value = value;
+
+	opt_value.?.* = value;
 }
 
 pub fn printOptions(io: *types.Io) !void {
+	if (!tuning) {
+		return;
+	}
+
 	const writer = io.writer();
 	for (tunables) |tunable| {
 		try writer.print("option name {s} type spin default {d} min {d} max {d}\n",
@@ -144,6 +130,10 @@ pub fn printOptions(io: *types.Io) !void {
 }
 
 pub fn printValues(io: *types.Io) !void {
+	if (!tuning) {
+		return;
+	}
+
 	const writer = io.writer();
 	for (tunables) |tunable| {
 		try writer.print("{s}, int, {d:.1}, {d:.1}, {d:.1}, {d}, 0.002\n", .{

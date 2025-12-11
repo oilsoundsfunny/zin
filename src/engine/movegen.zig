@@ -41,7 +41,7 @@ const RootMove = struct {
 				return a.score > b.score;
 			}
 		}.inner;
-		std.sort.insertion(RootMove, s, {}, desc);
+		std.mem.sort(RootMove, s, {}, desc);
 	}
 
 	pub fn update(self: *RootMove,
@@ -121,7 +121,7 @@ const ScoredMove = struct {
 				return a.score > b.score;
 			}
 		}.inner;
-		std.sort.insertion(ScoredMove, slice, {}, desc);
+		std.mem.sort(ScoredMove, slice, {}, desc);
 	}
 };
 

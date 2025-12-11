@@ -366,7 +366,7 @@ pub const Thread = struct {
 		// internal iterative reduction (iir)
 		const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
 		if (node.hasLower() and depth >= params.values.iir_min_depth and !has_ttm) {
-			d -= params.values.iir_reduction;
+			d -= 1;
 		}
 
 		// reverse futility pruning (rfp)
@@ -374,7 +374,7 @@ pub const Thread = struct {
 		rfp_margin *= params.values.rfp_depth_mult;
 		rfp_margin -= params.values.rfp_ntm_worsening
 		  * @as(@TypeOf(b), @intFromBool(ntm_worsening));
-		rfp_margin = @max(rfp_margin, params.values.rfp_min);
+		rfp_margin = @max(rfp_margin, 20);
 		if (!is_pv
 		  and !is_checked
 		  and d <= params.values.rfp_max_depth
@@ -385,7 +385,7 @@ pub const Thread = struct {
 		// null move pruning
 		if (!is_pv
 		  and !is_checked
-		  and d >= params.values.nmp_min_depth
+		  and d >= 3
 		  and b > evaluation.score.lose
 		  and corr_eval >= b
 		  and !self.nmp_verif) nmp: {
@@ -396,13 +396,9 @@ pub const Thread = struct {
 				break :nmp;
 			}
 
-			const diff = corr_eval - b;
-			const div = @divTrunc(diff, params.values.nmp_eval_diff_divisor);
-
 			const r: @TypeOf(d)
-			  = params.values.nmp_base_reduction
-			  + @divTrunc(d, params.values.nmp_depth_divisor)
-			  + @min(div, params.values.nmp_eval_diff_div_floor)
+			  = @divTrunc(d, 4) + 3
+			  + @min(@divTrunc(corr_eval - b, 400), 3)
 			  + @intFromBool(improving);
 
 			var s = null_search: {
@@ -417,7 +413,7 @@ pub const Thread = struct {
 					s = b;
 				}
 
-				const verified = d < params.values.nmp_min_verif_depth or verif_search: {
+				const verified = d < 15 or verif_search: {
 					self.nmp_verif = true;
 					defer self.nmp_verif = false;
 
@@ -431,7 +427,9 @@ pub const Thread = struct {
 		}
 
 		// razoring
-		if (!is_pv and !is_checked and d < 8 and corr_eval + 460 * d <= a) {
+		if (!is_pv and !is_checked
+		  and d <= 7
+		  and corr_eval + params.values.razoring_depth_mult * d <= a) {
 			const rs = self.qs(ply + 1, a, b);
 			if (rs <= a) {
 				return rs;
