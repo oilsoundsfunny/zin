@@ -50,30 +50,30 @@ const defaults = struct {
 	pub const iir_min_depth: Int = 4;
 
 	pub const rfp_max_depth: Int = 8;
-	pub const rfp_depth_mult: Int = 78;
+	pub const rfp_depth_mul: Int = 78;
 	pub const rfp_ntm_worsening: Int = 14;
 
-	pub const razoring_depth_mult: Int = 460;
+	pub const razoring_depth_mul: Int = 460;
 };
 
 pub const tunables = [_]Tunable {
 	.{.name = "iir_min_depth", .value = defaults.iir_min_depth, .min = 2, .max = 9, .c_end = 1.0},
 
 	.{.name = "rfp_max_depth", .value = defaults.rfp_max_depth, .min = 4, .max = 10, .c_end = 1.0},
-	.{.name = "rfp_depth_mult", .value = defaults.rfp_depth_mult, .min = 50, .max = 100, .c_end = 8.0},
+	.{.name = "rfp_depth_mul", .value = defaults.rfp_depth_mul, .min = 50, .max = 100, .c_end = 8.0},
 	.{.name = "rfp_ntm_worsening", .value = defaults.rfp_ntm_worsening, .min = 5, .max = 100, .c_end = 8.0},
 
-	.{.name = "razoring_depth_mult", .value = defaults.razoring_depth_mult, .min = null, .max = null, .c_end = null},
+	.{.name = "razoring_depth_mul", .value = defaults.razoring_depth_mul, .min = 250, .max = 650, .c_end = 10},
 };
 
 pub const values = if (tuning) struct {
 	pub var iir_min_depth = defaults.iir_min_depth;
 
 	pub var rfp_max_depth = defaults.rfp_max_depth;
-	pub var rfp_depth_mult = defaults.rfp_depth_mult;
+	pub var rfp_depth_mul = defaults.rfp_depth_mul;
 	pub var rfp_ntm_worsening = defaults.rfp_ntm_worsening;
 
-	pub var razoring_depth_mult = defaults.razoring_depth_mult;
+	pub var razoring_depth_mul = defaults.razoring_depth_mul;
 } else defaults;
 
 pub fn deinit() void {

@@ -371,7 +371,7 @@ pub const Thread = struct {
 
 		// reverse futility pruning (rfp)
 		var rfp_margin = d;
-		rfp_margin *= params.values.rfp_depth_mult;
+		rfp_margin *= params.values.rfp_depth_mul;
 		rfp_margin -= params.values.rfp_ntm_worsening
 		  * @as(@TypeOf(b), @intFromBool(ntm_worsening));
 		rfp_margin = @max(rfp_margin, 20);
@@ -429,7 +429,7 @@ pub const Thread = struct {
 		// razoring
 		if (!is_pv and !is_checked
 		  and d <= 7
-		  and corr_eval + params.values.razoring_depth_mult * d <= a) {
+		  and corr_eval + params.values.razoring_depth_mul * d <= a) {
 			const rs = self.qs(ply + 1, a, b);
 			if (rs <= a) {
 				return rs;
