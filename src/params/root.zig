@@ -63,7 +63,7 @@ pub const tunables = [_]Tunable {
 	.{.name = "rfp_depth_mul", .value = defaults.rfp_depth_mul, .min = 50, .max = 100, .c_end = 8.0},
 	.{.name = "rfp_ntm_worsening", .value = defaults.rfp_ntm_worsening, .min = 5, .max = 100, .c_end = 8.0},
 
-	.{.name = "razoring_depth_mul", .value = defaults.razoring_depth_mul, .min = 250, .max = 650, .c_end = 10},
+	.{.name = "razoring_depth_mul", .value = defaults.razoring_depth_mul, .min = 250, .max = 650, .c_end = 10.0},
 };
 
 pub const values = if (tuning) struct {
@@ -136,7 +136,7 @@ pub fn printValues(io: *types.Io) !void {
 
 	const writer = io.writer();
 	for (tunables) |tunable| {
-		try writer.print("{s}, int, {d:.1}, {d:.1}, {d:.1}, {d}, 0.002\n", .{
+		try writer.print("{s}, int, {d:.1}, {d:.1}, {d:.1}, {d:.3}, 0.002\n", .{
 		  tunable.name,
 		  @as(f32, @floatFromInt(tunable.value)),
 		  @as(f32, @floatFromInt(tunable.getMin())),
