@@ -91,16 +91,13 @@ pub const Thread = struct {
 		else => |T| @compileError("unexpected type " ++ @typeName(T)),
 	} {
 		const sp = self.board.top().getSquare(move.src);
-		const dp = switch (move.flag) {
-			// color doesnt matter
-			.en_passant => types.Ptype.cnt,
-			else => self.board.top().getSquare(move.dst).ptype().tag(),
-		};
+		const dp = self.board.top().getSquare(move.dst);
 
 		return &self.noisyhist
 		  [sp.color().tag()]
 		  [sp.ptype().tag()]
-		  [move.dst.tag()][dp];
+		  [move.dst.tag()]
+		  [if (dp == .none) types.Ptype.cnt else dp.ptype().tag()];
 	}
 
 	fn contHistPtr(self: anytype, move: movegen.Move, ply: usize) switch (@TypeOf(self)) {
@@ -371,10 +368,29 @@ pub const Thread = struct {
 		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
 		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
-		const corr_eval = if (use_ttscore) tte.score else stat_eval;
+		const corr_eval = if (use_ttscore) tte.score
+		  else if (is_checked) evaluation.score.none
+		  else stat_eval;
 
 		pos.stat_eval = stat_eval;
 		pos.corr_eval = corr_eval;
+
+		const improving = !is_checked and blk: {
+			const fu2ev = pos.down(2).corr_eval;
+			if (fu2ev != evaluation.score.none) {
+				break :blk fu2ev < corr_eval;
+			}
+
+			const fu4ev = pos.down(4).corr_eval;
+			if (fu4ev != evaluation.score.none) {
+				break :blk fu4ev < corr_eval;
+			}
+
+			break :blk true;
+		};
+		const ntm_worsening = !is_checked and !is_root
+		  and pos.down(1).corr_eval != evaluation.score.none
+		  and pos.down(1).corr_eval > 1 - corr_eval;
 
 		// internal iterative reduction (iir)
 		const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
@@ -383,11 +399,15 @@ pub const Thread = struct {
 		}
 
 		// reverse futility pruning (rfp)
+		var rfp_margin = d;
+		rfp_margin *= 78;
+		rfp_margin -= if (ntm_worsening) 14 else 0;
+		rfp_margin = @max(rfp_margin, 20);
 		if (!is_pv
 		  and !is_checked
-		  and d < 8
-		  and corr_eval >= b + d * 96) {
-			return @divTrunc(corr_eval + b, 2);
+		  and d <= 8
+		  and corr_eval >= b + rfp_margin) {
+			return corr_eval;
 		}
 
 		// null move pruning
@@ -404,7 +424,11 @@ pub const Thread = struct {
 				break :nmp;
 			}
 
-			const r = @divTrunc(d, 4) + 3;
+			const r: @TypeOf(d) = 3
+			  + @divTrunc(d, 4)
+			  + @min(@divTrunc(corr_eval - b, 400), 3)
+			  + @intFromBool(improving);
+
 			var s = null_search: {
 				board.doNull() catch std.debug.panic("invalid null move", .{});
 				defer board.undoNull();
@@ -461,7 +485,9 @@ pub const Thread = struct {
 
 			if (!is_root and best.score > evaluation.score.lose) {
 				// late move pruning (lmp)
-				const very_late: usize = @intCast(d * d + 4);
+				var very_late: usize = @intCast(d * d);
+				very_late += 4;
+				very_late /= if (improving) 1 else 2;
 				if (searched > very_late) {
 					break :move_loop;
 				}
@@ -491,11 +517,19 @@ pub const Thread = struct {
 
 				score = if (d >= 3 and searched > 1 and is_late) reduced: {
 					r += lmr.get(d, searched, is_quiet);
+
+					r += @intFromBool(!improving);
 					r += @intFromBool(node == .lowerbound);
 					r += @intFromBool(is_ttm_noisy);
+
+					r -= @intFromBool(board.top().isChecked());
+					r -= @intFromBool(is_checked);
 					r -= @intFromBool(is_pv);
 
-					const rd = std.math.clamp(recur_d -| r, 1, recur_d);
+					r -= @intFromBool(was_pv);
+					r -= @intFromBool(was_pv and tte.score > a);
+
+					const rd = std.math.clamp(recur_d - r, 1, recur_d);
 					var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
 
 					if (rs > a and rd < recur_d) {
@@ -647,7 +681,9 @@ pub const Thread = struct {
 		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
 		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
-		const corr_eval = if (use_ttscore) tte.score else stat_eval;
+		const corr_eval = if (use_ttscore) tte.score
+		  else if (is_checked) evaluation.score.none
+		  else stat_eval;
 
 		pos.stat_eval = stat_eval;
 		pos.corr_eval = corr_eval;
