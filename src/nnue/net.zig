@@ -9,10 +9,10 @@ const arch = @import("arch.zig");
 const Madd = @Vector(arch.native_len / 2, engine.evaluation.score.Int);
 
 pub const Self = extern struct {
-	hl0_w:	[arch.inp_len][arch.hl0_len]arch.Int,
-	hl0_b:	[arch.hl0_len]arch.Int,
+	hl0_w:	[arch.inp_len][arch.hl0_len]arch.Int align(64),
+	hl0_b:	[arch.hl0_len]arch.Int align(64),
 
-	out_w:	[arch.color_n][arch.hl0_len / 2]arch.Int,
+	out_w:	[arch.color_n][arch.hl0_len / 2]arch.Int align(64),
 	out_b:	arch.Int align(64),
 
 	pub fn infer(self: *const Self, pos: *const engine.Board.One) engine.evaluation.score.Int {

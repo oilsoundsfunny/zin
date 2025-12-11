@@ -10,35 +10,6 @@ const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
-pub const lmr = struct {
-	var table: [32][32][2]u8 = undefined;
-
-	pub fn get(depth: Depth, searched: usize, quiet: bool) u8 {
-		const clamped_d: usize = @intCast(std.math.clamp(depth, 0, 31));
-		const clamped_i: usize = @min(searched, 31);
-		return table[clamped_d][clamped_i][@intFromBool(quiet)];
-	}
-
-	pub fn init() !void {
-		for (table[0 ..], 0 ..) |*by_depth, depth| {
-			for (by_depth[0 ..], 0 ..) |*by_num, num| {
-				if (depth == 0 or num == 0) {
-					by_num.* = .{0, 0};
-					continue;
-				}
-
-				const d: f32 = @floatFromInt(depth);
-				const n: f32 = @floatFromInt(num);
-
-				// from weiss
-				const noisy = 0.20 + @log(d) * @log(n) / 3.35;
-				const quiet = 1.35 + @log(d) * @log(n) / 2.75;
-				by_num.* = .{@intFromFloat(noisy), @intFromFloat(quiet)};
-			}
-		}
-	}
-};
-
 pub const Depth = evaluation.score.Int;
 pub const Node = transposition.Entry.Flag;
 
@@ -394,18 +365,19 @@ pub const Thread = struct {
 
 		// internal iterative reduction (iir)
 		const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
-		if (node.hasLower() and depth >= 4 and !has_ttm) {
-			d -= 1;
+		if (node.hasLower() and depth >= params.values.iir_min_depth and !has_ttm) {
+			d -= params.values.iir_reduction;
 		}
 
 		// reverse futility pruning (rfp)
 		var rfp_margin = d;
-		rfp_margin *= 78;
-		rfp_margin -= if (ntm_worsening) 14 else 0;
-		rfp_margin = @max(rfp_margin, 20);
+		rfp_margin *= params.values.rfp_depth_mult;
+		rfp_margin -= params.values.rfp_ntm_worsening
+		  * @as(@TypeOf(b), @intFromBool(ntm_worsening));
+		rfp_margin = @max(rfp_margin, params.values.rfp_min);
 		if (!is_pv
 		  and !is_checked
-		  and d <= 8
+		  and d <= params.values.rfp_max_depth
 		  and corr_eval >= b + rfp_margin) {
 			return corr_eval;
 		}
@@ -413,7 +385,7 @@ pub const Thread = struct {
 		// null move pruning
 		if (!is_pv
 		  and !is_checked
-		  and d >= 3
+		  and d >= params.values.nmp_min_depth
 		  and b > evaluation.score.lose
 		  and corr_eval >= b
 		  and !self.nmp_verif) nmp: {
@@ -424,9 +396,13 @@ pub const Thread = struct {
 				break :nmp;
 			}
 
-			const r: @TypeOf(d) = 3
-			  + @divTrunc(d, 4)
-			  + @min(@divTrunc(corr_eval - b, 400), 3)
+			const diff = corr_eval - b;
+			const div = @divTrunc(diff, params.values.nmp_eval_diff_divisor);
+
+			const r: @TypeOf(d)
+			  = params.values.nmp_base_reduction
+			  + @divTrunc(d, params.values.nmp_depth_divisor)
+			  + @min(div, params.values.nmp_eval_diff_div_floor)
 			  + @intFromBool(improving);
 
 			var s = null_search: {
@@ -441,7 +417,7 @@ pub const Thread = struct {
 					s = b;
 				}
 
-				const verified = d <= 14 or verif_search: {
+				const verified = d < params.values.nmp_min_verif_depth or verif_search: {
 					self.nmp_verif = true;
 					defer self.nmp_verif = false;
 
@@ -516,7 +492,7 @@ pub const Thread = struct {
 				  + @as(usize, @intFromBool(mp.ttm.isNone()));
 
 				score = if (d >= 3 and searched > 1 and is_late) reduced: {
-					r += lmr.get(d, searched, is_quiet);
+					r += params.lmr.get(d, searched, is_quiet);
 
 					r += @intFromBool(!improving);
 					r += @intFromBool(node == .lowerbound);
