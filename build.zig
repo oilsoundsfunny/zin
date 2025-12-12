@@ -5,12 +5,14 @@ const Modules = enum {
 	bitboard,
 	engine,
 	nnue,
+	params,
 
 	const dependencies = std.EnumArray(Modules, []const Modules).init(.{
 		.types = &.{},
 		.bitboard = &.{.types},
-		.engine = &.{.types, .bitboard, .nnue},
-		.nnue = &.{.types, .bitboard, .engine},
+		.engine = &.{.bitboard, .nnue, .params, .types},
+		.nnue = &.{.engine, .types},
+		.params = &.{.engine, .types},
 	});
 
 	const names = std.EnumArray(Modules, []const u8).init(.{
@@ -18,6 +20,7 @@ const Modules = enum {
 		.bitboard = "bitboard",
 		.engine = "engine",
 		.nnue = "nnue",
+		.params = "params",
 	});
 
 	const src_files = std.EnumArray(Modules, []const u8).init(.{
@@ -25,6 +28,7 @@ const Modules = enum {
 		.bitboard = "src/bitboard/root.zig",
 		.engine = "src/engine/root.zig",
 		.nnue = "src/nnue/root.zig",
+		.params = "src/params/root.zig",
 	});
 
 	const test_files = std.EnumArray(Modules, []const u8).init(.{
@@ -32,6 +36,7 @@ const Modules = enum {
 		.bitboard = "tests/bitboard/root.zig",
 		.engine = "tests/engine/root.zig",
 		.nnue = "tests/nnue/root.zig",
+		.params = "tests/params/root.zig",
 	});
 
 	const values = std.enums.values(Modules);
@@ -44,9 +49,9 @@ const Steps = enum {
 	tests,
 
 	const dependencies = std.EnumArray(Steps, []const Modules).init(.{
-		.install = &.{.bitboard, .engine, .types},
+		.install = &.{.bitboard, .engine, .params, .types},
 		.perft = &.{.bitboard, .engine, .types},
-		.selfplay = &.{.bitboard, .engine, .types},
+		.selfplay = &.{.bitboard, .engine, .params, .types},
 		.tests = &.{},
 	});
 

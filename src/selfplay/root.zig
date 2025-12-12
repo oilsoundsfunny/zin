@@ -1,6 +1,7 @@
 const bitboard = @import("bitboard");
 const bounded_array = @import("bounded_array");
 const engine = @import("engine");
+const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
@@ -12,6 +13,9 @@ pub const name = "selfplay";
 pub fn main() !void {
 	try bitboard.init();
 	defer bitboard.deinit();
+
+	try params.init();
+	defer params.deinit();
 
 	try engine.init();
 	defer engine.deinit();

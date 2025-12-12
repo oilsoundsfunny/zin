@@ -1,3 +1,4 @@
+const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
@@ -5,10 +6,6 @@ const Board = @import("Board.zig");
 const movegen = @import("movegen.zig");
 const search = @import("search.zig");
 const transposition = @import("transposition.zig");
-
-const Error = error {
-	UnknownCommand,
-};
 
 const Command = enum {
 	debug,
@@ -18,9 +15,14 @@ const Command = enum {
 	position,
 	quit,
 	setoption,
+	spsa_inputs,
 	stop,
 	uci,
 	ucinewgame,
+};
+
+pub const Error = error {
+	UnknownCommand,
 };
 
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
@@ -79,6 +81,8 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Co
 	if (std.ascii.eqlIgnoreCase(name, "Clear")) {
 		if (!std.ascii.eqlIgnoreCase(aux, "Hash")) {
 			return error.UnknownCommand;
+		} else if (tokens.peek()) |_| {
+			return error.UnknownCommand;
 		}
 
 		try tt.clear(pool.threads.len);
@@ -90,6 +94,11 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Co
 		const value = tokens.next() orelse return error.UnknownCommand;
 		options.hash = std.fmt.parseUnsigned(usize, value, 10)
 		  catch return error.UnknownCommand;
+
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
 		try tt.realloc(options.hash);
 	} else if (std.ascii.eqlIgnoreCase(name, "Threads")) {
 		if (!std.mem.eql(u8, aux, "value")) {
@@ -99,6 +108,11 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Co
 		const value = tokens.next() orelse return error.UnknownCommand;
 		options.threads = std.fmt.parseUnsigned(usize, value, 10)
 		  catch return error.UnknownCommand;
+
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
 		try pool.realloc(options.threads);
 	} else if (std.ascii.eqlIgnoreCase(name, "UCI_Chess960")) {
 		if (!std.mem.eql(u8, aux, "value")) {
@@ -109,8 +123,15 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Co
 		const frc = if (std.mem.eql(u8, value, "false")) false
 		  else if (std.mem.eql(u8, value, "true")) true
 		  else return error.UnknownCommand;
+
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
 		pool.setFRC(frc);
-	} else return error.UnknownCommand;
+	} else if (!params.tuning) {
+		return error.UnknownCommand;
+	} else params.parseTunable(name, aux, tokens) catch |err| return err;
 
 	return .setoption;
 }
@@ -189,6 +210,20 @@ pub fn parseCommand(command: []const u8, pool: *search.Pool) !Command {
 		return if (tokens.peek()) |_| error.UnknownCommand else .quit;
 	} else if (std.mem.eql(u8, first, "setoption")) {
 		return parseOption(&tokens, pool);
+	} else if (std.mem.eql(u8, first, "spsa_inputs")) {
+		if (!params.tuning) {
+			return error.UnknownCommand;
+		}
+
+		if (tokens.peek()) |_| {
+			return error.UnknownCommand;
+		}
+
+		pool.io.lockWriter();
+		defer pool.io.unlockWriter();
+
+		try params.printValues(pool.io);
+		return .spsa_inputs;
 	} else if (std.mem.eql(u8, first, "stop")) {
 		if (tokens.peek()) |_| {
 			return error.UnknownCommand;
@@ -214,6 +249,10 @@ pub fn parseCommand(command: []const u8, pool: *search.Pool) !Command {
 		    .{"Threads", "spin", 1, 1, 256});
 		try pool.io.writer().print("option name {s} type {s} default {s}\n",
 		    .{"UCI_Chess960", "check", "false"});
+
+		if (params.tuning) {
+			try params.printOptions(pool.io);
+		}
 
 		try pool.io.writer().print("uciok\n", .{});
 		try pool.io.writer().flush();

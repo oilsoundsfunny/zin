@@ -10,35 +10,6 @@ const transposition = @import("transposition.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
-pub const lmr = struct {
-	var table: [32][32][2]u8 = undefined;
-
-	pub fn get(depth: Depth, searched: usize, quiet: bool) u8 {
-		const clamped_d: usize = @intCast(std.math.clamp(depth, 0, 31));
-		const clamped_i: usize = @min(searched, 31);
-		return table[clamped_d][clamped_i][@intFromBool(quiet)];
-	}
-
-	pub fn init() !void {
-		for (table[0 ..], 0 ..) |*by_depth, depth| {
-			for (by_depth[0 ..], 0 ..) |*by_num, num| {
-				if (depth == 0 or num == 0) {
-					by_num.* = .{0, 0};
-					continue;
-				}
-
-				const d: f32 = @floatFromInt(depth);
-				const n: f32 = @floatFromInt(num);
-
-				// from weiss
-				const noisy = 0.20 + @log(d) * @log(n) / 3.35;
-				const quiet = 1.35 + @log(d) * @log(n) / 2.75;
-				by_num.* = .{@intFromFloat(noisy), @intFromFloat(quiet)};
-			}
-		}
-	}
-};
-
 pub const Depth = evaluation.score.Int;
 pub const Node = transposition.Entry.Flag;
 
@@ -394,18 +365,19 @@ pub const Thread = struct {
 
 		// internal iterative reduction (iir)
 		const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
-		if (node.hasLower() and depth >= 4 and !has_ttm) {
+		if (node.hasLower() and depth >= params.values.iir_min_depth and !has_ttm) {
 			d -= 1;
 		}
 
 		// reverse futility pruning (rfp)
 		var rfp_margin = d;
-		rfp_margin *= 78;
-		rfp_margin -= if (ntm_worsening) 14 else 0;
+		rfp_margin *= params.values.rfp_depth_mul;
+		rfp_margin -= params.values.rfp_ntm_worsening
+		  * @as(@TypeOf(b), @intFromBool(ntm_worsening));
 		rfp_margin = @max(rfp_margin, 20);
 		if (!is_pv
 		  and !is_checked
-		  and d <= 8
+		  and d <= params.values.rfp_max_depth
 		  and corr_eval >= b + rfp_margin) {
 			return corr_eval;
 		}
@@ -413,9 +385,9 @@ pub const Thread = struct {
 		// null move pruning
 		if (!is_pv
 		  and !is_checked
-		  and d >= 3
+		  and d >= params.values.nmp_min_depth
 		  and b > evaluation.score.lose
-		  and corr_eval >= b
+		  and corr_eval >= b + params.values.nmp_eval_margin
 		  and !self.nmp_verif) nmp: {
 			const occ = pos.bothOcc();
 			const kings = pos.ptypeOcc(.king);
@@ -424,9 +396,15 @@ pub const Thread = struct {
 				break :nmp;
 			}
 
-			const r: @TypeOf(d) = 3
-			  + @divTrunc(d, 4)
-			  + @min(@divTrunc(corr_eval - b, 400), 3)
+			const base_r = params.values.nmp_base_reduction;
+			const depth_r = params.values.nmp_depth_mul * d;
+
+			const eval_diff = corr_eval - b;
+			const diff_scaled = @divTrunc(eval_diff, params.values.nmp_eval_diff_divisor);
+
+			const r: @TypeOf(d)
+			  = @divTrunc(base_r + depth_r, 256)
+			  + @min(diff_scaled, params.values.nmp_max_eval_reduction)
 			  + @intFromBool(improving);
 
 			var s = null_search: {
@@ -441,7 +419,7 @@ pub const Thread = struct {
 					s = b;
 				}
 
-				const verified = d <= 14 or verif_search: {
+				const verified = d < 15 or verif_search: {
 					self.nmp_verif = true;
 					defer self.nmp_verif = false;
 
@@ -455,7 +433,9 @@ pub const Thread = struct {
 		}
 
 		// razoring
-		if (!is_pv and !is_checked and d < 8 and corr_eval + 460 * d <= a) {
+		if (!is_pv and !is_checked
+		  and d <= params.values.razoring_max_depth
+		  and corr_eval + params.values.razoring_depth_mul * d <= a) {
 			const rs = self.qs(ply + 1, a, b);
 			if (rs <= a) {
 				return rs;
@@ -509,14 +489,14 @@ pub const Thread = struct {
 					break :recur score;
 				}
 
-				const is_late = searched
+				const is_late = searched > 1 and searched
 				  > @as(usize, @intFromBool(is_pv))
 				  + @as(usize, @intFromBool(is_root))
 				  + @as(usize, @intFromBool(is_noisy))
 				  + @as(usize, @intFromBool(mp.ttm.isNone()));
 
-				score = if (d >= 3 and searched > 1 and is_late) reduced: {
-					r += lmr.get(d, searched, is_quiet);
+				score = if (d >= params.values.lmr_min_depth and is_late) reduced: {
+					r += params.lmr.get(d, searched, is_quiet);
 
 					r += @intFromBool(!improving);
 					r += @intFromBool(node == .lowerbound);
@@ -718,7 +698,7 @@ pub const Thread = struct {
 			}
 
 			if (!is_checked) {
-				const margin = corr_eval + 64;
+				const margin = corr_eval + params.values.qs_fp_margin;
 				if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
 					best.score = @intCast(@max(best.score, corr_eval + margin));
 					continue :move_loop;
@@ -990,12 +970,15 @@ pub const Options = struct {
 		const has_clock = self.incr.get(stm) != null and self.time.get(stm) != null;
 		const overhead = self.overhead;
 
-		const incr = self.incr.get(stm) orelse undefined;
-		const time = self.time.get(stm) orelse undefined;
+		const incr: f32 = @floatFromInt(self.incr.get(stm) orelse undefined);
+		const time: f32 = @floatFromInt(self.time.get(stm) orelse undefined);
+
+		const imul: f32 = @floatFromInt(params.values.base_incr_mul);
+		const tmul: f32 = @floatFromInt(params.values.base_time_mul);
 
 		self.stop = if (self.movetime) |mt| mt -| overhead
-		  else if (has_clock) time / 20 + incr / 2 -| overhead
-		  else null;
+		  else if (!has_clock) null
+		  else @as(u64, @intFromFloat((time * tmul + incr * imul) / 100.0)) -| overhead;
 	}
 };
 

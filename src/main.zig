@@ -1,5 +1,6 @@
 const bitboard = @import("bitboard");
 const engine = @import("engine");
+const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
@@ -20,6 +21,9 @@ pub const std_options = std.Options {
 pub fn main() !void {
 	try bitboard.init();
 	defer bitboard.deinit();
+
+	try params.init();
+	defer params.deinit();
 
 	try engine.init();
 	defer engine.deinit();
