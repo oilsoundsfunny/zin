@@ -67,7 +67,7 @@ const defaults = struct {
 
 	pub const lmr_min_depth: Int = 3;
 
-	pub const qs_fp_margin: Int = 72;
+	pub const qs_fp_margin: Int = 64;
 };
 
 pub const tuning = false;
