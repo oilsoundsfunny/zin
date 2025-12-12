@@ -698,7 +698,7 @@ pub const Thread = struct {
 			}
 
 			if (!is_checked) {
-				const margin = corr_eval + params.values.qs_fp_margin;
+				const margin = params.values.qs_fp_margin;
 				if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
 					best.score = @intCast(@max(best.score, corr_eval + margin));
 					continue :move_loop;
