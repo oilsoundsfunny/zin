@@ -93,31 +93,30 @@ pub const Thread = struct {
 	fn updateHist(self: *Thread, depth: Depth, move: movegen.Move,
 	  bad_noisy_moves: []const movegen.Move,
 	  bad_quiet_moves: []const movegen.Move) void {
-		const clamped = @min(depth, 12);
-		const bonus = clamped * 64;
-		const malus = -bonus;
+		const bonus = hist.bonus(depth);
+		const malus = hist.malus(depth);
 
 		const pos = self.board.top();
 		const is_quiet = pos.isMoveQuiet(move);
 		if (is_quiet) {
-			hist.update(self.quietHistPtr(move), bonus);
+			hist.gravity(self.quietHistPtr(move), bonus);
 			for (bad_quiet_moves) |qm| {
-				hist.update(self.quietHistPtr(qm), malus);
+				hist.gravity(self.quietHistPtr(qm), malus);
 			}
 
 			const cont_plies = [_]usize {1, 2, 4, 6};
 			for (cont_plies) |ply| {
-				hist.update(self.contHistPtr(move, ply), bonus);
+				hist.gravity(self.contHistPtr(move, ply), bonus);
 				for (bad_quiet_moves) |qm| {
-					hist.update(self.contHistPtr(qm, ply), malus);
+					hist.gravity(self.contHistPtr(qm, ply), malus);
 				}
 			}
 		} else {
-			hist.update(self.noisyHistPtr(move), bonus);
+			hist.gravity(self.noisyHistPtr(move), bonus);
 		}
 
 		for (bad_noisy_moves) |nm| {
-			hist.update(self.noisyHistPtr(nm), malus);
+			hist.gravity(self.noisyHistPtr(nm), malus);
 		}
 	}
 
@@ -496,19 +495,28 @@ pub const Thread = struct {
 				  + @as(usize, @intFromBool(mp.ttm.isNone()));
 
 				score = if (d >= params.values.lmr_min_depth and is_late) reduced: {
-					r += params.lmr.get(d, searched, is_quiet);
+					r += @as(@TypeOf(d), params.lmr.get(d, searched, is_quiet)) * 1024;
 
-					r += @intFromBool(!improving);
-					r += @intFromBool(node == .lowerbound);
-					r += @intFromBool(is_ttm_noisy);
+					r += @as(@TypeOf(d), @intFromBool(!improving))
+					  * params.values.lmr_non_improving;
+					r += @as(@TypeOf(d), @intFromBool(node == .lowerbound))
+					  * params.values.lmr_cutnode;
+					r += @as(@TypeOf(d), @intFromBool(is_ttm_noisy))
+					  * params.values.lmr_noisy_ttm;
 
-					r -= @intFromBool(board.top().isChecked());
-					r -= @intFromBool(is_checked);
-					r -= @intFromBool(is_pv);
+					r -= @as(@TypeOf(d), @intFromBool(board.top().isChecked()))
+					  * params.values.lmr_gave_check;
+					r -= @as(@TypeOf(d), @intFromBool(is_checked))
+					  * params.values.lmr_is_checked;
+					r -= @as(@TypeOf(d), @intFromBool(is_pv))
+					  * params.values.lmr_is_pv;
 
-					r -= @intFromBool(was_pv);
-					r -= @intFromBool(was_pv and tte.score > a);
+					r -= @as(@TypeOf(d), @intFromBool(was_pv))
+					  * params.values.lmr_was_pv;
+					r -= @as(@TypeOf(d), @intFromBool(was_pv and tte.score > a))
+					  * params.values.lmr_was_pv_non_fail_low;
 
+					r = @divTrunc(r, 1024);
 					const rd = std.math.clamp(recur_d - r, 1, recur_d);
 					var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
 
@@ -889,10 +897,10 @@ pub const Pool = struct {
 		}
 
 		const frc = self.options.frc;
-		var pos: Board.One = .{};
+		var board: Board = .{};
 
-		try pos.parseFen(Board.One.startpos);
-		self.setPosition(&pos, frc);
+		try board.top().parseFen(Board.One.startpos);
+		self.setBoard(&board, frc);
 	}
 
 	pub fn nodes(self: *const Pool) u64 {
@@ -910,10 +918,9 @@ pub const Pool = struct {
 		}
 	}
 
-	pub fn setPosition(self: *Pool, src: *const Board.One, frc: bool) void {
+	pub fn setBoard(self: *Pool, board: *const Board, frc: bool) void {
 		for (self.threads) |*thread| {
-			thread.board = .{};
-			thread.board.top().* = src.*;
+			thread.board = board.*;
 			thread.board.frc = frc;
 		}
 	}
@@ -988,8 +995,24 @@ pub const hist = struct {
 	pub const min = std.math.minInt(Int) / 2;
 	pub const max = -min;
 
-	pub fn update(p: *Int, b: evaluation.score.Int) void {
-		const clamped = std.math.clamp(b, min, max);
+	fn bonus(d: Depth) evaluation.score.Int {
+		const x: evaluation.score.Int
+		  = params.values.hist_bonus2 * d * d
+		  + params.values.hist_bonus1 * d
+		  + params.values.hist_bonus0;
+		return @min(x, params.values.max_hist_bonus);
+	}
+
+	fn malus(d: Depth) evaluation.score.Int {
+		const x: evaluation.score.Int
+		  = params.values.hist_malus2 * d * d
+		  + params.values.hist_malus1 * d
+		  + params.values.hist_malus0;
+		return -@min(x, params.values.max_hist_malus);
+	}
+
+	fn gravity(p: *Int, dx: evaluation.score.Int) void {
+		const clamped = std.math.clamp(dx, min, max);
 		const abs = switch (clamped) {
 			min ... -1 => -clamped,
 			0 ... max => clamped,

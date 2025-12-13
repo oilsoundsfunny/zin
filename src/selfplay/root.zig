@@ -88,8 +88,8 @@ pub fn main() !void {
 	}
 
 	var io = try types.Io.init(allocator,
-	  book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}), 16384,
-	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}), 16384);
+	  book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}), 1 << 16,
+	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}), 1 << 16);
 	defer io.deinit();
 
 	var tt = try engine.transposition.Table.init(allocator, 128);

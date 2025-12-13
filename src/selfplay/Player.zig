@@ -103,25 +103,26 @@ pub const Tourney = struct {
 };
 
 fn readOpening(self: *Self) !void {
-	const io = self.pool.io;
-	io.lockReader();
-	defer io.unlockReader();
+	self.pool.io.lockReader();
+	defer self.pool.io.unlockReader();
 
-	const line = try io.reader().takeDelimiterInclusive('\n');
+	const line = try self.pool.io.reader().takeDelimiterInclusive('\n');
 	self.opening = try self.pool.allocator.dupe(u8, line);
 }
 
 fn writeData(self: *Self) !void {
-	const io = self.pool.io;
-	io.lockWriter();
-	defer io.unlockWriter();
+	self.pool.io.lockWriter();
+	defer self.pool.io.unlockWriter();
 
-	const writer = io.writer();
+	const writer = self.pool.io.writer();
 	try writer.writeAll(std.mem.asBytes(&self.data));
 	for (self.line.constSlice()) |sm| {
 		try writer.writeAll(std.mem.asBytes(&sm));
 	}
-	try writer.flush();
+
+	if (writer.buffer.len - writer.buffered().len < 4096) {
+		try writer.flush();
+	}
 }
 
 fn playRandom(self: *Self) !void {
@@ -217,15 +218,15 @@ fn playOut(self: *Self) !void {
 
 fn match(self: *Self) !void {
 	while (self.readOpening()) {
-		var pos: engine.Board.One = .{};
-		try pos.parseFen(self.opening);
+		var board: engine.Board = .{};
+		try board.top().parseFen(self.opening);
 		defer self.pool.allocator.free(self.opening);
 
 		const played = self.played;
 		const games = self.games orelse std.math.maxInt(usize);
 
 		while (self.played - played < random_games and self.played < games) {
-			self.pool.setPosition(&pos, true);
+			self.pool.setBoard(&board, true);
 			self.playRandom() catch |err| {
 				std.debug.panic("error: {s} @ game {d}", .{@errorName(err), self.played});
 				return err;

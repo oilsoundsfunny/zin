@@ -49,6 +49,16 @@ const defaults = struct {
 	pub const base_time_mul: Int = 5;
 	pub const base_incr_mul: Int = 50;
 
+	pub const max_hist_bonus: Int = 768;
+	pub const hist_bonus2: Int = 0;
+	pub const hist_bonus1: Int = 64;
+	pub const hist_bonus0: Int = 0;
+
+	pub const max_hist_malus: Int = 768;
+	pub const hist_malus2: Int = 0;
+	pub const hist_malus1: Int = 64;
+	pub const hist_malus0: Int = 0;
+
 	pub const iir_min_depth: Int = 4;
 
 	pub const rfp_max_depth: Int = 8;
@@ -66,6 +76,14 @@ const defaults = struct {
 	pub const razoring_depth_mul: Int = 460;
 
 	pub const lmr_min_depth: Int = 3;
+	pub const lmr_non_improving: Int = 1024;
+	pub const lmr_cutnode: Int = 1024;
+	pub const lmr_noisy_ttm: Int = 1024;
+	pub const lmr_gave_check: Int = 1024;
+	pub const lmr_is_checked: Int = 1024;
+	pub const lmr_is_pv: Int = 1024;
+	pub const lmr_was_pv: Int = 1024;
+	pub const lmr_was_pv_non_fail_low: Int = 1024;
 
 	pub const qs_fp_margin: Int = 64;
 };
@@ -74,6 +92,16 @@ pub const tuning = false;
 pub const tunables = [_]Tunable {
 	.{.name = "base_time_mul", .value = defaults.base_time_mul, .min = 2, .max = 13, .c_end = 1.0},
 	.{.name = "base_incr_mul", .value = defaults.base_incr_mul, .min = 25, .max = 100, .c_end = 5.0},
+
+	.{.name = "max_hist_bonus", .value = defaults.max_hist_bonus, .min = 512, .max = 3072, .c_end = 256},
+	.{.name = "hist_bonus2", .value = defaults.hist_bonus2, .min = 0, .max = 1536, .c_end = 64},
+	.{.name = "hist_bonus1", .value = defaults.hist_bonus1, .min = 64, .max = 384, .c_end = 32},
+	.{.name = "hist_bonus0", .value = defaults.hist_bonus0, .min = -768, .max = 384, .c_end = 64},
+
+	.{.name = "max_hist_malus", .value = defaults.max_hist_malus, .min = 512, .max = 3072, .c_end = 256},
+	.{.name = "hist_malus2", .value = defaults.hist_malus2, .min = 0, .max = 1536, .c_end = 64},
+	.{.name = "hist_malus1", .value = defaults.hist_malus1, .min = 64, .max = 384, .c_end = 32},
+	.{.name = "hist_malus0", .value = defaults.hist_malus0, .min = -768, .max = 384, .c_end = 64},
 
 	.{.name = "iir_min_depth", .value = defaults.iir_min_depth, .min = 2, .max = 9, .c_end = 1.0},
 
@@ -92,6 +120,14 @@ pub const tunables = [_]Tunable {
 	.{.name = "razoring_depth_mul", .value = defaults.razoring_depth_mul, .min = 250, .max = 650, .c_end = 10.0},
 
 	.{.name = "lmr_min_depth", .value = defaults.lmr_min_depth, .min = 2, .max = 5, .c_end = 1.0},
+	.{.name = "lmr_non_improving", .value = defaults.lmr_non_improving, .min = 0, .max = 2048, .c_end = 256.0},
+	.{.name = "lmr_cutnode", .value = defaults.lmr_cutnode, .min = 0, .max = 2048, .c_end = 256.0},
+	.{.name = "lmr_noisy_ttm", .value = defaults.lmr_noisy_ttm, .min = 0, .max = 2048, .c_end = 256.0},
+	.{.name = "lmr_gave_check", .value = defaults.lmr_gave_check, .min = 0, .max = 2048, .c_end = 256.0},
+	.{.name = "lmr_is_checked", .value = defaults.lmr_is_checked, .min = 0, .max = 2048, .c_end = 256.0},
+	.{.name = "lmr_is_pv", .value = defaults.lmr_is_pv, .min = 0, .max = 2048, .c_end = 256.0},
+	.{.name = "lmr_was_pv", .value = defaults.lmr_was_pv, .min = 0, .max = 2048, .c_end = 256.0},
+	.{.name = "lmr_was_pv_non_fail_low", .value = defaults.lmr_was_pv_non_fail_low, .min = 0, .max = 2048, .c_end = 256.0},
 
 	.{.name = "qs_fp_margin", .value = defaults.qs_fp_margin, .min = 0, .max = 250, .c_end = 16.0},
 };
@@ -99,6 +135,16 @@ pub const tunables = [_]Tunable {
 pub const values = if (tuning) struct {
 	pub var base_time_mul = defaults.base_time_mul;
 	pub var base_incr_mul = defaults.base_incr_mul;
+
+	pub var max_hist_bonus = defaults.max_hist_bonus;
+	pub var hist_bonus2 = defaults.hist_bonus2;
+	pub var hist_bonus1 = defaults.hist_bonus1;
+	pub var hist_bonus0 = defaults.hist_bonus0;
+
+	pub var max_hist_malus = defaults.max_hist_malus;
+	pub var hist_malus2 = defaults.hist_malus2;
+	pub var hist_malus1 = defaults.hist_malus1;
+	pub var hist_malus0 = defaults.hist_malus0;
 
 	pub var iir_min_depth = defaults.iir_min_depth;
 
@@ -117,6 +163,14 @@ pub const values = if (tuning) struct {
 	pub var razoring_depth_mul = defaults.razoring_depth_mul;
 
 	pub var lmr_min_depth = defaults.lmr_min_depth;
+	pub var lmr_non_improving = defaults.lmr_non_improving;
+	pub var lmr_cutnode = defaults.lmr_cutnode;
+	pub var lmr_noisy_ttm = defaults.lmr_noisy_ttm;
+	pub var lmr_gave_check = defaults.lmr_gave_check;
+	pub var lmr_is_checked = defaults.lmr_is_checked;
+	pub var lmr_is_pv = defaults.lmr_is_pv;
+	pub var lmr_was_pv = defaults.lmr_was_pv;
+	pub var lmr_was_pv_non_fail_low = defaults.lmr_was_pv_non_fail_low;
 
 	pub var qs_fp_margin = defaults.qs_fp_margin;
 } else defaults;
