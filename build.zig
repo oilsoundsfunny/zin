@@ -109,7 +109,7 @@ pub fn build(bld: *std.Build) !void {
 		var options = module_template;
 		options.root_source_file = bld.path(src);
 
-		const module = bld.createModule(options);
+		const module = bld.addModule(name, options);
 		if (m == .engine) {
 			module.addImport("bounded_array", bounded_array.module("bounded_array"));
 		}
