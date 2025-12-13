@@ -66,6 +66,10 @@ const Steps = enum {
 };
 
 pub fn build(bld: *std.Build) !void {
+	_ = bld.addModule("root", .{
+		.root_source_file = bld.path("src/root.zig"),
+	});
+
 	const optimize = bld.standardOptimizeOption(.{});
 	const ndebug = optimize != .Debug and optimize != .ReleaseSafe;
 	const target = bld.standardTargetOptions(.{});
@@ -109,9 +113,10 @@ pub fn build(bld: *std.Build) !void {
 		var options = module_template;
 		options.root_source_file = bld.path(src);
 
-		const module = bld.addModule(name, options);
-		if (m == .engine) {
-			module.addImport("bounded_array", bounded_array.module("bounded_array"));
+		const module = bld.createModule(options);
+		switch (m) {
+			.engine => module.addImport("bounded_array", bounded_array.module("bounded_array")),
+			else => {},
 		}
 		modules.set(m, module);
 

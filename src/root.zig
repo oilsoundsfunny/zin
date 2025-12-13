@@ -4,6 +4,8 @@ pub const nnue = @import("nnue");
 pub const params = @import("params");
 pub const types = @import("types");
 
+pub const viri = @import("selfplay/viri.zig");
+
 pub fn deinit() void {
 	defer bitboard.deinit();
 	defer params.deinit();
