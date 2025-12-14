@@ -78,9 +78,9 @@ pub const tunables = [_]Tunable {
 	.{.name = "hist_malus1", .value = 64, .min = 64, .max = 384, .c_end = 32},
 	.{.name = "hist_malus0", .value = 0, .min = -768, .max = 384, .c_end = 64},
 
-	.{.name = "asp_min_depth", .value = 3, .min = 3, .max = 7, .c_end = 1.0},
-	.{.name = "asp_window", .value = 256, .min = 128, .max = 768, .c_end = 64.0},
-	.{.name = "asp_window_mul", .value = 256, .min = 1, .max = 512, .c_end = 24.0},
+	.{.name = "asp_min_depth", .value = 6, .min = 3, .max = 7, .c_end = 1.0},
+	.{.name = "asp_window", .value = 10, .min = 5, .max = 20, .c_end = 2.0},
+	.{.name = "asp_window_mul", .value = 58, .min = 1, .max = 512, .c_end = 24.0},
 
 	.{.name = "iir_min_depth", .value = 4, .min = 2, .max = 9, .c_end = 1.0},
 
