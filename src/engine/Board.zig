@@ -537,9 +537,12 @@ pub const One = struct {
 	}
 
 	pub fn evaluate(self: *const One) evaluation.score.Int {
-		const inferred = nnue.net.default.infer(self);
-		const tapered = @divTrunc(inferred * (100 - self.rule50), 100);
-		return std.math.clamp(tapered, evaluation.score.lose + 1, evaluation.score.win - 1);
+		const inferred = nnue.net.embed.infer(self);
+		const scaled = @divTrunc(inferred * (100 - self.rule50), 100);
+
+		const min = evaluation.score.lose + 1;
+		const max = evaluation.score.win - 1;
+		return std.math.clamp(scaled, min, max);
 	}
 };
 
@@ -812,14 +815,12 @@ pub fn undoNull(self: *Board) void {
 }
 
 pub fn getRepeat(self: *const Board) usize {
-	const start = self.bottom();
-	const end = self.top();
+	const key = self.top().key;
+	var peat: usize = 0;
 
-	const key = end.key;
-	var peat: usize = 1;
-
-	for (start[0 .. 1].ptr[0 .. end - start]) |*p| {
-		peat += @intFromBool(p.key == key);
+	for (self.ss.slice()[offset ..]) |*p| {
+		const key_matched = p.key == key;
+		peat += @intFromBool(key_matched);
 	}
 	return peat;
 }

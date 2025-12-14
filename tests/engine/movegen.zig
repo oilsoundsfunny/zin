@@ -1,5 +1,6 @@
 const bitboard = @import("bitboard");
 const engine = @import("engine");
+const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
@@ -9,13 +10,21 @@ test {
 
 	try std.testing.expectEqual(@sizeOf(u32), @sizeOf(engine.movegen.Move.Scored));
 	try std.testing.expectEqual(@sizeOf(u32) * 256, @sizeOf(engine.movegen.Move.Scored.List));
+
+	try std.testing.expectEqual(@sizeOf(u16) * 256, @sizeOf(engine.movegen.Move.Root));
 }
 
 test {
 	try bitboard.init();
 	defer bitboard.deinit();
 
-	var pos = std.mem.zeroInit(engine.Position, .{});
+	try params.init();
+	defer params.deinit();
+
+	try engine.init();
+	defer engine.deinit();
+
+	var pos = std.mem.zeroInit(engine.Board.One, .{});
 	try pos.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 
 	var list: engine.movegen.Move.Scored.List = .{};
@@ -30,10 +39,17 @@ test {
 	try bitboard.init();
 	defer bitboard.deinit();
 
+	try params.init();
+	defer params.deinit();
+
+	try engine.init();
+	defer engine.deinit();
+
 	const thread = try std.testing.allocator.create(engine.search.Thread);
 	defer std.testing.allocator.destroy(thread);
 
-	const pos = &thread.pos;
+	thread.board = .{};
+	const pos = thread.board.top();
 	try pos.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 
 	const seq = [_]engine.movegen.Move {

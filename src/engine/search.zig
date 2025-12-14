@@ -227,17 +227,17 @@ pub const Thread = struct {
 		const pvs: evaluation.score.Int = @intCast(pv.score);
 
 		var s: @TypeOf(pvs) = evaluation.score.none;
-		var w: @TypeOf(pvs) = 256;
+		var w: @TypeOf(pvs) = params.values.asp_window;
 
 		const d = self.depth;
 		var a: @TypeOf(pvs) = evaluation.score.lose;
 		var b: @TypeOf(pvs) = evaluation.score.win;
-		if (d >= 3) {
+		if (d >= params.values.asp_min_depth) {
 			a = std.math.clamp(pvs - w, evaluation.score.lose, evaluation.score.win);
 			b = std.math.clamp(pvs + w, evaluation.score.lose, evaluation.score.win);
 		}
 
-		while (true) : (w *= 2) {
+		while (true) : (w += @divTrunc(w * params.values.asp_window_mul, 256)) {
 			s = self.ab(.exact, 0, a, b, d);
 
 			if (!self.pool.searching) {
@@ -345,6 +345,8 @@ pub const Thread = struct {
 		pos.stat_eval = stat_eval;
 		pos.corr_eval = corr_eval;
 
+		// improving heuristic(s)
+		// 10.0+0.1: 21.29 +- 9.45
 		const improving = !is_checked and blk: {
 			const fu2ev = pos.down(2).corr_eval;
 			if (fu2ev != evaluation.score.none) {
@@ -363,6 +365,7 @@ pub const Thread = struct {
 		  and pos.down(1).corr_eval > 1 - corr_eval;
 
 		// internal iterative reduction (iir)
+		// 10.0+0.1: 84.25 +- 20.51
 		const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
 		if (node.hasLower() and depth >= params.values.iir_min_depth and !has_ttm) {
 			d -= 1;
@@ -464,6 +467,7 @@ pub const Thread = struct {
 
 			if (!is_root and best.score > evaluation.score.lose) {
 				// late move pruning (lmp)
+				// 10.0+0.1: 21.30 +- 9.80
 				var very_late: usize = @intCast(d * d);
 				very_late += 4;
 				very_late /= if (improving) 1 else 2;
@@ -495,6 +499,8 @@ pub const Thread = struct {
 				  + @as(usize, @intFromBool(mp.ttm.isNone()));
 
 				score = if (d >= params.values.lmr_min_depth and is_late) reduced: {
+					// late move reduction (lmr)
+					// 10.0+0.1: 48.29 +- 15.89
 					r += @as(@TypeOf(d), params.lmr.get(d, searched, is_quiet)) * 1024;
 
 					r += @as(@TypeOf(d), @intFromBool(!improving))
@@ -521,8 +527,14 @@ pub const Thread = struct {
 					var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
 
 					if (rs > a and rd < recur_d) {
-						recur_d += @intFromBool(rs > best.score);
-						recur_d -= @intFromBool(rs < best.score);
+						const deeper = rs
+						  > best.score
+						  + params.values.deeper_margin0
+						  + @divTrunc(params.values.deeper_margin1 * recur_d, 256);
+						const shallower = rs < best.score + params.values.shallower_margin;
+
+						recur_d += @intFromBool(deeper);
+						recur_d -= @intFromBool(shallower);
 
 						rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
 					}
@@ -700,12 +712,16 @@ pub const Thread = struct {
 					break :move_loop;
 				}
 
+				// qs see pruning
+				// 10.0+0.1: 206.81 +- 35.91
 				if (!pos.see(m, draw)) {
 					continue :move_loop;
 				}
 			}
 
 			if (!is_checked) {
+				// qs futility pruning
+				// 10.0+0.1: 65.37 +- 17.63
 				const margin = params.values.qs_fp_margin;
 				if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
 					best.score = @intCast(@max(best.score, corr_eval + margin));
@@ -766,10 +782,9 @@ pub const Thread = struct {
 		const is_threaded = self.cnt > 1;
 
 		if (is_main) {
-			const pool = self.pool;
-			pool.searching = true;
-			pool.timer.reset();
-			for (pool.threads) |*thread| {
+			self.pool.searching = true;
+			self.pool.timer.reset();
+			for (self.pool.threads) |*thread| {
 				thread.nodes = 0;
 				thread.tbhits = 0;
 				thread.tthits = 0;
@@ -780,8 +795,8 @@ pub const Thread = struct {
 
 			root_moves.* = movegen.Move.Root.List.init(board);
 			if (is_threaded) {
-				defer pool.cond.broadcast();
-				for (pool.threads[1 ..]) |*thread| {
+				defer self.pool.cond.broadcast();
+				for (self.pool.threads[1 ..]) |*thread| {
 					thread.board = board.*;
 					thread.root_moves = root_moves.*;
 				}
@@ -790,12 +805,20 @@ pub const Thread = struct {
 			self.pool.cond.wait(&self.pool.mtx);
 		}
 
+		const no_moves = self.root_moves.constSlice().len == 0;
+		if (no_moves) {
+			if (is_main) {
+				try self.printInfo();
+				try self.printBest();
+			}
+			return;
+		}
+
 		const max_depth = self.pool.options.depth orelse movegen.Move.Root.capacity;
 		const min_depth = 1;
 		var depth: Depth = min_depth;
 
-		const no_moves = self.root_moves.constSlice().len == 0;
-		while (!no_moves and depth <= max_depth) : (depth += 1) {
+		while (depth <= max_depth) : (depth += 1) {
 			self.depth = depth;
 			self.seldepth = 0;
 			self.asp();

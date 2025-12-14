@@ -7,33 +7,14 @@ const types = @import("types");
 
 const Player = @import("Player.zig");
 
-pub const author = "oilsoundsfunny";
-pub const name = "selfplay";
-
-pub fn main() !void {
-	try bitboard.init();
-	defer bitboard.deinit();
-
-	try params.init();
-	defer params.deinit();
-
-	try engine.init();
-	defer engine.deinit();
-
-	var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-	const allocator = std.heap.page_allocator;
-	defer _ = gpa.deinit();
-
-	var args = try std.process.argsWithAllocator(allocator);
-	_ = args.skip();
-	defer args.deinit();
-
+pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 	var book_path: ?[]const u8 = null;
 	var data_path: ?[]const u8 = null;
 	var depth: ?engine.search.Depth = null;
 	var games: ?usize = null;
 	var nodes: ?usize = null;
-	var threads: ?usize = null;
+	var opt_hash: ?usize = null;
+	var opt_threads: ?usize = null;
 
 	while (args.next()) |arg| {
 		if (std.mem.eql(u8, arg, "--book")) {
@@ -76,24 +57,35 @@ pub fn main() !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			nodes = try std.fmt.parseUnsigned(usize, aux, 10);
+		} else if (std.mem.eql(u8, arg, "--hash")) {
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
+
+			if (opt_hash) |_| {
+				std.process.fatal("duplicated arg '{s}'", .{arg});
+			}
+			opt_hash = try std.fmt.parseUnsigned(usize, aux, 10);
 		} else if (std.mem.eql(u8, arg, "--threads")) {
 			const aux = if (args.next()) |next| next
 			  else std.process.fatal("expected arg after '{s}'", .{arg});
 
-			if (threads) |_| {
+			if (opt_threads) |_| {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
-			threads = try std.fmt.parseUnsigned(usize, aux, 10);
+			opt_threads = try std.fmt.parseUnsigned(usize, aux, 10);
 		} else std.process.fatal("unknown arg '{s}'", .{arg});
 	}
+
+	const hash = opt_hash orelse 64;
+	const threads = opt_threads orelse 1;
 
 	var io = try types.Io.init(allocator,
 	  book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}), 1 << 16,
 	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}), 1 << 16);
 	defer io.deinit();
 
-	var tt = try engine.transposition.Table.init(allocator, 128);
-	try tt.clear(threads orelse 1);
+	var tt = try engine.transposition.Table.init(allocator, hash);
+	try tt.clear(threads);
 	defer tt.deinit();
 
 	var tourney = try Player.Tourney.init(.{
@@ -103,7 +95,7 @@ pub fn main() !void {
 		.games = games,
 		.depth = depth,
 		.nodes = nodes,
-		.threads = threads orelse 1,
+		.threads = threads,
 	});
 	defer tourney.deinit();
 

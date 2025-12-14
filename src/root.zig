@@ -2,9 +2,8 @@ pub const bitboard = @import("bitboard");
 pub const engine = @import("engine");
 pub const nnue = @import("nnue");
 pub const params = @import("params");
+pub const selfplay = @import("selfplay");
 pub const types = @import("types");
-
-pub const viri = @import("selfplay/viri.zig");
 
 pub fn deinit() void {
 	defer bitboard.deinit();

@@ -9,23 +9,23 @@ const arch = @import("arch.zig");
 const Madd = @Vector(arch.native_len / 2, engine.evaluation.score.Int);
 
 pub const Self = extern struct {
-	hl0_w:	[arch.inp_len][arch.hl0_len]arch.Int align(64),
-	hl0_b:	[arch.hl0_len]arch.Int align(64),
+	hl0_w:	[arch.inp_len][arch.hl0_len]arch.Int,
+	hl0_b:	[arch.hl0_len]arch.Int,
 
-	out_w:	[arch.color_n][arch.hl0_len / 2]arch.Int align(64),
+	out_w:	[arch.color_n][arch.hl0_len / 2]arch.Int,
 	out_b:	arch.Int align(64),
 
 	pub fn infer(self: *const Self, pos: *const engine.Board.One) engine.evaluation.score.Int {
 		const stm = pos.stm;
 		const accumulator = &pos.accumulator;
 
-		const vecs = std.EnumArray(types.Color, *align(32) const [arch.hl0_len]arch.Int).init(.{
+		const vecs = std.EnumArray(types.Color, *const [arch.hl0_len]arch.Int).init(.{
 			.white = accumulator.perspectives.getPtrConst(stm),
 			.black = accumulator.perspectives.getPtrConst(stm.flip()),
 		});
 
 		const half_len = arch.hl0_len / 2;
-		const wgts = std.EnumArray(types.Color, *align(32) const [half_len]arch.Int).init(.{
+		const wgts = std.EnumArray(types.Color, *const [half_len]arch.Int).init(.{
 			.white = self.out_w[types.Color.white.tag()][0 .. half_len],
 			.black = self.out_w[types.Color.black.tag()][0 .. half_len],
 		});
@@ -57,10 +57,18 @@ pub const Self = extern struct {
 	}
 };
 
-pub const default = init: {
-	const bin = @embedFile("default.nn");
-	var net: Self = undefined;
-	@memcpy(std.mem.asBytes(&net), bin[0 ..]);
+pub const embed = init: {
+	var net: Self align(64) = undefined;
+	const dst = std.mem.asBytes(&net);
+	const src = @embedFile("embed.nn");
+
+	if (dst.len != src.len) {
+		const msg = std.fmt.comptimePrint("mismatched size, expected {d}, found {d}",
+		  .{dst.len, src.len});
+		@compileError(msg);
+	}
+
+	@memcpy(dst, src);
 	break :init net;
 };
 

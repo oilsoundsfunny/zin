@@ -103,7 +103,7 @@ const RootMoveList = struct {
 			defer root_moves.push(rm);
 
 			rm.push(sm.move);
-			rm.score = evaluation.score.none;
+			rm.score = evaluation.score.draw;
 		}
 		return root_moves;
 	}

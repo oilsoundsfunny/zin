@@ -1,42 +1,47 @@
 const std = @import("std");
 
 const Modules = enum {
-	types,
 	bitboard,
 	engine,
 	nnue,
 	params,
+	selfplay,
+	types,
 
 	const dependencies = std.EnumArray(Modules, []const Modules).init(.{
-		.types = &.{},
 		.bitboard = &.{.types},
 		.engine = &.{.bitboard, .nnue, .params, .types},
 		.nnue = &.{.engine, .types},
 		.params = &.{.engine, .types},
+		.selfplay = &.{.bitboard, .engine, .params, .types},
+		.types = &.{},
 	});
 
 	const names = std.EnumArray(Modules, []const u8).init(.{
-		.types = "types",
 		.bitboard = "bitboard",
 		.engine = "engine",
 		.nnue = "nnue",
 		.params = "params",
+		.selfplay = "selfplay",
+		.types = "types",
 	});
 
 	const src_files = std.EnumArray(Modules, []const u8).init(.{
-		.types = "src/types/root.zig",
 		.bitboard = "src/bitboard/root.zig",
 		.engine = "src/engine/root.zig",
 		.nnue = "src/nnue/root.zig",
 		.params = "src/params/root.zig",
+		.selfplay = "src/selfplay/root.zig",
+		.types = "src/types/root.zig",
 	});
 
 	const test_files = std.EnumArray(Modules, []const u8).init(.{
-		.types = "tests/types/root.zig",
 		.bitboard = "tests/bitboard/root.zig",
 		.engine = "tests/engine/root.zig",
 		.nnue = "tests/nnue/root.zig",
 		.params = "tests/params/root.zig",
+		.selfplay = "tests/selfplay/root.zig",
+		.types = "tests/types/root.zig",
 	});
 
 	const values = std.enums.values(Modules);
@@ -45,20 +50,17 @@ const Modules = enum {
 const Steps = enum {
 	install,
 	perft,
-	selfplay,
 	tests,
 
 	const dependencies = std.EnumArray(Steps, []const Modules).init(.{
-		.install = &.{.bitboard, .engine, .params, .types},
+		.install = &.{.bitboard, .engine, .params, .selfplay, .types},
 		.perft = &.{.bitboard, .engine, .types},
-		.selfplay = &.{.bitboard, .engine, .params, .types},
-		.tests = &.{},
+		.tests = &.{.bitboard, .engine, .nnue, .params, .selfplay, .types},
 	});
 
 	const src_files = std.EnumArray(Steps, []const u8).init(.{
 		.install = "src/main.zig",
 		.perft = "tests/perft/root.zig",
-		.selfplay = "src/selfplay/root.zig",
 		.tests = "tests/root.zig",
 	});
 
@@ -95,19 +97,16 @@ pub fn build(bld: *std.Build) !void {
 		.pic = true,
 	};
 
-	const bounded_array = bld.dependency("bounded_array", .{});
+	const bounded_array = bld.dependency("bounded_array", .{}).module("bounded_array");
 
 	const steps = std.EnumArray(Steps, *std.Build.Step).init(.{
 		.install = bld.getInstallStep(),
 		.perft = bld.step("perft", ""),
-		.selfplay = bld.step("selfplay", ""),
 		.tests = bld.step("test", ""),
 	});
 	var modules = std.EnumArray(Modules, *std.Build.Module).initUndefined();
-	var tests = std.EnumArray(Modules, *std.Build.Step.Compile).initUndefined();
 
 	for (Modules.values) |m| {
-		const name = Modules.names.get(m);
 		const src = Modules.src_files.get(m);
 
 		var options = module_template;
@@ -115,24 +114,10 @@ pub fn build(bld: *std.Build) !void {
 
 		const module = bld.createModule(options);
 		switch (m) {
-			.engine => module.addImport("bounded_array", bounded_array.module("bounded_array")),
+			.engine, .selfplay => module.addImport("bounded_array", bounded_array),
 			else => {},
 		}
 		modules.set(m, module);
-
-		const test_src = Modules.test_files.get(m);
-		var test_options = module_template;
-		test_options.root_source_file = bld.path(test_src);
-
-		const test_unit = bld.addTest(.{
-			.root_module = bld.createModule(test_options),
-			.name = name,
-			.use_lld = use_llvm,
-			.use_llvm = use_llvm,
-		});
-
-		tests.set(m, test_unit);
-		steps.get(.tests).dependOn(&bld.addRunArtifact(test_unit).step);
 	}
 
 	const evalfile = bld.option([]const u8, "evalfile", "");
@@ -142,18 +127,16 @@ pub fn build(bld: *std.Build) !void {
 	for (Modules.values) |m| {
 		const deps = Modules.dependencies.get(m);
 		const module = modules.get(m);
-		const test_module = tests.get(m).root_module;
 
 		for (deps) |dep| {
 			const dep_name = Modules.names.get(dep);
 			const dep_module = modules.get(dep);
 
 			module.addImport(dep_name, dep_module);
-			test_module.addImport(dep_name, dep_module);
 		}
 
 		switch (m) {
-			.nnue => module.addAnonymousImport("default.nn", .{.root_source_file = network}),
+			.nnue => module.addAnonymousImport("embed.nn", .{.root_source_file = network}),
 			else => {},
 		}
 	}
@@ -173,14 +156,11 @@ pub fn build(bld: *std.Build) !void {
 
 			module.addImport(dep_name, dep_module);
 		}
-		if (s == .selfplay) {
-			module.addImport("bounded_array", bounded_array.module("bounded_array"));
-		}
 
 		const comp = switch (s) {
-			.install, .selfplay => bld.addExecutable(.{
+			.install, => bld.addExecutable(.{
 				.root_module = module,
-				.name = if (s == .install) exe_name else @import("src/selfplay/root.zig").name,
+				.name = exe_name,
 				.version = version,
 				.use_lld = use_llvm,
 				.use_llvm = use_llvm,
@@ -192,8 +172,9 @@ pub fn build(bld: *std.Build) !void {
 				.use_llvm = use_llvm,
 			}),
 		};
+
 		const sub_step = switch (s) {
-			.install, .selfplay => &bld.addInstallArtifact(comp, .{}).step,
+			.install, => &bld.addInstallArtifact(comp, .{}).step,
 			else => &bld.addRunArtifact(comp).step,
 		};
 
