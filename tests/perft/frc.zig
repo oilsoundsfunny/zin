@@ -32,13 +32,17 @@ test {
 	try bitboard.init();
 	defer bitboard.deinit();
 
+	try engine.init();
+	defer engine.deinit();
+
 	const first = 3;
 	const len = 3;
 	for (suite[first ..][0 .. len]) |result| {
-		var pos = engine.Position.zero;
-		try pos.parseFen(result.fen);
+		var board: engine.Board = .{};
+		try board.top().parseFen(result.fen);
+
 		for (result.nodes, 1 ..) |expected, depth| {
-			const actual = try root.div(&pos, @intCast(depth));
+			const actual = try root.div(&board, @intCast(depth));
 			try std.testing.expectEqual(expected, actual);
 		}
 	}
