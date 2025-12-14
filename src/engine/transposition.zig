@@ -109,6 +109,11 @@ pub const Table = struct {
 			return;
 		}
 
+		if (tn == 1) {
+			threadedClear(self.slice);
+			return;
+		}
+
 		const mod = len % tn;
 		const div = len / tn;
 
@@ -116,25 +121,29 @@ pub const Table = struct {
 		const threads = try self.allocator.alloc(std.Thread, tn);
 		defer self.allocator.free(threads);
 
-		for (0 .. tn) |i| {
+		const first_slice = p[0 .. div];
+		p += div;
+
+		for (1 .. tn) |i| {
 			const l = if (i < mod) div + 1 else div;
 			const s = p[0 .. l];
 
 			p += l;
 			threads[i] = try std.Thread.spawn(.{.allocator = self.allocator}, threadedClear, .{s});
 		}
+		threadedClear(first_slice);
 
-		defer for (0 .. tn) |i| {
+		defer for (1 .. tn) |i| {
 			std.Thread.join(threads[i]);
 		};
 	}
 
 	pub fn hashfull(self: *const Table) usize {
 		var full: usize = 0;
-		for (self.slice[0 .. 1000]) |*p| {
-			full += @intFromBool(p.et0 != @as(Entry, .{}));
-			full += @intFromBool(p.et1 != @as(Entry, .{}));
-			full += @intFromBool(p.et2 != @as(Entry, .{}));
+		for (self.slice[0 .. 1000]) |cluster| {
+			full += @intFromBool(cluster.et0 != @as(Entry, .{}));
+			full += @intFromBool(cluster.et1 != @as(Entry, .{}));
+			full += @intFromBool(cluster.et2 != @as(Entry, .{}));
 		}
 		return full / 3;
 	}

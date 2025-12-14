@@ -120,7 +120,9 @@ pub const Thread = struct {
 		}
 	}
 
-	fn printInfo(self: *const Thread) !void {
+	fn printInfo(self: *const Thread,
+	  pv: *const movegen.Move.Root,
+	  depth: Depth, seldepth: Depth) !void {
 		if (self.pool.quiet) {
 			return;
 		}
@@ -128,15 +130,9 @@ pub const Thread = struct {
 		const writer = self.pool.io.writer();
 		const timer = &self.pool.timer;
 
-		const has_pv = self.root_moves.constSlice().len > 0;
-		const pv = if (has_pv) &self.root_moves.constSlice()[0] else return;
-
 		const nodes = self.pool.nodes();
 		const ntime = timer.read();
 		const mtime = ntime / std.time.ns_per_ms;
-
-		const depth = self.depth;
-		const seldepth = self.seldepth;
 
 		self.pool.io.lockWriter();
 		defer self.pool.io.unlockWriter();
@@ -184,7 +180,7 @@ pub const Thread = struct {
 		try writer.flush();
 	}
 
-	fn printBest(self: *const Thread) !void {
+	fn printBest(self: *const Thread, pv: *const movegen.Move.Root) !void {
 		if (self.pool.quiet) {
 			return;
 		}
@@ -192,14 +188,13 @@ pub const Thread = struct {
 		self.pool.io.lockWriter();
 		defer self.pool.io.unlockWriter();
 
-		const has_pv = self.root_moves.constSlice().len > 0;
-		if (!has_pv) {
+		if (pv.constSlice().len == 0) {
 			try self.pool.io.writer().print("bestmove 0000\n", .{});
 			try self.pool.io.writer().flush();
 			return;
 		}
 
-		const m = self.root_moves.constSlice()[0].constSlice()[0];
+		const m = pv.constSlice()[0];
 		const s = m.toString(&self.board);
 		const l = m.toStringLen();
 		try self.pool.io.writer().print("bestmove {s}\n", .{s[0 .. l]});
@@ -777,6 +772,18 @@ pub const Thread = struct {
 		return best.score;
 	}
 
+	fn broadcast(self: *const Thread) void {
+		self.pool.mtx.lock();
+		self.pool.cond.broadcast();
+		self.pool.mtx.unlock();
+	}
+
+	fn wait(self: *const Thread) void {
+		self.pool.mtx.lock();
+		self.pool.cond.wait(&self.pool.mtx);
+		self.pool.mtx.unlock();
+	}
+
 	pub fn search(self: *Thread) !void {
 		const is_main = self.idx == 0;
 		const is_threaded = self.cnt > 1;
@@ -795,24 +802,24 @@ pub const Thread = struct {
 
 			root_moves.* = movegen.Move.Root.List.init(board);
 			if (is_threaded) {
-				defer self.pool.cond.broadcast();
+				defer self.broadcast();
 				for (self.pool.threads[1 ..]) |*thread| {
 					thread.board = board.*;
 					thread.root_moves = root_moves.*;
 				}
 			}
-		} else if (is_threaded) {
-			self.pool.cond.wait(&self.pool.mtx);
-		}
+		} else if (is_threaded) self.wait();
 
 		const no_moves = self.root_moves.constSlice().len == 0;
-		if (no_moves) {
+		var last_depth: Depth = 1;
+		var last_seldepth: Depth = 1;
+		var last_pv: movegen.Move.Root = .{};
+		last_pv = if (no_moves) {
 			if (is_main) {
-				try self.printInfo();
-				try self.printBest();
+				try self.printBest(&last_pv);
 			}
 			return;
-		}
+		} else self.root_moves.constSlice()[0];
 
 		const max_depth = self.pool.options.depth orelse movegen.Move.Root.capacity;
 		const min_depth = 1;
@@ -828,9 +835,13 @@ pub const Thread = struct {
 				break;
 			}
 
+			last_depth = self.depth;
+			last_seldepth = self.seldepth;
+			last_pv = self.root_moves.constSlice()[0];
+
 			if (is_main) {
 				self.pool.tt.doAge();
-				try self.printInfo();
+				try self.printInfo(&last_pv, last_depth, last_seldepth);
 			}
 		}
 
@@ -840,8 +851,8 @@ pub const Thread = struct {
 				self.pool.join(.helpers);
 			};
 
-			try self.printInfo();
-			try self.printBest();
+			try self.printInfo(&last_pv, last_depth, last_seldepth);
+			try self.printBest(&last_pv);
 		}
 	}
 
@@ -900,13 +911,16 @@ pub const Pool = struct {
 
 	pub fn realloc(self: *Pool, num: usize) !void {
 		if (num == 0) {
+			self.allocator.free(self.threads);
 			return;
 		}
 
-		const copy = self.threads[0];
+		const copy = try self.allocator.dupe(Thread, self.threads[0 .. 1]);
+		defer self.allocator.free(copy);
+
 		self.threads = try self.allocator.realloc(self.threads, num);
 		for (self.threads) |*thread| {
-			thread.* = copy;
+			thread.* = copy[0];
 		}
 	}
 
