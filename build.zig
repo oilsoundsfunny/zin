@@ -141,6 +141,10 @@ pub fn build(bld: *std.Build) !void {
 		}
 	}
 
+	const lto = bld.option(bool, "lto", "") orelse switch (optimize) {
+		.ReleaseFast => true,
+		else => false,
+	};
 	const exe_name = bld.option([]const u8, "name", "") orelse @import("src/main.zig").name;
 	const version = @import("src/main.zig").version;
 
@@ -158,13 +162,17 @@ pub fn build(bld: *std.Build) !void {
 		}
 
 		const comp = switch (s) {
-			.install, => bld.addExecutable(.{
-				.root_module = module,
-				.name = exe_name,
-				.version = version,
-				.use_lld = use_llvm,
-				.use_llvm = use_llvm,
-			}),
+			.install, => add_exe: {
+				const exe = bld.addExecutable(.{
+					.root_module = module,
+					.name = exe_name,
+					.version = version,
+					.use_lld = use_llvm,
+					.use_llvm = use_llvm,
+				});
+				exe.want_lto = lto;
+				break :add_exe exe;
+			},
 			else => bld.addTest(.{
 				.root_module = module,
 				.name = if (s == .perft) "perft" else "test",
@@ -174,7 +182,7 @@ pub fn build(bld: *std.Build) !void {
 		};
 
 		const sub_step = switch (s) {
-			.install, => &bld.addInstallArtifact(comp, .{}).step,
+			.install => &bld.addInstallArtifact(comp, .{}).step,
 			else => &bld.addRunArtifact(comp).step,
 		};
 
