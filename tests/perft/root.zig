@@ -9,11 +9,12 @@ pub const Result = struct {
 	nodes:	[6]usize,
 };
 
-fn divRecursive(comptime root: bool, pos: *engine.Position, depth: engine.search.Depth) usize {
+fn divRecursive(comptime root: bool, board: *engine.Board, depth: engine.search.Depth) usize {
 	if (depth <= 0) {
 		return 1;
 	}
 
+	const pos = board.top();
 	var ml: engine.movegen.Move.Scored.List = .{};
 	var sum: usize = 0;
 	_ = ml.genNoisy(pos);
@@ -21,14 +22,14 @@ fn divRecursive(comptime root: bool, pos: *engine.Position, depth: engine.search
 
 	for (ml.slice()) |sm| {
 		const m = sm.move;
-		pos.doMove(m) catch continue;
-		defer pos.undoMove();
+		board.doMove(m) catch continue;
+		defer board.undoMove();
 
-		const this = divRecursive(false, pos, depth - 1);
+		const this = divRecursive(false, board, depth - 1);
 		sum += this;
 
 		if (root) {
-			const s = m.toString(pos);
+			const s = m.toString(board);
 			const l = m.toStringLen();
 			std.debug.print("{s}:\t{d}\n", .{s[0 .. l], this});
 		}
@@ -37,11 +38,11 @@ fn divRecursive(comptime root: bool, pos: *engine.Position, depth: engine.search
 	return sum;
 }
 
-pub fn div(pos: *engine.Position, depth: isize) !usize {
+pub fn div(board: *engine.Board, depth: engine.search.Depth) !usize {
 	var timer = try std.time.Timer.start();
 
 	timer.reset();
-	const nodes = divRecursive(true, pos, depth);
+	const nodes = divRecursive(true, board, depth);
 	const time = timer.lap();
 	const nps = nodes * std.time.ns_per_s / time;
 
