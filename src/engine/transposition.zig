@@ -156,8 +156,7 @@ pub const Table = struct {
 		self.age = 0;
 	}
 
-	pub fn fetch(self: *const Table, key: zobrist.Int) struct {*Entry, bool} {
-		std.debug.assert(self.slice.len > 0);
+	pub fn read(self: *const Table, key: zobrist.Int, dst: *Entry) bool {
 		const i = self.index(key);
 		const cluster = &self.slice[i];
 		const entries = [_]*Entry {
@@ -171,25 +170,37 @@ pub const Table = struct {
 
 			const match_key = tte.key == @as(@TypeOf(tte.key), @truncate(key));
 			if (tte.flag != .none and match_key) {
-				return .{entry, true};
+				dst.* = tte;
+				return true;
 			}
-		}
+		} else return false;
+	}
+
+	pub fn write(self: *const Table, key: zobrist.Int, save: Entry) void {
+		const i = self.index(key);
+		const cluster = &self.slice[i];
+		const entries = [_]*Entry {
+			@ptrCast(&cluster.et0),
+			@ptrCast(&cluster.et1),
+			@ptrCast(&cluster.et2),
+		};
 
 		var replace = entries[0];
+		defer replace.* = save;
+
 		for (entries[1 ..]) |entry| {
 			const rte = replace.*;
 			const tte = entry.*;
 
 			const ra: isize = rte.age;
-			const rd: isize = rte.age;
+			const rd: isize = rte.depth;
 			const ta: isize = tte.age;
-			const td: isize = tte.age;
+			const td: isize = tte.depth;
 
-			if (rd - ra > td - ta) {
+			if (rd - @divTrunc(ra, 2) > td - @divTrunc(ta, 2)) {
 				replace = entry;
 			}
 		}
-		return .{replace, false};
 	}
 
 	pub fn prefetch(self: *const Table, key: zobrist.Int) void {

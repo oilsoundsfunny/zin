@@ -304,15 +304,12 @@ pub const Thread = struct {
 		if (self.board.isDrawn()) {
 			return draw;
 		} else if (self.board.isTerminal()) {
-			return self.board.top().evaluate();
+			return pos.evaluate();
 		}
 
+		var tte: transposition.Entry = .{};
 		const tt = self.pool.tt;
-		const ttf = tt.fetch(key);
-		const tte = ttf[0].*;
-		const tth = ttf[1]
-		  and tte.key == @as(@TypeOf(tte.key), @truncate(key))
-		  and tte.flag != .none;
+		const tth = tt.read(key, &tte);
 
 		const was_pv = tth and tte.was_pv;
 
@@ -604,7 +601,7 @@ pub const Thread = struct {
 			  bad_quiet_moves.constSlice());
 		}
 
-		ttf[0].* = .{
+		tte = .{
 			.was_pv = was_pv or flag == .exact,
 			.flag = flag,
 			.age = @truncate(tt.age),
@@ -612,8 +609,9 @@ pub const Thread = struct {
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
 			.score = best.score,
-			.move = if (!best.move.isNone()) best.move else mp.ttm,
+			.move = best.move,
 		};
+		tt.write(key, tte);
 
 		return best.score;
 	}
@@ -648,16 +646,12 @@ pub const Thread = struct {
 		if (self.board.isDrawn()) {
 			return draw;
 		} else if (self.board.isTerminal()) {
-			return self.board.top().evaluate();
+			return pos.evaluate();
 		}
 
+		var tte: transposition.Entry = .{};
 		const tt = self.pool.tt;
-		const ttf = tt.fetch(key);
-
-		const tte = ttf[0].*;
-		const tth = ttf[1]
-		  and tte.flag != .none
-		  and tte.key == @as(@TypeOf(tte.key), @truncate(key));
+		const tth = tt.read(key, &tte);
 
 		if (tth and tte.shouldTrust(a, b, 0)) {
 			return tte.score;
@@ -745,11 +739,11 @@ pub const Thread = struct {
 				if (s > a) {
 					a = s;
 					best.move = m;
+				}
 
-					if (a >= b) {
-						flag = .lowerbound;
-						break :move_loop;
-					}
+				if (s >= b) {
+					flag = .lowerbound;
+					break :move_loop;
 				}
 			}
 		}
@@ -758,16 +752,17 @@ pub const Thread = struct {
 			return lose;
 		}
 
-		ttf[0].* = .{
-			.was_pv = false,
+		tte = .{
+			.was_pv = tte.was_pv,
 			.flag = flag,
 			.age = @truncate(tt.age),
 			.depth = 0,
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
 			.score = best.score,
-			.move = if (!best.move.isNone()) best.move else mp.ttm,
+			.move = best.move,
 		};
+		tt.write(key, tte);
 
 		return best.score;
 	}
