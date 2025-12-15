@@ -56,6 +56,26 @@ pub const score = struct {
 		return mated + i;
 	}
 
+	pub fn fromTT(s: Int, ply: usize) Int {
+		var r = s;
+		if (r < lose) {
+			r += @intCast(ply);
+		} else if (r > win) {
+			r -= @intCast(ply);
+		}
+		return r;
+	}
+
+	pub fn toTT(s: Int, ply: usize) Int {
+		var r = s;
+		if (r < lose) {
+			r -= @intCast(ply);
+		} else if (r > win) {
+			r += @intCast(ply);
+		}
+		return r;
+	}
+
 	pub fn normalize(s: Int, mat: Int) Int {
 		const params = [_]f32 {
 			6.87155862, -39.65226391, 90.68460352, 170.66996364,

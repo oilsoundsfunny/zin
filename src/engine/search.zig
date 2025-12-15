@@ -304,20 +304,18 @@ pub const Thread = struct {
 		if (self.board.isDrawn()) {
 			return draw;
 		} else if (self.board.isTerminal()) {
-			return self.board.top().evaluate();
+			return pos.evaluate();
 		}
 
+		var tte: transposition.Entry = .{};
 		const tt = self.pool.tt;
-		const ttf = tt.fetch(key);
-		const tte = ttf[0].*;
-		const tth = ttf[1]
-		  and tte.key == @as(@TypeOf(tte.key), @truncate(key))
-		  and tte.flag != .none;
+		const tth = tt.read(key, &tte);
 
 		const was_pv = tth and tte.was_pv;
+		const ttscore = evaluation.score.fromTT(tte.score, ply);
 
 		if (!is_pv and tth and tte.shouldTrust(a, b, d)) {
-			return tte.score;
+			return ttscore;
 		}
 
 		const has_tteval = tth
@@ -328,12 +326,12 @@ pub const Thread = struct {
 		  else pos.evaluate();
 
 		const use_ttscore = tth
-		  and tte.score > evaluation.score.lose
-		  and tte.score < evaluation.score.win
-		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
-		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
+		  and ttscore > evaluation.score.lose
+		  and ttscore < evaluation.score.win
+		  and !(tte.flag == .upperbound and ttscore >  stat_eval)
+		  and !(tte.flag == .lowerbound and ttscore <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
-		const corr_eval = if (use_ttscore) tte.score
+		const corr_eval = if (use_ttscore) ttscore
 		  else if (is_checked) evaluation.score.none
 		  else stat_eval;
 
@@ -514,7 +512,7 @@ pub const Thread = struct {
 
 					r -= @as(@TypeOf(d), @intFromBool(was_pv))
 					  * params.values.lmr_was_pv;
-					r -= @as(@TypeOf(d), @intFromBool(was_pv and tte.score > a))
+					r -= @as(@TypeOf(d), @intFromBool(was_pv and ttscore > a))
 					  * params.values.lmr_was_pv_non_fail_low;
 
 					r = @divTrunc(r, 1024);
@@ -604,16 +602,17 @@ pub const Thread = struct {
 			  bad_quiet_moves.constSlice());
 		}
 
-		ttf[0].* = .{
+		tte = .{
 			.was_pv = was_pv or flag == .exact,
 			.flag = flag,
 			.age = @truncate(tt.age),
 			.depth = @intCast(depth),
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
-			.score = best.score,
-			.move = if (!best.move.isNone()) best.move else mp.ttm,
+			.score = @intCast(evaluation.score.toTT(best.score, ply)),
+			.move = best.move,
 		};
+		tt.write(key, tte);
 
 		return best.score;
 	}
@@ -648,19 +647,16 @@ pub const Thread = struct {
 		if (self.board.isDrawn()) {
 			return draw;
 		} else if (self.board.isTerminal()) {
-			return self.board.top().evaluate();
+			return pos.evaluate();
 		}
 
+		var tte: transposition.Entry = .{};
 		const tt = self.pool.tt;
-		const ttf = tt.fetch(key);
-
-		const tte = ttf[0].*;
-		const tth = ttf[1]
-		  and tte.flag != .none
-		  and tte.key == @as(@TypeOf(tte.key), @truncate(key));
+		const tth = tt.read(key, &tte);
+		const ttscore = evaluation.score.fromTT(tte.score, ply);
 
 		if (tth and tte.shouldTrust(a, b, 0)) {
-			return tte.score;
+			return ttscore;
 		}
 
 		const has_tteval = tth
@@ -671,12 +667,12 @@ pub const Thread = struct {
 		  else pos.evaluate();
 
 		const use_ttscore = tth
-		  and tte.score > evaluation.score.lose
-		  and tte.score < evaluation.score.win
-		  and !(tte.flag == .upperbound and tte.score >  stat_eval)
-		  and !(tte.flag == .lowerbound and tte.score <= stat_eval);
+		  and ttscore > evaluation.score.lose
+		  and ttscore < evaluation.score.win
+		  and !(tte.flag == .upperbound and ttscore >  stat_eval)
+		  and !(tte.flag == .lowerbound and ttscore <= stat_eval);
 		// TODO: correct eval in case tt score is unusable
-		const corr_eval = if (use_ttscore) tte.score
+		const corr_eval = if (use_ttscore) ttscore
 		  else if (is_checked) evaluation.score.none
 		  else stat_eval;
 
@@ -745,11 +741,11 @@ pub const Thread = struct {
 				if (s > a) {
 					a = s;
 					best.move = m;
+				}
 
-					if (a >= b) {
-						flag = .lowerbound;
-						break :move_loop;
-					}
+				if (s >= b) {
+					flag = .lowerbound;
+					break :move_loop;
 				}
 			}
 		}
@@ -758,16 +754,17 @@ pub const Thread = struct {
 			return lose;
 		}
 
-		ttf[0].* = .{
-			.was_pv = false,
+		tte = .{
+			.was_pv = tte.was_pv,
 			.flag = flag,
 			.age = @truncate(tt.age),
 			.depth = 0,
 			.key = @truncate(key),
 			.eval = @intCast(stat_eval),
-			.score = best.score,
-			.move = if (!best.move.isNone()) best.move else mp.ttm,
+			.score = @intCast(evaluation.score.toTT(best.score, ply)),
+			.move = best.move,
 		};
+		tt.write(key, tte);
 
 		return best.score;
 	}
@@ -791,6 +788,8 @@ pub const Thread = struct {
 		if (is_main) {
 			self.pool.searching = true;
 			self.pool.timer.reset();
+			self.pool.tt.doAge();
+
 			for (self.pool.threads) |*thread| {
 				thread.nodes = 0;
 				thread.tbhits = 0;
@@ -840,7 +839,6 @@ pub const Thread = struct {
 			last_pv = self.root_moves.constSlice()[0];
 
 			if (is_main) {
-				self.pool.tt.doAge();
 				try self.printInfo(&last_pv, last_depth, last_seldepth);
 			}
 		}

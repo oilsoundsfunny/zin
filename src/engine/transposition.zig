@@ -70,7 +70,7 @@ pub const Table = struct {
 	allocator:	std.mem.Allocator,
 
 	slice:	[]Cluster,
-	age:	usize,
+	age:	u5,
 
 	fn threadedClear(slice: []Cluster) void {
 		for (slice) |*cluster| {
@@ -149,15 +149,14 @@ pub const Table = struct {
 	}
 
 	pub fn doAge(self: *Table) void {
-		self.age += 1;
+		self.age +%= 1;
 	}
 
 	pub fn resetAge(self: *Table) void {
 		self.age = 0;
 	}
 
-	pub fn fetch(self: *const Table, key: zobrist.Int) struct {*Entry, bool} {
-		std.debug.assert(self.slice.len > 0);
+	pub fn read(self: *const Table, key: zobrist.Int, dst: *Entry) bool {
 		const i = self.index(key);
 		const cluster = &self.slice[i];
 		const entries = [_]*Entry {
@@ -168,28 +167,61 @@ pub const Table = struct {
 
 		for (entries) |entry| {
 			const tte = entry.*;
-
-			const match_key = tte.key == @as(@TypeOf(tte.key), @truncate(key));
-			if (tte.flag != .none and match_key) {
-				return .{entry, true};
+			if (tte.flag != .none and tte.key == @as(@TypeOf(tte.key), @truncate(key))) {
+				dst.* = tte;
+				return true;
 			}
-		}
+		} else return false;
+	}
 
-		var replace = entries[0];
-		for (entries[1 ..]) |entry| {
-			const rte = replace.*;
+	pub fn write(self: *const Table, key: zobrist.Int, save: Entry) void {
+		const i = self.index(key);
+		const cluster = &self.slice[i];
+		const entries = [_]*Entry {
+			@ptrCast(&cluster.et0),
+			@ptrCast(&cluster.et1),
+			@ptrCast(&cluster.et2),
+		};
+
+		var min: isize = std.math.maxInt(isize);
+		var opt_replace: ?*Entry = null;
+		const short_key: @TypeOf(opt_replace.?.key) = @truncate(key);
+
+		for (entries) |entry| {
 			const tte = entry.*;
+			if (tte.key == short_key or tte.flag == .none) {
+				opt_replace = entry;
+				break;
+			}
 
-			const ra: isize = rte.age;
-			const rd: isize = rte.age;
-			const ta: isize = tte.age;
-			const td: isize = tte.age;
+			const cycle = 1 << @bitSizeOf(@TypeOf(self.age));
+			const age: u8 = self.age;
 
-			if (rd - ra > td - ta) {
-				replace = entry;
+			const ta: isize = (cycle + age - tte.age) % cycle;
+			const td: isize = tte.depth;
+			const rel_age = td - ta * 2;
+
+			if (rel_age < min) {
+				opt_replace = entry;
+				min = rel_age;
 			}
 		}
-		return .{replace, false};
+
+		const replace = opt_replace orelse @panic("no tt replacement found");
+		var tte = replace.*;
+		var ttm = tte.move;
+
+		if (save.flag != .exact
+		  and tte.key == short_key
+		  and tte.age == self.age
+		  and tte.depth >= save.depth + 4) {
+			return;
+		}
+
+		ttm = if (save.move.isNone() and tte.key == short_key) ttm else save.move;
+		tte = save;
+		tte.move = ttm;
+		replace.* = tte;
 	}
 
 	pub fn prefetch(self: *const Table, key: zobrist.Int) void {
