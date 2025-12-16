@@ -113,10 +113,6 @@ pub fn build(bld: *std.Build) !void {
 		options.root_source_file = bld.path(src);
 
 		const module = bld.createModule(options);
-		switch (m) {
-			.engine, .selfplay => module.addImport("bounded_array", bounded_array),
-			else => {},
-		}
 		modules.set(m, module);
 	}
 
@@ -136,7 +132,11 @@ pub fn build(bld: *std.Build) !void {
 		}
 
 		switch (m) {
-			.nnue => module.addAnonymousImport("embed.nn", .{.root_source_file = network}),
+			.engine, .selfplay => module.addImport("bounded_array", bounded_array),
+			.nnue => {
+				module.addAnonymousImport("embed.nn", .{.root_source_file = network});
+				module.addImport("bounded_array", bounded_array);
+			},
 			else => {},
 		}
 	}

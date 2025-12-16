@@ -15,6 +15,8 @@ const zobrist = @import("zobrist.zig");
 const Board = @This();
 
 frc:	bool = false,
+last_clean:	usize = 0,
+
 ss:	bounded_array.BoundedArray(One, capacity + offset) = .{
 	.buffer = .{@as(One, .{})} ** (capacity + offset),
 	.len = offset + 1,
@@ -248,6 +250,7 @@ pub const One = struct {
 			const from_c = types.Piece.fromChar(c);
 			si += if (from_c) |p| blk: {
 				self.setSq(s, p);
+
 				self.accumulator.add(.white, .{.piece = p, .square = s});
 				self.accumulator.add(.black, .{.piece = p, .square = s});
 
@@ -270,7 +273,7 @@ pub const One = struct {
 							else => false,
 						};
 						if (mirrored) {
-							self.accumulator.mirror(self, .white);
+							self.accumulator.mirror(.white, self);
 						}
 					},
 
@@ -292,7 +295,7 @@ pub const One = struct {
 							else => false,
 						};
 						if (mirrored) {
-							self.accumulator.mirror(self, .black);
+							self.accumulator.mirror(.black, self);
 						}
 					},
 
@@ -415,6 +418,9 @@ pub const One = struct {
 		_ = std.fmt.parseUnsigned(usize, move_token, 10)
 		  catch return error.InvalidMoveClock;
 
+		self.accumulator.clear();
+		self.accumulator.unmark();
+
 		self.checks = self.genCheckMask();
 		self.key ^= zobrist.enp(self.en_pas);
 	}
@@ -536,7 +542,11 @@ pub const One = struct {
 		};
 	}
 
-	pub fn evaluate(self: *const One) evaluation.score.Int {
+	fn updateAccumulator(self: *One) void {
+		nnue.Accumulator.update(self);
+	}
+
+	fn evaluate(self: *const One) evaluation.score.Int {
 		const inferred = nnue.net.embed.infer(self);
 		const scaled = @divTrunc(inferred * (100 - self.rule50), 100);
 
@@ -548,6 +558,15 @@ pub const One = struct {
 
 pub const capacity = 1024 - offset;
 pub const offset = 8;
+
+fn updateAccumulators(self: *Board) void {
+	for (self.ss.slice()[offset ..]) |*pos| {
+		if (pos.accumulator.dirty) {
+			@branchHint(.unlikely);
+			pos.updateAccumulator();
+		}
+	}
+}
 
 pub fn bottom(self: anytype) switch (@TypeOf(self)) {
 	*Board => *One,
@@ -586,6 +605,9 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 	pos.en_pas = null;
 	pos.rule50 += 1;
 
+	pos.accumulator.clear();
+	pos.accumulator.mark();
+
 	switch (move.flag) {
 		.none => {
 			@branchHint(.likely);
@@ -594,21 +616,12 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.setSq(d, sp);
 
 			if (dp == .none) {
-				pos.accumulator.fusedAddSub(.white,
-				  .{.piece = sp, .square = d},
-				  .{.piece = sp, .square = s},
-				);
-				pos.accumulator.fusedAddSub(.black,
+				pos.accumulator.queueAddSub(
 				  .{.piece = sp, .square = d},
 				  .{.piece = sp, .square = s},
 				);
 			} else {
-				pos.accumulator.fusedAddSubSub(.white,
-				  .{.piece = sp, .square = d},
-				  .{.piece = sp, .square = s},
-				  .{.piece = dp, .square = d},
-				);
-				pos.accumulator.fusedAddSubSub(.black,
+				pos.accumulator.queueAddSubSub(
 				  .{.piece = sp, .square = d},
 				  .{.piece = sp, .square = s},
 				  .{.piece = dp, .square = d},
@@ -625,12 +638,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.setSq(d, our_pawn);
 			pos.popSq(enp_target, their_pawn);
 
-			pos.accumulator.fusedAddSubSub(.white,
-			  .{.piece = our_pawn, .square = d},
-			  .{.piece = our_pawn, .square = s},
-			  .{.piece = their_pawn, .square = enp_target},
-			);
-			pos.accumulator.fusedAddSubSub(.black,
+			pos.accumulator.queueAddSubSub(
 			  .{.piece = our_pawn, .square = d},
 			  .{.piece = our_pawn, .square = s},
 			  .{.piece = their_pawn, .square = enp_target},
@@ -646,21 +654,12 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.setSq(d, our_promotion);
 
 			if (dp == .none) {
-				pos.accumulator.fusedAddSub(.white,
-				  .{.piece = our_promotion, .square = d},
-				  .{.piece = our_pawn, .square = s},
-				);
-				pos.accumulator.fusedAddSub(.black,
+				pos.accumulator.queueAddSub(
 				  .{.piece = our_promotion, .square = d},
 				  .{.piece = our_pawn, .square = s},
 				);
 			} else {
-				pos.accumulator.fusedAddSubSub(.white,
-				  .{.piece = our_promotion, .square = d},
-				  .{.piece = our_pawn, .square = s},
-				  .{.piece = dp, .square = d},
-				);
-				pos.accumulator.fusedAddSubSub(.black,
+				pos.accumulator.queueAddSubSub(
 				  .{.piece = our_promotion, .square = d},
 				  .{.piece = our_pawn, .square = s},
 				  .{.piece = dp, .square = d},
@@ -679,13 +678,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.setSq(info.kd, our_king);
 			pos.setSq(info.rd, our_rook);
 
-			pos.accumulator.fusedAddAddSubSub(.white,
-			  .{.piece = our_king, .square = info.kd},
-			  .{.piece = our_rook, .square = info.rd},
-			  .{.piece = our_king, .square = info.ks},
-			  .{.piece = our_rook, .square = info.rs},
-			);
-			pos.accumulator.fusedAddAddSubSub(.black,
+			pos.accumulator.queueAddAddSubSub(
 			  .{.piece = our_king, .square = info.kd},
 			  .{.piece = our_rook, .square = info.rd},
 			  .{.piece = our_king, .square = info.ks},
@@ -755,7 +748,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 				else => false,
 			};
 			if (is_s_mirrored != is_d_mirrored) {
-				pos.accumulator.mirror(pos, stm);
+				pos.accumulator.queueMirror(stm);
 			}
 		},
 
@@ -799,6 +792,9 @@ pub fn doNull(self: *Board) MoveError!void {
 	pos.en_pas = null;
 	pos.rule50 = 0;
 
+	pos.accumulator.clear();
+	pos.accumulator.mark();
+
 	pos.stm = pos.stm.flip();
 	pos.checks = .full;
 	pos.key ^= zobrist.stm()
@@ -835,4 +831,9 @@ pub fn isDrawn(self: *const Board) bool {
 
 pub fn isTerminal(self: *const Board) bool {
 	return self.ss.len >= capacity + offset;
+}
+
+pub fn evaluate(self: *Board) evaluation.score.Int {
+	self.updateAccumulators();
+	return self.top().evaluate();
 }

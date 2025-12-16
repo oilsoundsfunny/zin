@@ -156,7 +156,7 @@ fn playRandom(self: *Self) !void {
 				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.bishop).count()) * 3
 				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.rook).count()) * 5
 				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.queen).count()) * 9;
-				const ev = board.top().evaluate();
+				const ev = board.evaluate();
 				const cp = engine.evaluation.score.normalize(ev, mat);
 				if (cp != std.math.clamp(cp, -max_cp, max_cp)) {
 					break;

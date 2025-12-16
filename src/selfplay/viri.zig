@@ -103,10 +103,10 @@ pub const Self = extern struct {
 	result:	Result = .draw,
 	pad:	u8 = 0,
 
-	pub fn fromPosition(board: *const engine.Board) Self {
+	pub fn fromPosition(board: *engine.Board) Self {
 		var self: Self = .{};
 		const pos = board.top();
-		const eval = pos.evaluate();
+		const eval = board.evaluate();
 
 		self.ply = pos.rule50;
 		self.length = 0;

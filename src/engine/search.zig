@@ -304,7 +304,7 @@ pub const Thread = struct {
 		if (self.board.isDrawn()) {
 			return draw;
 		} else if (self.board.isTerminal()) {
-			return pos.evaluate();
+			return board.evaluate();
 		}
 
 		var tte: transposition.Entry = .{};
@@ -323,7 +323,7 @@ pub const Thread = struct {
 		  and tte.eval < evaluation.score.win;
 		const stat_eval = if (is_checked) evaluation.score.none
 		  else if (has_tteval) tte.eval
-		  else pos.evaluate();
+		  else board.evaluate();
 
 		const use_ttscore = tth
 		  and ttscore > evaluation.score.lose
@@ -647,7 +647,7 @@ pub const Thread = struct {
 		if (self.board.isDrawn()) {
 			return draw;
 		} else if (self.board.isTerminal()) {
-			return pos.evaluate();
+			return board.evaluate();
 		}
 
 		var tte: transposition.Entry = .{};
@@ -664,7 +664,7 @@ pub const Thread = struct {
 		  and tte.eval < evaluation.score.win;
 		const stat_eval = if (is_checked) evaluation.score.none
 		  else if (has_tteval) tte.eval
-		  else pos.evaluate();
+		  else board.evaluate();
 
 		const use_ttscore = tth
 		  and ttscore > evaluation.score.lose
