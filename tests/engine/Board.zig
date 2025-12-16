@@ -14,7 +14,7 @@ test {
 	try engine.init();
 	defer engine.deinit();
 
-	var pos = std.mem.zeroInit(engine.Board.One, .{});
+	var pos = std.mem.zeroInit(engine.Board.Position, .{});
 	try pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
 }
 
@@ -99,7 +99,7 @@ test {
 	};
 
 	for (fens) |fen| {
-		var pos: engine.Board.One = .{};
+		var pos: engine.Board.Position = .{};
 		var rma: [1 << 16]bool = undefined;
 		var list: engine.movegen.Move.Scored.List = .{};
 
@@ -146,7 +146,7 @@ test {
 	try engine.init();
 	defer engine.deinit();
 
-	var pos: engine.Board.One = .{};
+	var pos: engine.Board.Position = .{};
 	try pos.parseFen("1k1r4/1pp4p/p7/4p3/8/P5P1/1PP4P/2K1R3 w - - 0 1");
 
 	const move: engine.movegen.Move = .{
@@ -168,7 +168,7 @@ test {
 	try engine.init();
 	defer engine.deinit();
 
-	var pos: engine.Board.One = .{};
+	var pos: engine.Board.Position = .{};
 	try pos.parseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1");
 
 	const move: engine.movegen.Move = .{

@@ -24,14 +24,14 @@ test {
 	try engine.init();
 	defer engine.deinit();
 
-	var pos = std.mem.zeroInit(engine.Board.One, .{});
-	try pos.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+	var board: engine.Board = .{};
+	try board.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 
 	var list: engine.movegen.Move.Scored.List = .{};
 	var cnt: usize = 0;
 
-	cnt += list.genNoisy(&pos);
-	cnt += list.genQuiet(&pos);
+	cnt += list.genNoisy(board.top());
+	cnt += list.genQuiet(board.top());
 	try std.testing.expectEqual(20, cnt);
 }
 
@@ -49,8 +49,7 @@ test {
 	defer std.testing.allocator.destroy(thread);
 
 	thread.board = .{};
-	const pos = thread.board.top();
-	try pos.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+	try thread.board.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 
 	const seq = [_]engine.movegen.Move {
 		.{.flag = .none, .info = .{.none = 0}, .src = .a2, .dst = .a3},

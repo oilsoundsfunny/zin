@@ -24,7 +24,7 @@ const Piece = enum(u4) {
 
 	const tag_info = @typeInfo(Tag).int;
 
-	fn fromSquare(pos: *const engine.Board.One, s: types.Square) Piece {
+	fn fromSquare(pos: *const engine.Board.Position, s: types.Square) Piece {
 		var iter = @constCast(pos).castles.iterator();
 
 		return switch (pos.getSquare(s)) {

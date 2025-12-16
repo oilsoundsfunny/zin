@@ -15,12 +15,9 @@ const zobrist = @import("zobrist.zig");
 const Board = @This();
 
 frc:	bool = false,
-last_clean:	usize = 0,
 
-ss:	bounded_array.BoundedArray(One, capacity + offset) = .{
-	.buffer = .{@as(One, .{})} ** (capacity + offset),
-	.len = offset + 1,
-},
+accumulators:	Offseted(nnue.Accumulator) = offsetedDefault(nnue.Accumulator),
+positions:		Offseted(Position) = offsetedDefault(Position),
 
 pub const FenError = error {
 	InvalidPiece,
@@ -48,7 +45,7 @@ pub const Castle = struct {
 	rd:	types.Square,
 };
 
-pub const One = struct {
+pub const Position = struct {
 	by_color:	std.EnumArray(types.Color, types.Square.Set)
 	  = std.EnumArray(types.Color, types.Square.Set).initFill(.none),
 	by_ptype:	std.EnumArray(types.Ptype, types.Square.Set)
@@ -69,8 +66,6 @@ pub const One = struct {
 
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
-	accumulator:	nnue.Accumulator = .{},
-
 	pv:	movegen.Move.Root = .{},
 
 	pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -78,23 +73,23 @@ pub const One = struct {
 
 	pub const see = @import("see.zig").func;
 
-	fn colorOccPtr(self: *One, c: types.Color) *types.Square.Set {
+	fn colorOccPtr(self: *Position, c: types.Color) *types.Square.Set {
 		return self.by_color.getPtr(c);
 	}
 
-	fn ptypeOccPtr(self: *One, c: types.Ptype) *types.Square.Set {
+	fn ptypeOccPtr(self: *Position, c: types.Ptype) *types.Square.Set {
 		return self.by_ptype.getPtr(c);
 	}
 
-	fn colorOccPtrConst(self: *const One, c: types.Color) *const types.Square.Set {
+	fn colorOccPtrConst(self: *const Position, c: types.Color) *const types.Square.Set {
 		return self.by_color.getPtrConst(c);
 	}
 
-	fn ptypeOccPtrConst(self: *const One, c: types.Ptype) *const types.Square.Set {
+	fn ptypeOccPtrConst(self: *const Position, c: types.Ptype) *const types.Square.Set {
 		return self.by_ptype.getPtrConst(c);
 	}
 
-	fn popSq(self: *One, s: types.Square, p: types.Piece) void {
+	fn popSq(self: *Position, s: types.Square, p: types.Piece) void {
 		if (p == .none) {
 			return;
 		}
@@ -109,7 +104,7 @@ pub const One = struct {
 		self.key ^= z;
 	}
 
-	fn setSq(self: *One, s: types.Square, p: types.Piece) void {
+	fn setSq(self: *Position, s: types.Square, p: types.Piece) void {
 		if (p == .none) {
 			return;
 		}
@@ -124,20 +119,20 @@ pub const One = struct {
 		self.key ^= z;
 	}
 
-	fn popCastle(self: *One, c: types.Castle) void {
+	fn popCastle(self: *Position, c: types.Castle) void {
 		if (self.castles.fetchRemove(c)) |_| {
 			self.key ^= zobrist.cas(c);
 		}
 	}
 
-	fn setCastle(self: *One, c: types.Castle, info: Castle) void {
+	fn setCastle(self: *Position, c: types.Castle, info: Castle) void {
 		if (self.castles.fetchPut(c, info)) |_| {
 		} else {
 			self.key ^= zobrist.cas(c);
 		}
 	}
 
-	fn genCheckMask(self: *const One) types.Square.Set {
+	fn genCheckMask(self: *const Position) types.Square.Set {
 		const occ = self.bothOcc();
 		const stm = self.stm;
 
@@ -169,48 +164,7 @@ pub const One = struct {
 		return if (ka != .none) ka else .full;
 	}
 
-	pub fn down(self: anytype, dist: usize) switch (@TypeOf(self)) {
-		*One, *const One => |T| T,
-		else => |T| @compileError("unexpected type " ++ @typeName(T)),
-	} {
-		return @ptrCast(self[0 .. 1].ptr - dist);
-	}
-
-	pub fn up(self: anytype, dist: usize) switch (@TypeOf(self)) {
-		*One, *const One => |T| T,
-		else => |T| @compileError("unexpected type " ++ @typeName(T)),
-	} {
-		return @ptrCast(self[0 .. 1].ptr + dist);
-	}
-
-	pub fn bothOcc(self: *const One) types.Square.Set {
-		const wo = self.colorOcc(.white);
-		const bo = self.colorOcc(.black);
-		return @TypeOf(wo, bo).bwo(wo, bo);
-	}
-
-	pub fn colorOcc(self: *const One, c: types.Color) types.Square.Set {
-		return self.colorOccPtrConst(c).*;
-	}
-
-	pub fn ptypeOcc(self: *const One, p: types.Ptype) types.Square.Set {
-		return self.ptypeOccPtrConst(p).*;
-	}
-
-	pub fn pieceOcc(self: *const One, p: types.Piece) types.Square.Set {
-		const c = p.color();
-		const t = p.ptype();
-
-		const co = self.colorOcc(c);
-		const to = self.ptypeOcc(t);
-		return @TypeOf(co, to).bwa(co, to);
-	}
-
-	pub fn getSquare(self: *const One, s: types.Square) types.Piece {
-		return self.by_square.getPtrConst(s).*;
-	}
-
-	pub fn parseFen(self: *One, fen: []const u8) FenError!void {
+	fn parseFen(self: *Position, fen: []const u8) FenError!void {
 		var tokens = std.mem.tokenizeAny(u8, fen, &std.ascii.whitespace);
 		for (0 .. 6) |_| {
 			if (tokens.next() == null) {
@@ -222,7 +176,7 @@ pub const One = struct {
 		return self.parseFenTokens(&tokens);
 	}
 
-	pub fn parseFenTokens(self: *One, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
+	fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
 		const backup = self.*;
 		self.* = .{};
 		errdefer self.* = backup;
@@ -251,9 +205,6 @@ pub const One = struct {
 			si += if (from_c) |p| blk: {
 				self.setSq(s, p);
 
-				self.accumulator.add(.white, .{.piece = p, .square = s});
-				self.accumulator.add(.black, .{.piece = p, .square = s});
-
 				switch (p) {
 					.w_rook => {
 						if (kings.contains(.white)) {
@@ -267,14 +218,6 @@ pub const One = struct {
 							return error.InvalidPiece;
 						}
 						kings.put(.white, s);
-
-						const mirrored = switch (s.file()) {
-							.file_e, .file_f, .file_g, .file_h => true,
-							else => false,
-						};
-						if (mirrored) {
-							self.accumulator.mirror(.white, self);
-						}
 					},
 
 					.b_rook => {
@@ -289,14 +232,6 @@ pub const One = struct {
 							return error.InvalidPiece;
 						}
 						kings.put(.black, s);
-
-						const mirrored = switch (s.file()) {
-							.file_e, .file_f, .file_g, .file_h => true,
-							else => false,
-						};
-						if (mirrored) {
-							self.accumulator.mirror(.black, self);
-						}
 					},
 
 					else => {},
@@ -418,14 +353,52 @@ pub const One = struct {
 		_ = std.fmt.parseUnsigned(usize, move_token, 10)
 		  catch return error.InvalidMoveClock;
 
-		self.accumulator.clear();
-		self.accumulator.unmark();
-
 		self.checks = self.genCheckMask();
 		self.key ^= zobrist.enp(self.en_pas);
 	}
 
-	pub fn squareAtkers(self: *const One, s: types.Square) types.Square.Set {
+	pub fn down(self: anytype, dist: usize) switch (@TypeOf(self)) {
+		*Position, *const Position => |T| T,
+		else => |T| @compileError("unexpected type " ++ @typeName(T)),
+	} {
+		return @ptrCast(self[0 .. 1].ptr - dist);
+	}
+
+	pub fn up(self: anytype, dist: usize) switch (@TypeOf(self)) {
+		*Position, *const Position => |T| T,
+		else => |T| @compileError("unexpected type " ++ @typeName(T)),
+	} {
+		return @ptrCast(self[0 .. 1].ptr + dist);
+	}
+
+	pub fn bothOcc(self: *const Position) types.Square.Set {
+		const wo = self.colorOcc(.white);
+		const bo = self.colorOcc(.black);
+		return @TypeOf(wo, bo).bwo(wo, bo);
+	}
+
+	pub fn colorOcc(self: *const Position, c: types.Color) types.Square.Set {
+		return self.colorOccPtrConst(c).*;
+	}
+
+	pub fn ptypeOcc(self: *const Position, p: types.Ptype) types.Square.Set {
+		return self.ptypeOccPtrConst(p).*;
+	}
+
+	pub fn pieceOcc(self: *const Position, p: types.Piece) types.Square.Set {
+		const c = p.color();
+		const t = p.ptype();
+
+		const co = self.colorOcc(c);
+		const to = self.ptypeOcc(t);
+		return @TypeOf(co, to).bwa(co, to);
+	}
+
+	pub fn getSquare(self: *const Position, s: types.Square) types.Piece {
+		return self.by_square.getPtrConst(s).*;
+	}
+
+	pub fn squareAtkers(self: *const Position, s: types.Square) types.Square.Set {
 		const occ = self.bothOcc();
 		return types.Square.Set
 		  .none
@@ -438,11 +411,11 @@ pub const One = struct {
 		  .bwo(bitboard.qAtk(s, occ).bwa(self.ptypeOcc(.queen)));
 	}
 
-	pub fn isChecked(self: *const One) bool {
+	pub fn isChecked(self: *const Position) bool {
 		return self.checks != .full;
 	}
 
-	pub fn isMoveNoisy(self: *const One, move: movegen.Move) bool {
+	pub fn isMoveNoisy(self: *const Position, move: movegen.Move) bool {
 		const dp = self.getSquare(move.dst);
 		const is_capt = dp != .none and dp.color() != self.stm;
 
@@ -456,11 +429,11 @@ pub const One = struct {
 		};
 	}
 
-	pub fn isMoveQuiet(self: *const One, move: movegen.Move) bool {
+	pub fn isMoveQuiet(self: *const Position, move: movegen.Move) bool {
 		return !self.isMoveNoisy(move);
 	}
 
-	pub fn isMovePseudoLegal(self: *const One, move: movegen.Move) bool {
+	pub fn isMovePseudoLegal(self: *const Position, move: movegen.Move) bool {
 		const stm = self.stm;
 		const occ = self.bothOcc();
 		const them = self.colorOcc(stm.flip());
@@ -542,12 +515,8 @@ pub const One = struct {
 		};
 	}
 
-	fn updateAccumulator(self: *One) void {
-		nnue.Accumulator.update(self);
-	}
-
-	fn evaluate(self: *const One) evaluation.score.Int {
-		const inferred = nnue.net.embed.infer(self);
+	fn evaluate(self: *const Position, accumulator: *const nnue.Accumulator) evaluation.score.Int {
+		const inferred = nnue.net.embed.infer(accumulator, self.stm);
 		const scaled = @divTrunc(inferred * (100 - self.rule50), 100);
 
 		const min = evaluation.score.lose + 1;
@@ -559,34 +528,87 @@ pub const One = struct {
 pub const capacity = 1024 - offset;
 pub const offset = 8;
 
+fn Offseted(comptime T: type) type {
+	return bounded_array.BoundedArray(T, capacity + offset);
+}
+
+fn offsetedDefault(comptime T: type) Offseted(T) {
+	return .{
+		.buffer = .{@as(T, .{})} ** (capacity + offset),
+		.len = offset + 1,
+	};
+}
+
 fn updateAccumulators(self: *Board) void {
-	for (self.ss.slice()[offset ..]) |*pos| {
-		if (pos.accumulator.dirty) {
-			@branchHint(.unlikely);
-			pos.updateAccumulator();
+	const accumulators = self.accumulators.slice()[offset ..];
+	const positions = self.positions.constSlice()[offset ..];
+
+	for (accumulators, positions) |*accumulator, *pos| {
+		if (accumulator.dirty) {
+			accumulator.update(pos);
+		}
+	}
+}
+
+fn setupAccumulators(self: *Board) void {
+	const accumulator = &self.accumulators.slice()[offset + self.ply()];
+	const pos = self.top();
+
+	accumulator.* = .{};
+	for (types.Color.values) |c| {
+		const ks = pos.pieceOcc(types.Piece.init(c, .king)).lowSquare()
+		  orelse std.debug.panic("no king found", .{});
+		accumulator.mirrored.set(c, switch (ks.file()) {
+			.file_e, .file_f, .file_g, .file_h => true,
+			else => false,
+		});
+
+		for (types.Piece.w_pieces ++ types.Piece.b_pieces) |p| {
+			var pieces = pos.pieceOcc(p);
+			while (pieces.lowSquare()) |s| : (pieces.popLow()) {
+				accumulator.add(c, .{.piece = p, .square = s});
+			}
 		}
 	}
 }
 
 pub fn bottom(self: anytype) switch (@TypeOf(self)) {
-	*Board => *One,
-	*const Board => *const One,
+	*Board => *Position,
+	*const Board => *const Position,
 	else => |T| @compileError("unexpected type " ++ @typeName(T)),
 } {
-	return &self.ss.slice()[offset];
+	return &self.positions.slice()[offset];
 }
 
 pub fn top(self: anytype) switch (@TypeOf(self)) {
-	*Board => *One,
-	*const Board => *const One,
+	*Board => *Position,
+	*const Board => *const Position,
 	else => |T| @compileError("unexpected type " ++ @typeName(T)),
 } {
-	const sl = self.ss.slice();
+	const sl = self.positions.slice();
 	return &sl[sl.len - 1];
 }
 
 pub fn ply(self: *const Board) usize {
 	return self.top() - self.bottom();
+}
+
+pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
+	const backup = self.*;
+	errdefer self.* = backup;
+	self.* = .{};
+
+	try self.top().parseFen(fen);
+	self.setupAccumulators();
+}
+
+pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
+	const backup = self.*;
+	errdefer self.* = backup;
+	self.* = .{};
+
+	try self.top().parseFenTokens(tokens);
+	self.setupAccumulators();
 }
 
 pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
@@ -600,13 +622,14 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 	self.top().src_piece = sp;
 	self.top().dst_piece = dp;
 
-	const pos = self.ss.addOneAssumeCapacity();
+	const pos = self.positions.addOneAssumeCapacity();
 	pos.* = pos.down(1).*;
 	pos.en_pas = null;
 	pos.rule50 += 1;
 
-	pos.accumulator.clear();
-	pos.accumulator.mark();
+	const accumulator = self.accumulators.addOneAssumeCapacity();
+	accumulator.clear();
+	accumulator.mark();
 
 	switch (move.flag) {
 		.none => {
@@ -616,12 +639,12 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.setSq(d, sp);
 
 			if (dp == .none) {
-				pos.accumulator.queueAddSub(
+				accumulator.queueAddSub(
 				  .{.piece = sp, .square = d},
 				  .{.piece = sp, .square = s},
 				);
 			} else {
-				pos.accumulator.queueAddSubSub(
+				accumulator.queueAddSubSub(
 				  .{.piece = sp, .square = d},
 				  .{.piece = sp, .square = s},
 				  .{.piece = dp, .square = d},
@@ -638,7 +661,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.setSq(d, our_pawn);
 			pos.popSq(enp_target, their_pawn);
 
-			pos.accumulator.queueAddSubSub(
+			accumulator.queueAddSubSub(
 			  .{.piece = our_pawn, .square = d},
 			  .{.piece = our_pawn, .square = s},
 			  .{.piece = their_pawn, .square = enp_target},
@@ -654,12 +677,12 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.setSq(d, our_promotion);
 
 			if (dp == .none) {
-				pos.accumulator.queueAddSub(
+				accumulator.queueAddSub(
 				  .{.piece = our_promotion, .square = d},
 				  .{.piece = our_pawn, .square = s},
 				);
 			} else {
-				pos.accumulator.queueAddSubSub(
+				accumulator.queueAddSubSub(
 				  .{.piece = our_promotion, .square = d},
 				  .{.piece = our_pawn, .square = s},
 				  .{.piece = dp, .square = d},
@@ -678,7 +701,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			pos.setSq(info.kd, our_king);
 			pos.setSq(info.rd, our_rook);
 
-			pos.accumulator.queueAddAddSubSub(
+			accumulator.queueAddAddSubSub(
 			  .{.piece = our_king, .square = info.kd},
 			  .{.piece = our_rook, .square = info.rd},
 			  .{.piece = our_king, .square = info.ks},
@@ -748,7 +771,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 				else => false,
 			};
 			if (is_s_mirrored != is_d_mirrored) {
-				pos.accumulator.queueMirror(stm);
+				accumulator.queueMirror(stm);
 			}
 		},
 
@@ -787,13 +810,14 @@ pub fn doNull(self: *Board) MoveError!void {
 	self.top().src_piece = .none;
 	self.top().dst_piece = .none;
 
-	const pos = self.ss.addOneAssumeCapacity();
+	const accumulator = self.accumulators.addOneAssumeCapacity();
+	accumulator.clear();
+	accumulator.mark();
+
+	const pos = self.positions.addOneAssumeCapacity();
 	pos.* = pos.down(1).*;
 	pos.en_pas = null;
 	pos.rule50 = 0;
-
-	pos.accumulator.clear();
-	pos.accumulator.mark();
 
 	pos.stm = pos.stm.flip();
 	pos.checks = .full;
@@ -803,7 +827,8 @@ pub fn doNull(self: *Board) MoveError!void {
 }
 
 pub fn undoMove(self: *Board) void {
-	_ = self.ss.pop();
+	_ = self.accumulators.pop();
+	_ = self.positions.pop();
 }
 
 pub fn undoNull(self: *Board) void {
@@ -814,7 +839,7 @@ pub fn getRepeat(self: *const Board) usize {
 	const key = self.top().key;
 	var peat: usize = 0;
 
-	for (self.ss.slice()[offset ..]) |*p| {
+	for (self.positions.slice()[offset ..]) |*p| {
 		const key_matched = p.key == key;
 		peat += @intFromBool(key_matched);
 	}
@@ -830,10 +855,13 @@ pub fn isDrawn(self: *const Board) bool {
 }
 
 pub fn isTerminal(self: *const Board) bool {
-	return self.ss.len >= capacity + offset;
+	return self.positions.len >= capacity + offset;
 }
 
 pub fn evaluate(self: *Board) evaluation.score.Int {
 	self.updateAccumulators();
-	return self.top().evaluate();
+
+	const accumulator = &self.accumulators.constSlice()[offset + self.ply()];
+	const pos = self.top();
+	return pos.evaluate(accumulator);
 }
