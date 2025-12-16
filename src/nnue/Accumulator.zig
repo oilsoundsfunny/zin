@@ -59,8 +59,11 @@ fn fusedAddSub(self: *Accumulator, c: types.Color) void {
 		  = @alignCast(net.embed.hl0_w[sub_i][i ..][0 .. arch.native_len]);
 
 		const vec: *arch.Native = @alignCast(v[i ..][0 .. arch.native_len]);
-		vec.* +%= add_w.*;
-		vec.* -%= sub_w.*;
+		var load = vec.*;
+		defer vec.* = load;
+
+		load +%= add_w.*;
+		load -%= sub_w.*;
 	}
 }
 
@@ -84,9 +87,12 @@ fn fusedAddSubSub(self: *Accumulator, c: types.Color) void {
 		  = @alignCast(net.embed.hl0_w[sub1_i][i ..][0 .. arch.native_len]);
 
 		const vec: *arch.Native = @alignCast(v[i ..][0 .. arch.native_len]);
-		vec.* +%= add0_w.*;
-		vec.* -%= sub0_w.*;
-		vec.* -%= sub1_w.*;
+		var load = vec.*;
+		defer vec.* = load;
+
+		load +%= add0_w.*;
+		load -%= sub0_w.*;
+		load -%= sub1_w.*;
 	}
 }
 
@@ -114,10 +120,13 @@ fn fusedAddAddSubSub(self: *Accumulator, c: types.Color) void {
 		  = @alignCast(net.embed.hl0_w[sub1_i][i ..][0 .. arch.native_len]);
 
 		const vec: *arch.Native = @alignCast(v[i ..][0 .. arch.native_len]);
-		vec.* +%= add0_w.*;
-		vec.* +%= add1_w.*;
-		vec.* -%= sub0_w.*;
-		vec.* -%= sub1_w.*;
+		var load = vec.*;
+		defer vec.* = load;
+
+		load +%= add0_w.*;
+		load +%= add1_w.*;
+		load -%= sub0_w.*;
+		load -%= sub1_w.*;
 	}
 }
 
@@ -172,18 +181,16 @@ pub fn unmark(self: *Accumulator) void {
 	self.dirty = false;
 }
 
-pub fn update(pos: *engine.Board.One) void {
-	const last_acc = &pos.down(1).accumulator;
-	const this_acc = &pos.accumulator;
+pub fn update(self: *Accumulator, pos: *const engine.Board.Position) void {
+	defer self.clear();
+	defer self.unmark();
 
-	defer this_acc.clear();
-	defer this_acc.unmark();
+	const last = &(self[0 .. 1].ptr - 1)[0];
+	self.perspectives = last.perspectives;
+	self.mirrored = last.mirrored;
 
-	this_acc.perspectives = last_acc.perspectives;
-	this_acc.mirrored = last_acc.mirrored;
-
-	const add_q = this_acc.add_q.constSlice();
-	const sub_q = this_acc.sub_q.constSlice();
+	const add_q = self.add_q.constSlice();
+	const sub_q = self.sub_q.constSlice();
 
 	const fused: *const fn(*Accumulator, types.Color) void = switch (add_q.len) {
 		0 => return,
@@ -199,12 +206,12 @@ pub fn update(pos: *engine.Board.One) void {
 		else => queuePanic(),
 	};
 
-	if (this_acc.hm_q) |c| {
-		this_acc.mirror(c, pos);
-		fused(this_acc, c.flip());
+	if (self.hm_q) |c| {
+		self.mirror(c, pos);
+		fused(self, c.flip());
 	} else {
-		fused(this_acc, .white);
-		fused(this_acc, .black);
+		fused(self, .white);
+		fused(self, .black);
 	}
 }
 
@@ -234,7 +241,7 @@ pub fn sub(self: *Accumulator, c: types.Color, dirty: Dirty) void {
 	}
 }
 
-pub fn mirror(self: *Accumulator, c: types.Color, pos: *const engine.Board.One) void {
+pub fn mirror(self: *Accumulator, c: types.Color, pos: *const engine.Board.Position) void {
 	const mirrored = self.mirrored.getPtr(c);
 	mirrored.* = !mirrored.*;
 

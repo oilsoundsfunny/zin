@@ -219,7 +219,7 @@ fn playOut(self: *Self) !void {
 fn match(self: *Self) !void {
 	while (self.readOpening()) {
 		var board: engine.Board = .{};
-		try board.top().parseFen(self.opening);
+		try board.parseFen(self.opening);
 		defer self.pool.allocator.free(self.opening);
 
 		const played = self.played;

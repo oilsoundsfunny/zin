@@ -138,7 +138,7 @@ const ScoredMoveList = struct {
 		self.array.appendAssumeCapacity(sm);
 	}
 
-	fn genCastle(self: *ScoredMoveList, pos: *const Board.One, is_k: bool) usize {
+	fn genCastle(self: *ScoredMoveList, pos: *const Board.Position, is_k: bool) usize {
 		const len = self.slice().len;
 		const stm = pos.stm;
 		const occ = pos.bothOcc();
@@ -173,7 +173,7 @@ const ScoredMoveList = struct {
 		return self.slice().len - len;
 	}
 
-	fn genEnPas(self: *ScoredMoveList, pos: *const Board.One) usize {
+	fn genEnPas(self: *ScoredMoveList, pos: *const Board.Position) usize {
 		const len = self.slice().len;
 		const stm = pos.stm;
 		const enp = pos.en_pas orelse return self.slice().len - len;
@@ -202,7 +202,7 @@ const ScoredMoveList = struct {
 		return self.slice().len - len;
 	}
 
-	fn genPawnMoves(self: *ScoredMoveList, pos: *const Board.One,
+	fn genPawnMoves(self: *ScoredMoveList, pos: *const Board.Position,
 	  comptime promo: ?types.Ptype,
 	  comptime noisy: bool) usize {
 		const is_promote = promo != null;
@@ -261,7 +261,7 @@ const ScoredMoveList = struct {
 		return self.slice().len - len;
 	}
 
-	fn genPtMoves(self: *ScoredMoveList, pos: *const Board.One,
+	fn genPtMoves(self: *ScoredMoveList, pos: *const Board.Position,
 	  comptime ptype: types.Ptype,
 	  comptime noisy: bool) usize {
 		const len = self.slice().len;
@@ -301,7 +301,7 @@ const ScoredMoveList = struct {
 		return self.array.slice();
 	}
 
-	pub fn genNoisy(self: *ScoredMoveList, pos: *const Board.One) usize {
+	pub fn genNoisy(self: *ScoredMoveList, pos: *const Board.Position) usize {
 		var cnt: usize = 0;
 
 		cnt += self.genPawnMoves(pos, .queen, true);
@@ -321,7 +321,7 @@ const ScoredMoveList = struct {
 		return cnt;
 	}
 
-	pub fn genQuiet(self: *ScoredMoveList, pos: *const Board.One) usize {
+	pub fn genQuiet(self: *ScoredMoveList, pos: *const Board.Position) usize {
 		var cnt: usize = 0;
 
 		cnt += self.genPawnMoves(pos, .queen, false);

@@ -79,7 +79,7 @@ pub fn run(allocator: std.mem.Allocator, depth: ?engine.search.Depth) !void {
 	var time: u64 = 0;
 
 	for (fens) |fen| {
-		try pool.threads[0].board.top().parseFen(fen);
+		try pool.threads[0].board.parseFen(fen);
 		try pool.threads[0].search();
 
 		time += pool.timer.lap();

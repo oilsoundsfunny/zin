@@ -17,7 +17,7 @@ const Board = @import("Board.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
 
-pub fn func(pos: *const Board.One, move: movegen.Move, min: evaluation.score.Int) bool {
+pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
 	if (move.flag != .none) {
 		return true;
 	}

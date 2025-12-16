@@ -143,16 +143,16 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !
 	defer pool.setBoard(&board, frc);
 	errdefer {
 		board = .{};
-		board.top().parseFen(Board.One.startpos) catch std.debug.panic("invalid startpos", .{});
+		board.parseFen(Board.Position.startpos) catch std.debug.panic("invalid startpos", .{});
 	}
 
 	const first = tokens.next() orelse return error.UnknownCommand;
 	if (std.mem.eql(u8, first, "fen")) {
-		try board.top().parseFenTokens(tokens);
+		try board.parseFenTokens(tokens);
 	} else if (std.mem.eql(u8, first, "kiwipete")) {
-		try board.top().parseFen(Board.One.kiwipete);
+		try board.parseFen(Board.Position.kiwipete);
 	} else if (std.mem.eql(u8, first, "startpos")) {
-		try board.top().parseFen(Board.One.startpos);
+		try board.parseFen(Board.Position.startpos);
 	} else return error.UnknownCommand;
 
 	const aux = tokens.next() orelse return .position;

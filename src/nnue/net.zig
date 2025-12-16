@@ -15,10 +15,9 @@ pub const Self = extern struct {
 	out_w:	[arch.color_n][arch.hl0_len / 2]arch.Int,
 	out_b:	arch.Int align(64),
 
-	pub fn infer(self: *const Self, pos: *const engine.Board.One) engine.evaluation.score.Int {
-		const stm = pos.stm;
-		const accumulator = &pos.accumulator;
-
+	pub fn infer(self: *const Self,
+	  accumulator: *const Accumulator,
+	  stm: types.Color) engine.evaluation.score.Int {
 		const vecs = std.EnumArray(types.Color, *const [arch.hl0_len]arch.Int).init(.{
 			.white = accumulator.perspectives.getPtrConst(stm),
 			.black = accumulator.perspectives.getPtrConst(stm.flip()),

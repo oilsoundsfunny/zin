@@ -934,7 +934,7 @@ pub const Pool = struct {
 		const frc = self.options.frc;
 		var board: Board = .{};
 
-		try board.top().parseFen(Board.One.startpos);
+		try board.parseFen(Board.Position.startpos);
 		self.setBoard(&board, frc);
 	}
 
