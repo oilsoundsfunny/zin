@@ -1,9 +1,11 @@
-# <div align="center"> a chess engine written in zig </div>
+# <div align="center"> zin </div>
 
 ## features
 - uci-compatible
 - evaluation:
-	- hl320 neural net
+	- single layer hl320 neural net
+	- lazy updates
+	- fused updates
 	- horizontal mirroring
 	- pairwise multiplication
 - search:
@@ -22,10 +24,9 @@
 
 ## building
 ```
-$ git clone --depth 1 https://github.com/oilsoundsfunny/zin.git
+$ git clone --depth 1 https://codeberg.org/oilsoundsfunny/zin
 $ cd zin/
-$ git submodule update --init --depth 1 --remote
-$ zig build --prefix PREFIX --release=safe
+$ zig build --prefix PREFIX --release=fast
 ```
 
 the binary will be placed in $PREFIX/bin/

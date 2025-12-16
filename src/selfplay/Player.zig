@@ -6,17 +6,20 @@ const types = @import("types");
 
 const viri = @import("viri.zig");
 
-const Self = @This();
+const Player = @This();
 
 const max_cp = 400;
-const random_moves = 4;
-const random_games = 4;
+
+idx:	usize,
+cnt:	usize,
 
 pool:	engine.search.Pool,
 prng:	std.Random.Xoroshiro128,
-opening:	[]const u8 = &.{},
+opening:	[]const u8,
 
 games:	?usize,
+ply:	 usize,
+repeat:	 usize,
 played:	 usize,
 
 data:	viri.Self,
@@ -24,7 +27,7 @@ line:	bounded_array.BoundedArray(viri.Move.Scored, 1024),
 
 pub const Tourney = struct {
 	allocator:	std.mem.Allocator,
-	players:	[]Self,
+	players:	[]Player,
 	threads:	[]std.Thread,
 
 	pub const Options = struct {
@@ -32,6 +35,7 @@ pub const Tourney = struct {
 		io:	*types.Io,
 		tt:	*engine.transposition.Table,
 		games:	?usize,
+		ply:	?usize,
 		depth:	?engine.search.Depth,
 		nodes:	?usize,
 		threads:	usize,
@@ -52,25 +56,33 @@ pub const Tourney = struct {
 			std.process.fatal("bad thread count: {d}", .{options.threads});
 		}
 
-		const self: Tourney = .{
+		const tourney: Tourney = .{
 			.allocator = options.allocator,
-			.players = try options.allocator.alloc(Self, options.threads),
+			.players = try options.allocator.alloc(Player, options.threads),
 			.threads = try options.allocator.alloc(std.Thread, options.threads),
 		};
+		const line_n = try options.io.lineCount();
 
-		for (self.players) |*player| {
-			const i = player[0 .. 1].ptr - self.players.ptr;
-			const n = options.threads;
-
+		for (tourney.players, 0 ..) |*player, i| {
 			const io = options.io;
 			const tt = options.tt;
 
+			const n = options.threads;
+			const games = if (options.games) |g| g / n + @intFromBool(i < g % n) else null;
+			const repeat = if (options.games) |g| g / line_n + @intFromBool(g % line_n != 0) else 1;
+			const ply = options.ply orelse 4;
+
 			player.* = .{
-				.pool = try @TypeOf(player.pool).init(self.allocator, 1, true, io, tt),
+				.idx = i,
+				.cnt = n,
+
+				.pool = try @TypeOf(player.pool).init(tourney.allocator, 1, true, io, tt),
 				.prng = std.Random.Xoroshiro128.init(0xaaaaaaaaaaaaaaaa),
 				.opening = undefined,
 
-				.games = if (options.games) |lim| lim / n + @intFromBool(i < lim % n) else null,
+				.games = games,
+				.ply = ply,
+				.repeat = repeat,
 				.played = 0,
 
 				.data = .{},
@@ -85,16 +97,16 @@ pub const Tourney = struct {
 			player.pool.options.nodes = options.nodes;
 		}
 
-		return self;
+		return tourney;
 	}
 
-	pub fn start(self: *Tourney) !void {
+	pub fn spawn(self: *Tourney) !void {
 		for (self.players, self.threads) |*player, *thread| {
 			thread.* = try std.Thread.spawn(.{.allocator = self.allocator}, match, .{player});
 		}
 	}
 
-	pub fn stop(self: *Tourney) void {
+	pub fn join(self: *Tourney) void {
 		for (self.threads) |*thread| {
 			std.Thread.join(thread.*);
 			thread.* = undefined;
@@ -102,7 +114,7 @@ pub const Tourney = struct {
 	}
 };
 
-fn readOpening(self: *Self) !void {
+fn readOpening(self: *Player) !void {
 	self.pool.io.lockReader();
 	defer self.pool.io.unlockReader();
 
@@ -110,7 +122,7 @@ fn readOpening(self: *Self) !void {
 	self.opening = try self.pool.allocator.dupe(u8, line);
 }
 
-fn writeData(self: *Self) !void {
+fn writeData(self: *Player) !void {
 	self.pool.io.lockWriter();
 	defer self.pool.io.unlockWriter();
 
@@ -125,7 +137,7 @@ fn writeData(self: *Self) !void {
 	}
 }
 
-fn playRandom(self: *Self) !void {
+fn playRandom(self: *Player) !void {
 	const threads = self.pool.threads;
 	const thread = &threads[0];
 
@@ -137,7 +149,7 @@ fn playRandom(self: *Self) !void {
 		ply = 0;
 		board = thread.board;
 	}) {
-		while (ply <= random_moves) : (ply += 1) {
+		while (ply <= self.ply) : (ply += 1) {
 			const root_moves = engine.movegen.Move.Root.List.init(&board);
 			const rms = root_moves.constSlice();
 			const rmn = rms.len;
@@ -145,20 +157,14 @@ fn playRandom(self: *Self) !void {
 				break;
 			}
 
-			if (ply < random_moves) {
+			if (ply < self.ply) {
 				const i = self.prng.random().uintLessThan(usize, rmn);
 				const m = rms[i].constSlice()[0];
 				board.doMove(m) catch break;
 			} else {
-				const mat
-				  = @as(engine.evaluation.score.Int, board.top().ptypeOcc(.pawn).count()) * 1
-				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.knight).count()) * 3
-				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.bishop).count()) * 3
-				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.rook).count()) * 5
-				  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.queen).count()) * 9;
 				const ev = board.evaluate();
-				const cp = engine.evaluation.score.normalize(ev, mat);
-				if (cp != std.math.clamp(cp, -max_cp, max_cp)) {
+				const cp = engine.evaluation.score.normalize(ev, board.top().material());
+				if (cp < -max_cp or cp > max_cp) {
 					break;
 				}
 			}
@@ -166,10 +172,8 @@ fn playRandom(self: *Self) !void {
 	}
 }
 
-fn playOut(self: *Self) !void {
+fn playOut(self: *Player) !void {
 	const threads = self.pool.threads;
-	std.debug.assert(threads.len == 1);
-
 	const thread = &threads[0];
 	const board = &thread.board;
 
@@ -201,14 +205,8 @@ fn playOut(self: *Self) !void {
 		const pvs = pv.score;
 		try board.doMove(pvm);
 
-		const mat
-		  = @as(engine.evaluation.score.Int, board.top().ptypeOcc(.pawn).count()) * 1
-		  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.knight).count()) * 3
-		  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.bishop).count()) * 3
-		  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.rook).count()) * 5
-		  + @as(engine.evaluation.score.Int, board.top().ptypeOcc(.queen).count()) * 9;
 		const m = viri.Move.fromMove(pvm);
-		const s = engine.evaluation.score.normalize(@intCast(pvs), mat);
+		const s = engine.evaluation.score.normalize(@intCast(pvs), board.top().material());
 		try self.line.append(.{
 			.move = m,
 			.score = @intCast(s),
@@ -216,32 +214,40 @@ fn playOut(self: *Self) !void {
 	}
 }
 
-fn match(self: *Self) !void {
+fn match(self: *Player) !void {
 	while (self.readOpening()) {
 		var board: engine.Board = .{};
-		try board.parseFen(self.opening);
 		defer self.pool.allocator.free(self.opening);
 
-		const played = self.played;
-		const games = self.games orelse std.math.maxInt(usize);
+		board.parseFen(self.opening) catch {
+			std.log.err("invalid fen {s} @ worker {d}", .{self.opening, self.idx});
+			continue;
+		};
 
-		while (self.played - played < random_games and self.played < games) {
+		const games = self.games orelse std.math.maxInt(usize);
+		const played = self.played;
+		const repeat = self.repeat;
+
+		while (self.played < games and self.played - played < repeat) {
 			self.pool.setBoard(&board, true);
 			self.playRandom() catch |err| {
-				std.debug.panic("error: {s} @ game {d}", .{@errorName(err), self.played});
-				return err;
+				std.log.err("error: {s} @ game {d}, worker {d}",
+				  .{@errorName(err), self.played, self.idx});
+				continue;
 			};
 
 			self.playOut() catch |err| {
-				std.debug.panic("error: {s} @ game {d}", .{@errorName(err), self.played});
-				return err;
+				std.log.err("error: {s} @ game {d}, worker{d}",
+				  .{@errorName(err), self.played, self.idx});
+				continue;
 			};
 
-			defer self.played += 1;
-			try self.writeData();
-		}
-
-		if (self.played >= games) {
+			self.writeData() catch |err| {
+				std.log.err("failed to write data, error {s}", .{@errorName(err)});
+				continue;
+			};
+			self.played += 1;
+		} else if (self.played >= games) {
 			break;
 		}
 	} else |err| switch (err) {

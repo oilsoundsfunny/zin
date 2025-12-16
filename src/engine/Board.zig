@@ -398,6 +398,14 @@ pub const Position = struct {
 		return self.by_square.getPtrConst(s).*;
 	}
 
+	pub fn material(self: *const Position) u8 {
+		return self.ptypeOcc(.pawn).count()
+		  + self.ptypeOcc(.knight).count() * 3
+		  + self.ptypeOcc(.knight).count() * 3
+		  + self.ptypeOcc(.rook).count() * 5
+		  + self.ptypeOcc(.queen).count() * 9;
+	}
+
 	pub fn squareAtkers(self: *const Position, s: types.Square) types.Square.Set {
 		const occ = self.bothOcc();
 		return types.Square.Set

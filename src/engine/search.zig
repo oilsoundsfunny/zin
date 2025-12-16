@@ -40,13 +40,6 @@ pub const Thread = struct {
 	  [1 << types.Ptype.tag_info.bits][types.Square.cnt]hist.Int
 	  = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
 
-	fn reset(self: *Thread, pool: *Pool) void {
-		self.* = .{};
-		self.pool = pool;
-		self.idx = self[0 .. 1].ptr - pool.threads.ptr;
-		self.cnt = pool.threads.len;
-	}
-
 	fn quietHistPtr(self: anytype, move: movegen.Move) switch (@TypeOf(self)) {
 		*Thread => *hist.Int,
 		*const Thread => *const hist.Int,
@@ -157,16 +150,9 @@ pub const Thread = struct {
 			const moves = @divTrunc(ply + 1, 2);
 			try writer.print(" mate {d} wdl 1000 0 0", .{moves});
 		} else {
-			const pos = self.board.top();
-			const mat
-			  = pos.ptypeOcc(.pawn).count() * 1
-			  + pos.ptypeOcc(.knight).count() * 3
-			  + pos.ptypeOcc(.bishop).count() * 3
-			  + pos.ptypeOcc(.rook).count() * 5
-			  + pos.ptypeOcc(.queen).count() * 9;
-			const normalized = evaluation.score.normalize(pvs, mat);
-			try writer.print(" cp {d}", .{normalized});
-			try writer.print(" wdl {d} {d} {d}", evaluation.score.wdl(pvs, mat));
+			const material = self.board.top().material();
+			try writer.print(" cp {d}", .{evaluation.score.normalize(pvs, material)});
+			try writer.print(" wdl {d} {d} {d}", evaluation.score.wdl(pvs, material));
 		}
 
 		try writer.print(" pv", .{});
@@ -769,6 +755,32 @@ pub const Thread = struct {
 		return best.score;
 	}
 
+	fn prep(self: *Thread) void {
+		self.pool.searching = true;
+		self.pool.timer.reset();
+		self.pool.tt.doAge();
+
+		for (self.pool.threads) |*thread| {
+			thread.nodes = 0;
+			thread.tbhits = 0;
+			thread.tthits = 0;
+		}
+
+		const board = &self.board;
+		const root_moves = &self.root_moves;
+
+		root_moves.* = movegen.Move.Root.List.init(board);
+		if (self.cnt == 1) {
+			return;
+		}
+
+		defer self.broadcast();
+		for (self.pool.threads[1 ..]) |*thread| {
+			thread.board = board.*;
+			thread.root_moves = root_moves.*;
+		}
+	}
+
 	fn broadcast(self: *const Thread) void {
 		self.pool.mtx.lock();
 		self.pool.cond.broadcast();
@@ -786,28 +798,10 @@ pub const Thread = struct {
 		const is_threaded = self.cnt > 1;
 
 		if (is_main) {
-			self.pool.searching = true;
-			self.pool.timer.reset();
-			self.pool.tt.doAge();
-
-			for (self.pool.threads) |*thread| {
-				thread.nodes = 0;
-				thread.tbhits = 0;
-				thread.tthits = 0;
-			}
-
-			const board = &self.board;
-			const root_moves = &self.root_moves;
-
-			root_moves.* = movegen.Move.Root.List.init(board);
-			if (is_threaded) {
-				defer self.broadcast();
-				for (self.pool.threads[1 ..]) |*thread| {
-					thread.board = board.*;
-					thread.root_moves = root_moves.*;
-				}
-			}
-		} else if (is_threaded) self.wait();
+			self.prep();
+		} else if (is_threaded) {
+			self.wait();
+		}
 
 		const no_moves = self.root_moves.constSlice().len == 0;
 		var last_depth: Depth = 1;
@@ -832,26 +826,26 @@ pub const Thread = struct {
 			movegen.Move.Root.sortSlice(self.root_moves.slice());
 			if (!self.pool.searching) {
 				break;
+			} else if (!is_main) {
+				continue;
 			}
 
 			last_depth = self.depth;
 			last_seldepth = self.seldepth;
 			last_pv = self.root_moves.constSlice()[0];
 
-			if (is_main) {
-				try self.printInfo(&last_pv, last_depth, last_seldepth);
-			}
-		}
-
-		if (is_main) {
-			self.pool.stop();
-			defer if (is_threaded) {
-				self.pool.join(.helpers);
-			};
-
 			try self.printInfo(&last_pv, last_depth, last_seldepth);
-			try self.printBest(&last_pv);
 		}
+
+		if (!is_main) {
+			return;
+		}
+
+		self.pool.stop();
+		defer self.pool.join(.helpers);
+
+		try self.printInfo(&last_pv, last_depth, last_seldepth);
+		try self.printBest(&last_pv);
 	}
 
 	pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {
@@ -910,13 +904,19 @@ pub const Pool = struct {
 	pub fn realloc(self: *Pool, num: usize) !void {
 		if (num == 0) {
 			self.allocator.free(self.threads);
+			self.threads = undefined;
 			return;
 		}
 
 		const copy = try self.allocator.dupe(Thread, self.threads[0 .. 1]);
 		defer self.allocator.free(copy);
 
-		self.threads = try self.allocator.realloc(self.threads, num);
+		if (self.threads.len == 0) {
+			self.threads = try self.allocator.alloc(Thread, num);
+		} else {
+			self.threads = try self.allocator.realloc(self.threads, num);
+		}
+
 		for (self.threads) |*thread| {
 			thread.* = copy[0];
 		}
@@ -928,7 +928,8 @@ pub const Pool = struct {
 		self.timer.reset();
 
 		for (self.threads) |*thread| {
-			thread.reset(self);
+			thread.* = .{};
+			thread.pool = self;
 		}
 
 		const frc = self.options.frc;
@@ -964,11 +965,13 @@ pub const Pool = struct {
 		if (which == .main) {
 			std.Thread.join(self.threads[0].handle);
 			self.threads[0].handle = undefined;
-		} else if (self.threads[0].cnt > 1) {
-			for (self.threads[1 ..]) |*thread| {
-				std.Thread.join(thread.handle);
-				thread.handle = undefined;
-			}
+		} else if (self.threads[0].cnt == 1) {
+			return;
+		}
+
+		for (self.threads[1 ..]) |*thread| {
+			std.Thread.join(thread.handle);
+			thread.handle = undefined;
 		}
 	}
 

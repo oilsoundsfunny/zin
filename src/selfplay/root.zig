@@ -10,9 +10,10 @@ const Player = @import("Player.zig");
 pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 	var book_path: ?[]const u8 = null;
 	var data_path: ?[]const u8 = null;
-	var depth: ?engine.search.Depth = null;
 	var games: ?usize = null;
+	var ply: ?usize = null;
 	var nodes: ?usize = null;
+	var depth: ?engine.search.Depth = null;
 	var opt_hash: ?usize = null;
 	var opt_threads: ?usize = null;
 
@@ -33,14 +34,6 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			data_path = aux;
-		} else if (std.mem.eql(u8, arg, "--depth")) {
-			const aux = if (args.next()) |next| next
-			  else std.process.fatal("expected arg after '{s}'", .{arg});
-
-			if (depth) |_| {
-				std.process.fatal("duplicated arg '{s}'", .{arg});
-			}
-			depth = try std.fmt.parseUnsigned(u8, aux, 10);
 		} else if (std.mem.eql(u8, arg, "--games")) {
 			const aux = if (args.next()) |next| next
 			  else std.process.fatal("expected arg after '{s}'", .{arg});
@@ -49,6 +42,14 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			games = try std.fmt.parseUnsigned(usize, aux, 10);
+		} else if (std.mem.eql(u8, arg, "--ply")) {
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
+
+			if (ply) |_| {
+				std.process.fatal("duplicated arg '{s}'", .{arg});
+			}
+			ply = try std.fmt.parseUnsigned(usize, aux, 10);
 		} else if (std.mem.eql(u8, arg, "--nodes")) {
 			const aux = if (args.next()) |next| next
 			  else std.process.fatal("expected arg after '{s}'", .{arg});
@@ -57,6 +58,14 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 				std.process.fatal("duplicated arg '{s}'", .{arg});
 			}
 			nodes = try std.fmt.parseUnsigned(usize, aux, 10);
+		} else if (std.mem.eql(u8, arg, "--depth")) {
+			const aux = if (args.next()) |next| next
+			  else std.process.fatal("expected arg after '{s}'", .{arg});
+
+			if (depth) |_| {
+				std.process.fatal("duplicated arg '{s}'", .{arg});
+			}
+			depth = try std.fmt.parseUnsigned(u8, aux, 10);
 		} else if (std.mem.eql(u8, arg, "--hash")) {
 			const aux = if (args.next()) |next| next
 			  else std.process.fatal("expected arg after '{s}'", .{arg});
@@ -93,12 +102,14 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 		.io = &io,
 		.tt = &tt,
 		.games = games,
-		.depth = depth,
+		.ply = ply,
 		.nodes = nodes,
+		.depth = depth,
 		.threads = threads,
 	});
 	defer tourney.deinit();
 
-	try tourney.start();
-	defer tourney.stop();
+	try tourney.spawn();
+	tourney.join();
+	try io.writer().flush();
 }

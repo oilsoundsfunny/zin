@@ -84,7 +84,7 @@ pub const Table = struct {
 
 	pub fn deinit(self: *Table) void {
 		self.allocator.free(self.slice);
-		self.slice = &.{};
+		self.slice = undefined;
 		self.resetAge();
 	}
 
@@ -159,7 +159,7 @@ pub const Table = struct {
 	pub fn read(self: *const Table, key: zobrist.Int, dst: *Entry) bool {
 		const i = self.index(key);
 		const cluster = &self.slice[i];
-		const entries = [_]*Entry {
+		const entries = [_]*align(2) Entry {
 			@ptrCast(&cluster.et0),
 			@ptrCast(&cluster.et1),
 			@ptrCast(&cluster.et2),
@@ -177,14 +177,14 @@ pub const Table = struct {
 	pub fn write(self: *const Table, key: zobrist.Int, save: Entry) void {
 		const i = self.index(key);
 		const cluster = &self.slice[i];
-		const entries = [_]*Entry {
+		const entries = [_]*align(2) Entry {
 			@ptrCast(&cluster.et0),
 			@ptrCast(&cluster.et1),
 			@ptrCast(&cluster.et2),
 		};
 
 		var min: isize = std.math.maxInt(isize);
-		var opt_replace: ?*Entry = null;
+		var opt_replace: ?*align(2) Entry = null;
 		const short_key: @TypeOf(opt_replace.?.key) = @truncate(key);
 
 		for (entries) |entry| {
@@ -207,7 +207,7 @@ pub const Table = struct {
 			}
 		}
 
-		const replace = opt_replace orelse @panic("no tt replacement found");
+		const replace = opt_replace orelse std.debug.panic("no tt replacement found", .{});
 		var tte = replace.*;
 		var ttm = tte.move;
 

@@ -92,3 +92,20 @@ pub fn unlockReader(self: *Self) void {
 pub fn unlockWriter(self: *Self) void {
 	self.out_mtx.unlock();
 }
+
+pub fn lineCount(self: *const Self) !usize {
+	const path = self.inp_path orelse return 0;
+	const file = try std.fs.cwd().openFile(path, .{});
+
+	var buf: [65536]u8 align(64) = undefined;
+	var cnt: u64 = 0;
+	while (true) {
+		const bytes = try file.read(buf[0 ..]);
+		if (bytes == 0) {
+			return cnt;
+		}
+
+		const slice = buf[0 .. bytes];
+		cnt += std.mem.count(u8, slice, "\n");
+	} else return cnt;
+}

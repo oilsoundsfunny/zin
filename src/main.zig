@@ -11,23 +11,25 @@ const help =
   \\zin [command] [options]
   \\
   \\commands:
-  \\bench [depth]:
-  \\    run benchmark for openbench
+  \\    bench [depth]:
+  \\        run benchmark for openbench.
   \\
-  \\datagen [options]
-  \\    generate training data
-  \\    options:
-  \\        --book [book]      opening book to read from. must be specified
-  \\        --data [output]    data file to write to. must be specified
-  \\        --games [num]      number of games to play.
-  \\                           defaults to 4 times the number of openings in book
-  \\        --nodes [num]      number of nodes to search. either this or --depth must be specified
-  \\        --depth [num]      depth to search to. either this or --nodes must be specified
-  \\        --hash [num]       size of the transposition table in mib. defaults to 64
-  \\        --threads [num]    number of threads to use. defaults to 1
+  \\    datagen [options]:
+  \\        generate training data.
+  \\        options:
+  \\            --book [path]      opening book to read from. must be specified.
+  \\            --data [path]      data file to write to. must be specified.
+  \\            --games [num]      number of games to play.
+  \\                               defaults to the number of openings in specified book.
+  \\            --ply [num]        number of random moves to play. defaults to 4.
+  \\            --nodes [num]      number of nodes to search.
+  \\                               either this or --depth must be specified.
+  \\            --depth [num]      depth to search to. either this or --nodes must be specified.
+  \\            --hash [num]       size of the transposition table in mib. defaults to 64.
+  \\            --threads [num]    number of threads to use. defaults to 1.
   \\
-  \\help
-  \\    print this message and exit
+  \\    help:
+  \\        print this message and exit.
   \\
 ;
 
@@ -54,9 +56,9 @@ pub fn main() !void {
 	defer engine.deinit();
 
 	var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+	const allocator = gpa.allocator();
 	defer _ = gpa.deinit();
 
-	const allocator = gpa.allocator();
 	var args = try std.process.argsWithAllocator(allocator);
 	defer args.deinit();
 
