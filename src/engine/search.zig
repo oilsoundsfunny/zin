@@ -453,6 +453,17 @@ pub const Thread = struct {
 				if (searched > very_late) {
 					break :move_loop;
 				}
+
+				// pvs see
+				const see_margin = if (is_quiet) params.values.see_pruning_quiet_mul * d else blk: {
+					const div = params.values.see_pruning_capthist_divisor;
+					const max = params.values.see_pruning_max_capthist;
+					const margin = params.values.see_pruning_noisy_mul * d;
+					break :blk margin - std.math.clamp(@divTrunc(sm.score, div), -max, max);
+				};
+				if (!pos.see(m, see_margin)) {
+					continue :move_loop;
+				}
 			}
 
 			var recur_d = d - 1;
