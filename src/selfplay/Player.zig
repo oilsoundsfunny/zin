@@ -25,6 +25,9 @@ played:	 usize,
 data:	viri.Self,
 line:	bounded_array.BoundedArray(viri.Move.Scored, 1024),
 
+buffer:	[65536]u8 align(64),
+end:	usize,
+
 pub const Tourney = struct {
 	allocator:	std.mem.Allocator,
 	players:	[]Player,
@@ -85,11 +88,10 @@ pub const Tourney = struct {
 				.repeat = repeat,
 				.played = 0,
 
-				.data = .{},
-				.line = .{
-					.buffer = .{@as(viri.Move.Scored, .{})} ** 1024,
-					.len = 0,
-				},
+				.data = undefined,
+				.line = undefined,
+				.buffer = undefined,
+				.end = 0,
 			};
 
 			try player.pool.reset();
@@ -123,16 +125,30 @@ fn readOpening(self: *Player) !void {
 }
 
 fn writeData(self: *Player) !void {
-	self.pool.io.lockWriter();
-	defer self.pool.io.unlockWriter();
+	@memcpy(self.buffer[self.end ..], std.mem.asBytes(&self.data));
+	self.end += @sizeOf(viri.Self);
 
-	const writer = self.pool.io.writer();
-	try writer.writeAll(std.mem.asBytes(&self.data));
-	for (self.line.constSlice()) |sm| {
-		try writer.writeAll(std.mem.asBytes(&sm));
+	for (self.line.constSlice()) |*sm| {
+		@memcpy(self.buffer[self.end ..], std.mem.asBytes(sm));
+		self.end += @sizeOf(viri.Move.Scored);
 	}
 
-	if (writer.buffer.len - writer.buffered().len < 4096) {
+	if (self.buffer.len - self.end < 4096) {
+		try self.flush();
+	}
+}
+
+fn flush(self: *Player) !void {
+	defer self.end = 0;
+
+	const io = self.pool.io;
+	io.lockWriter();
+	defer io.unlockWriter();
+
+	const writer = io.writer();
+	try writer.writeAll(self.buffer[0 .. self.end]);
+
+	if (writer.unusedCapacityLen() < self.buffer.len) {
 		try writer.flush();
 	}
 }
@@ -231,27 +247,29 @@ fn match(self: *Player) !void {
 		while (self.played < games and self.played - played < repeat) {
 			self.pool.setBoard(&board, true);
 			self.playRandom() catch |err| {
-				std.log.err("error: {s} @ game {d}, worker {d}",
+				std.log.err("error: '{s}' @ game {d}, worker {d}",
 				  .{@errorName(err), self.played, self.idx});
 				continue;
 			};
 
 			self.playOut() catch |err| {
-				std.log.err("error: {s} @ game {d}, worker{d}",
+				std.log.err("error: '{s}' @ game {d}, worker{d}",
 				  .{@errorName(err), self.played, self.idx});
 				continue;
 			};
 
 			self.writeData() catch |err| {
-				std.log.err("failed to write data, error {s}", .{@errorName(err)});
+				std.log.err("failed to write data, error '{s}'", .{@errorName(err)});
 				continue;
 			};
 			self.played += 1;
 		} else if (self.played >= games) {
 			break;
 		}
-	} else |err| switch (err) {
-		error.EndOfStream => {},
-		else => return err,
+	} else |err| {
+		try self.flush();
+		if (err != error.EndOfStream) {
+			return err;
+		}
 	}
 }

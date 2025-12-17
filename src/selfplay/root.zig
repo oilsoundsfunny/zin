@@ -88,9 +88,10 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 	const hash = opt_hash orelse 64;
 	const threads = opt_threads orelse 1;
 
+	const buffer_size = threads * 8 * 65536;
 	var io = try types.Io.init(allocator,
-	  book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}), 1 << 16,
-	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}), 1 << 16);
+	  book_path orelse std.process.fatal("missing arg '{s}'", .{"--book"}), buffer_size,
+	  data_path orelse std.process.fatal("missing arg '{s}'", .{"--data"}), buffer_size);
 	defer io.deinit();
 
 	var tt = try engine.transposition.Table.init(allocator, hash);
