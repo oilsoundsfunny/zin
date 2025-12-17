@@ -17,9 +17,10 @@ pub const Thread = struct {
 	board:	 Board = .{},
 
 	pool:	*Pool = undefined,
-	handle:	 std.Thread = undefined,
 	idx:	 usize = 0,
 	cnt:	 usize = 0,
+	handle:	 std.Thread = undefined,
+	request:	Request = .sleep,
 
 	nodes:	u64 = 0,
 	tbhits:	u64 = 0,
@@ -39,6 +40,13 @@ pub const Thread = struct {
 	  [1 << types.Ptype.tag_info.bits][types.Square.cnt]
 	  [1 << types.Ptype.tag_info.bits][types.Square.cnt]hist.Int
 	  = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
+
+	pub const Request = enum {
+		clear_hash,
+		quit,
+		search,
+		sleep,
+	};
 
 	fn quietHistPtr(self: anytype, move: movegen.Move) switch (@TypeOf(self)) {
 		*Thread => *hist.Int,
@@ -793,6 +801,24 @@ pub const Thread = struct {
 		self.pool.mtx.unlock();
 	}
 
+	fn loop(self: *Thread) void {
+		idle: while (true) {
+			self.pool.mtx.lock();
+			while (self.request == .sleep) {
+				self.pool.cond.signal();
+				self.pool.cond.wait(&self.pool.mtx);
+			}
+			self.pool.mtx.unlock();
+
+			switch (self.request) {
+				.clear_hash => self.clearHash(),
+				.quit => break :idle,
+				.search => self.search(),
+				.sleep => continue :idle,
+			}
+		}
+	}
+
 	pub fn search(self: *Thread) !void {
 		const is_main = self.idx == 0;
 		const is_threaded = self.cnt > 1;
@@ -877,6 +903,12 @@ pub const Pool = struct {
 	tt:	*transposition.Table,
 
 	pub fn deinit(self: *Pool) void {
+		self.stop();
+		for (self.threads) |*thread| {
+			thread.request = .quit;
+			std.Thread.join(thread.handle);
+		}
+
 		self.allocator.free(self.threads);
 		self.threads = undefined;
 	}
