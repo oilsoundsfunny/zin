@@ -66,6 +66,7 @@ pub const Position = struct {
 
 	corr_eval:	evaluation.score.Int = evaluation.score.none,
 	stat_eval:	evaluation.score.Int = evaluation.score.none,
+	killer:	movegen.Move = .{},
 	pv:	movegen.Move.Root = .{},
 
 	pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";

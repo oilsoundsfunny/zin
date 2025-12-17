@@ -440,9 +440,10 @@ pub const Thread = struct {
 		move_loop: while (mp.next()) |sm| {
 			const m = sm.move;
 
+			const is_killer = m == mp.killer;
 			const is_ttm = m == mp.ttm;
 			const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
-			const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
+			const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet() or is_killer;
 
 			if (!is_root and best.score > evaluation.score.lose) {
 				// late move pruning (lmp)
@@ -566,6 +567,10 @@ pub const Thread = struct {
 				}
 
 				if (s >= b) {
+					if (pos.down(1).killer.isNone() and is_quiet) {
+						pos.down(1).killer = best.move;
+					}
+
 					flag = .lowerbound;
 					break :move_loop;
 				}

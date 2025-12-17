@@ -452,7 +452,7 @@ pub const Picker = struct {
 	skip_quiets:	bool,
 	stage:	Stage,
 
-	excluded:	Move,
+	killer:	Move,
 	ttm:	Move,
 
 	noisy_n:	usize,
@@ -464,6 +464,7 @@ pub const Picker = struct {
 	pub const Stage = enum(u8) {
 		ttm,
 		gen_noisy, good_noisy,
+		killer,
 		gen_quiet, good_quiet,
 		bad_noisy,
 		bad_quiet,
@@ -499,35 +500,38 @@ pub const Picker = struct {
 			const m = sm.move;
 			self.list.index += 1;
 
-			if (!m.isNone() and m != self.ttm) {
+			if (!m.isNone() and m != self.killer and m != self.ttm) {
 				break :loop sm;
 			}
 		} else null;
 	}
 
 	fn scoreNoisy(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
-		  else captures: {
-			const mvv = switch (move.flag) {
-				.en_passant => types.Ptype.pawn.score() * 7,
-				else => self.board.top().getSquare(move.dst).ptype().score() * 7,
-			};
-			const lva = self.thread.getNoisyHist(move);
-			break :captures @divTrunc(mvv + lva, 2);
+		if (move == self.ttm or move == self.killer) {
+			return search.hist.max + 1;
+		}
+
+		const mvv = switch (move.flag) {
+			.en_passant => types.Ptype.pawn.score() * 7,
+			else => self.board.top().getSquare(move.dst).ptype().score() * 7,
 		};
+		const lva = self.thread.getNoisyHist(move);
+		return @divTrunc(mvv + lva, 2);
 	}
 
 	fn scoreQuiet(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm or move == self.excluded) search.hist.min - 1 else blk: {
-			const score
-			  = @as(evaluation.score.Int, self.thread.getQuietHist(move))
-			  + @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2
-			  + @as(evaluation.score.Int, self.thread.getContHist(move, 2))
-			  + @as(evaluation.score.Int, self.thread.getContHist(move, 4))
-			  + @as(evaluation.score.Int, self.thread.getContHist(move, 6));
-			const scaled = @divTrunc(score, 6);
-			break :blk @intCast(scaled);
-		};
+		if (move == self.ttm or move == self.killer) {
+			return search.hist.max + 1;
+		}
+
+		const score
+		  = @as(evaluation.score.Int, self.thread.getQuietHist(move))
+		  + @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2
+		  + @as(evaluation.score.Int, self.thread.getContHist(move, 2))
+		  + @as(evaluation.score.Int, self.thread.getContHist(move, 4))
+		  + @as(evaluation.score.Int, self.thread.getContHist(move, 6));
+		const scaled = @divTrunc(score, 6);
+		return @intCast(scaled);
 	}
 
 	pub fn init(thread: *const search.Thread, ttm: Move) Picker {
@@ -539,7 +543,7 @@ pub const Picker = struct {
 			.skip_quiets = false,
 			.stage = .gen_noisy,
 
-			.excluded = .{},
+			.killer = .{},
 			.ttm = .{},
 
 			.noisy_n = 0,
@@ -549,9 +553,15 @@ pub const Picker = struct {
 			.bad_quiet_n = 0,
 		};
 
-		if (!ttm.isNone() and self.board.top().isMovePseudoLegal(ttm)) {
+		const pos = self.board.top();
+		if (!ttm.isNone() and pos.isMovePseudoLegal(ttm)) {
 			self.ttm = ttm;
 			self.stage = .ttm;
+		}
+
+		const killer = pos.down(1).killer;
+		if (!killer.isNone() and killer != ttm and pos.isMovePseudoLegal(killer)) {
+			self.killer = killer;
 		}
 
 		return self;
@@ -563,7 +573,7 @@ pub const Picker = struct {
 			if (!self.ttm.isNone()) {
 				return .{
 					.move = self.ttm,
-					.score = self.scoreQuiet(self.ttm),
+					.score = search.hist.max,
 				};
 			}
 		}
@@ -590,6 +600,16 @@ pub const Picker = struct {
 				self.list.slice()[self.bad_noisy_n] = sm;
 				self.bad_noisy_n += 1;
 			} else return sm;
+		}
+
+		if (self.stage == .killer) {
+			self.stage.inc();
+			if (!self.killer.isNone()) {
+				return .{
+					.move = self.killer,
+					.score = search.hist.max,
+				};
+			}
 		}
 
 		if (self.stage == .gen_quiet) gen_quiet: {
