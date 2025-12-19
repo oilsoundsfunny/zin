@@ -13,7 +13,7 @@ const max_cp = 400;
 idx:	usize,
 cnt:	usize,
 
-pool:	engine.search.Pool,
+pool:	engine.Thread.Pool,
 prng:	std.Random.Xoroshiro128,
 opening:	[]const u8,
 
@@ -39,7 +39,7 @@ pub const Tourney = struct {
 		tt:	*engine.transposition.Table,
 		games:	?usize,
 		ply:	?usize,
-		depth:	?engine.search.Depth,
+		depth:	?engine.Thread.Depth,
 		nodes:	?usize,
 		threads:	usize,
 	};

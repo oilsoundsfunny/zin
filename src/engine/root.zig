@@ -1,7 +1,7 @@
 pub const Board = @import("Board.zig");
 pub const evaluation = @import("evaluation.zig");
 pub const movegen = @import("movegen.zig");
-pub const search = @import("search.zig");
+pub const Thread = @import("Thread.zig");
 pub const transposition = @import("transposition.zig");
 pub const uci = @import("uci.zig");
 pub const zobrist = @import("zobrist.zig");

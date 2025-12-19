@@ -6,7 +6,7 @@ const types = @import("types");
 
 const Board = @import("Board.zig");
 const evaluation = @import("evaluation.zig");
-const search = @import("search.zig");
+const Thread = @import("Thread.zig");
 const uci = @import("uci.zig");
 
 const RootMove = struct {
@@ -447,7 +447,7 @@ pub const Move = packed struct(u16) {
 pub const Picker = struct {
 	list:	Move.Scored.List,
 	board:	*const Board,
-	thread:	*const search.Thread,
+	thread:	*const Thread,
 
 	skip_quiets:	bool,
 	stage:	Stage,
@@ -505,8 +505,8 @@ pub const Picker = struct {
 		} else null;
 	}
 
-	fn scoreNoisy(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm or move == self.excluded) search.hist.min - 1
+	fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
+		return if (move == self.ttm or move == self.excluded) Thread.hist.min - 1
 		  else captures: {
 			const mvv = switch (move.flag) {
 				.en_passant => types.Ptype.pawn.score() * 7,
@@ -517,8 +517,8 @@ pub const Picker = struct {
 		};
 	}
 
-	fn scoreQuiet(self: *const Picker, move: Move) search.hist.Int {
-		return if (move == self.ttm or move == self.excluded) search.hist.min - 1 else blk: {
+	fn scoreQuiet(self: *const Picker, move: Move) Thread.hist.Int {
+		return if (move == self.ttm or move == self.excluded) Thread.hist.min - 1 else blk: {
 			const score
 			  = @as(evaluation.score.Int, self.thread.getQuietHist(move))
 			  + @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2
@@ -530,7 +530,7 @@ pub const Picker = struct {
 		};
 	}
 
-	pub fn init(thread: *const search.Thread, ttm: Move) Picker {
+	pub fn init(thread: *const Thread, ttm: Move) Picker {
 		var self: Picker = .{
 			.list = .{},
 			.board = &thread.board,

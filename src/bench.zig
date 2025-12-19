@@ -61,14 +61,14 @@ const fens = [_][]const u8 {
 		"nqbnrkrb/pppppppp/8/8/8/8/PPPPPPPP/NQBNRKRB w GEge - 0 1",
 };
 
-pub fn run(allocator: std.mem.Allocator, depth: ?engine.search.Depth) !void {
+pub fn run(allocator: std.mem.Allocator, depth: ?engine.Thread.Depth) !void {
 	var io = try types.Io.init(allocator, null, 4096, null, 4096);
 	defer io.deinit();
 
 	var tt = try engine.transposition.Table.init(allocator, null);
 	defer tt.deinit();
 
-	var pool = try engine.search.Pool.init(allocator, null, true, &io, &tt);
+	var pool = try engine.Thread.Pool.init(allocator, null, true, &io, &tt);
 	defer pool.deinit();
 
 	try pool.reset();

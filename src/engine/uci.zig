@@ -4,7 +4,7 @@ const types = @import("types");
 
 const Board = @import("Board.zig");
 const movegen = @import("movegen.zig");
-const search = @import("search.zig");
+const Thread = @import("Thread.zig");
 const transposition = @import("transposition.zig");
 
 const Command = enum {
@@ -25,7 +25,7 @@ pub const Error = error {
 	UnknownCommand,
 };
 
-fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
+fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
 	const options = &pool.options;
 	const stm = pool.threads[0].board.top().stm;
 
@@ -67,7 +67,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Comman
 	return .go;
 }
 
-fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
+fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
 	const options = &pool.options;
 	const tt = pool.tt;
 
@@ -136,7 +136,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Co
 	return .setoption;
 }
 
-fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !Command {
+fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
 	var board: Board = .{};
 	const frc = pool.threads[0].board.frc;
 
@@ -182,7 +182,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *search.Pool) !
 	} else return .position;
 }
 
-pub fn parseCommand(command: []const u8, pool: *search.Pool) !Command {
+pub fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
 	var tokens = std.mem.tokenizeAny(u8, command, &std.ascii.whitespace);
 	const first = tokens.next() orelse return error.UnknownCommand;
 
@@ -273,7 +273,7 @@ pub fn parseCommand(command: []const u8, pool: *search.Pool) !Command {
 pub fn loop(allocator: std.mem.Allocator) !void {
 	var io = try types.Io.init(allocator, null, 16384, null, 16384);
 	var tt = try transposition.Table.init(allocator, null);
-	var pool = try search.Pool.init(allocator, null, false, &io, &tt);
+	var pool = try Thread.Pool.init(allocator, null, false, &io, &tt);
 
 	try pool.reset();
 	try pool.tt.clear(pool.options.threads);
