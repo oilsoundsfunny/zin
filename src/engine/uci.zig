@@ -27,10 +27,14 @@ pub const Error = error {
 
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
 	const options = &pool.options;
+	const timer = &pool.timer;
 	const stm = pool.threads[0].board.top().stm;
 
+	const backup = options.*;
+	errdefer options.* = backup;
+
 	options.reset();
-	errdefer options.reset();
+	timer.reset();
 
 	while (tokens.next()) |token| {
 		if (std.mem.eql(u8, token, "infinite")) {
@@ -61,8 +65,9 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Comman
 			options.time.put(.black,
 			  std.fmt.parseUnsigned(u64, aux, 10) catch return error.UnknownCommand);
 		} else return error.UnknownCommand;
-	} else options.calcStop(stm);
+	}
 
+	options.calcLimits(stm);
 	try pool.start();
 	return .go;
 }

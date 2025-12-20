@@ -152,6 +152,7 @@ pub const Options = struct {
 	threads:	usize = 1,
 	overhead:	u64 = 10,
 
+	infinite:	bool = true,
 	depth:	?Depth = null,
 	nodes:	?u64 = null,
 
@@ -165,19 +166,21 @@ pub const Options = struct {
 		self.* = .{};
 	}
 
-	pub fn calcStop(self: *Options, stm: types.Color) void {
+	pub fn calcLimits(self: *Options, stm: types.Color) void {
 		const has_clock = self.incr.get(stm) != null and self.time.get(stm) != null;
 		const overhead = self.overhead;
 
-		const incr: f32 = @floatFromInt(self.incr.get(stm) orelse undefined);
-		const time: f32 = @floatFromInt(self.time.get(stm) orelse undefined);
+		self.stop = if (self.movetime) |mt| mt -| overhead else if (has_clock) blk: {
+			const incr: f32 = @floatFromInt(self.incr.get(stm).?);
+			const time: f32 = @floatFromInt(self.time.get(stm).?);
 
-		const imul: f32 = @floatFromInt(params.values.base_incr_mul);
-		const tmul: f32 = @floatFromInt(params.values.base_time_mul);
+			const im: f32 = @floatFromInt(params.values.base_incr_mul);
+			const tm: f32 = @floatFromInt(params.values.base_time_mul);
 
-		self.stop = if (self.movetime) |mt| mt -| overhead
-		  else if (!has_clock) null
-		  else @as(u64, @intFromFloat((time * tmul + incr * imul) / 100.0)) -| overhead;
+			const mt: u64 = @intFromFloat(time * tm + incr * im);
+			break :blk mt -| overhead;
+		} else null;
+		self.infinite = self.depth == null and self.nodes == null and self.stop == null;
 	}
 };
 
@@ -391,8 +394,10 @@ fn printBest(self: *const Thread, pv: *const movegen.Move.Root) !void {
 }
 
 fn hardStop(self: *Thread) bool {
-	const pool = self.pool;
-	const options = pool.options;
+	const options = &self.pool.options;
+	if (options.infinite) {
+		return false;
+	}
 
 	const nodes = self.nodes;
 	if (options.nodes) |lim| {
@@ -401,9 +406,10 @@ fn hardStop(self: *Thread) bool {
 		}
 	}
 
+	const timer = &self.pool.timer;
 	return nodes % 2048 == 0
 	  and options.stop != null
-	  and options.stop.? * std.time.ns_per_ms <= pool.timer.read();
+	  and options.stop.? * std.time.ns_per_ms <= timer.read();
 }
 
 fn asp(self: *Thread) void {

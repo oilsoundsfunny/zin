@@ -74,6 +74,7 @@ pub fn run(allocator: std.mem.Allocator, depth: ?engine.Thread.Depth) !void {
 	try pool.reset();
 	try pool.tt.clear(pool.options.threads);
 	pool.options.depth = depth orelse 13;
+	pool.options.infinite = false;
 
 	var sum: u64 = 0;
 	var time: u64 = 0;

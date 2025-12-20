@@ -97,6 +97,7 @@ pub const Tourney = struct {
 			try player.pool.reset();
 			player.pool.options.depth = options.depth;
 			player.pool.options.nodes = options.nodes;
+			player.pool.options.infinite = false;
 		}
 
 		return tourney;
