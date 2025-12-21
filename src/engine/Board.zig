@@ -9,7 +9,7 @@ const types = @import("types");
 
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
-const search = @import("search.zig");
+const Thread = @import("Thread.zig");
 const zobrist = @import("zobrist.zig");
 
 const Board = @This();

@@ -65,7 +65,7 @@ pub fn main() !void {
 	_ = args.skip();
 	while (args.next()) |arg| {
 		if (std.mem.eql(u8, arg, "bench")) {
-			const depth: ?engine.search.Depth
+			const depth: ?engine.Thread.Depth
 			  = if (args.next()) |aux| try std.fmt.parseUnsigned(u8, aux, 10) else null;
 			return bench.run(allocator, depth);
 		} else if (std.mem.eql(u8, arg, "datagen")) {

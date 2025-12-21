@@ -3,7 +3,7 @@ const std = @import("std");
 
 var table: [32][32][2]u8 = undefined;
 
-pub fn get(depth: engine.search.Depth, searched: usize, quiet: bool) u8 {
+pub fn get(depth: engine.Thread.Depth, searched: usize, quiet: bool) u8 {
 	const clamped_d: usize = @intCast(std.math.clamp(depth, 0, 31));
 	const clamped_i: usize = @intCast(std.math.clamp(searched, 0, 31));
 	return table[clamped_d][clamped_i][@intFromBool(quiet)];

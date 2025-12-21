@@ -61,26 +61,30 @@ const fens = [_][]const u8 {
 		"nqbnrkrb/pppppppp/8/8/8/8/PPPPPPPP/NQBNRKRB w GEge - 0 1",
 };
 
-pub fn run(allocator: std.mem.Allocator, depth: ?engine.search.Depth) !void {
+pub fn run(allocator: std.mem.Allocator, depth: ?engine.Thread.Depth) !void {
 	var io = try types.Io.init(allocator, null, 4096, null, 4096);
 	defer io.deinit();
 
 	var tt = try engine.transposition.Table.init(allocator, null);
 	defer tt.deinit();
 
-	var pool = try engine.search.Pool.init(allocator, null, true, &io, &tt);
-	defer pool.deinit();
+	const pool = try engine.Thread.Pool.create(allocator, null, true, &io, &tt);
+	defer pool.destroy();
 
-	try pool.reset();
-	try pool.tt.clear(pool.options.threads);
+	pool.clearHash();
 	pool.options.depth = depth orelse 13;
+	pool.options.infinite = false;
 
 	var sum: u64 = 0;
 	var time: u64 = 0;
 
 	for (fens) |fen| {
-		try pool.threads[0].board.parseFen(fen);
-		try pool.threads[0].search();
+		var board: engine.Board = .{};
+		try board.parseFen(fen);
+
+		pool.setBoard(&board, true);
+		pool.search();
+		pool.waitSleep();
 
 		time += pool.timer.lap();
 		sum += pool.nodes();

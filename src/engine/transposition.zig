@@ -3,7 +3,7 @@ const types = @import("types");
 
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
-const search = @import("search.zig");
+const Thread = @import("Thread.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
@@ -49,7 +49,7 @@ pub const Entry = packed struct(u80) {
 	pub fn shouldTrust(self: Entry,
 	  a: evaluation.score.Int,
 	  b: evaluation.score.Int,
-	  d: search.Depth) bool {
+	  d: Thread.Depth) bool {
 		return self.depth >= d and switch (self.flag) {
 			.none => false,
 			.upperbound => self.score <= a,
@@ -72,12 +72,6 @@ pub const Table = struct {
 	slice:	[]Cluster,
 	age:	u5,
 
-	fn threadedClear(slice: []Cluster) void {
-		for (slice) |*cluster| {
-			cluster.* = .{};
-		}
-	}
-
 	fn index(self: *const Table, key: zobrist.Int) usize {
 		return zobrist.index(key, self.slice.len);
 	}
@@ -89,7 +83,7 @@ pub const Table = struct {
 	}
 
 	pub fn init(allocator: std.mem.Allocator, mb: ?usize) !Table {
-		const options: search.Options = .{};
+		const options: Thread.Options = .{};
 		const len = (mb orelse options.hash) * (1 << 20) / @sizeOf(Cluster);
 		return .{
 			.allocator = allocator,
@@ -103,39 +97,11 @@ pub const Table = struct {
 		self.slice = try self.allocator.realloc(self.slice, len);
 	}
 
-	pub fn clear(self: *Table, tn: usize) !void {
-		const len = self.slice.len;
-		if (len == 0) {
-			return;
+	// TODO: let Thread.Pool clear hash instead
+	pub fn clear(self: *const Table, _: usize) !void {
+		for (self.slice) |*ttc| {
+			ttc.* = .{};
 		}
-
-		if (tn == 1) {
-			threadedClear(self.slice);
-			return;
-		}
-
-		const mod = len % tn;
-		const div = len / tn;
-
-		var p = self.slice.ptr;
-		const threads = try self.allocator.alloc(std.Thread, tn);
-		defer self.allocator.free(threads);
-
-		const first_slice = p[0 .. div];
-		p += div;
-
-		for (1 .. tn) |i| {
-			const l = if (i < mod) div + 1 else div;
-			const s = p[0 .. l];
-
-			p += l;
-			threads[i] = try std.Thread.spawn(.{.allocator = self.allocator}, threadedClear, .{s});
-		}
-		threadedClear(first_slice);
-
-		defer for (1 .. tn) |i| {
-			std.Thread.join(threads[i]);
-		};
 	}
 
 	pub fn hashfull(self: *const Table) usize {

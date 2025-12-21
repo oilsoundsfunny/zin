@@ -13,8 +13,8 @@ const max_cp = 400;
 idx:	usize,
 cnt:	usize,
 
-pool:	engine.search.Pool,
-prng:	std.Random.Xoroshiro128,
+pool:	*engine.Thread.Pool,
+prng:	 std.Random.Xoroshiro128,
 opening:	[]const u8,
 
 games:	?usize,
@@ -39,7 +39,7 @@ pub const Tourney = struct {
 		tt:	*engine.transposition.Table,
 		games:	?usize,
 		ply:	?usize,
-		depth:	?engine.search.Depth,
+		depth:	?engine.Thread.Depth,
 		nodes:	?usize,
 		threads:	usize,
 	};
@@ -79,7 +79,7 @@ pub const Tourney = struct {
 				.idx = i,
 				.cnt = n,
 
-				.pool = try @TypeOf(player.pool).init(tourney.allocator, 1, true, io, tt),
+				.pool = try engine.Thread.Pool.create(tourney.allocator, 1, true, io, tt),
 				.prng = std.Random.Xoroshiro128.init(0xaaaaaaaaaaaaaaaa),
 				.opening = undefined,
 
@@ -94,9 +94,9 @@ pub const Tourney = struct {
 				.end = 0,
 			};
 
-			try player.pool.reset();
 			player.pool.options.depth = options.depth;
 			player.pool.options.nodes = options.nodes;
+			player.pool.options.infinite = false;
 		}
 
 		return tourney;
@@ -154,9 +154,7 @@ fn flush(self: *Player) !void {
 }
 
 fn playRandom(self: *Player) !void {
-	const threads = self.pool.threads;
-	const thread = &threads[0];
-
+	const thread = &self.pool.threads.items[0];
 	var board = thread.board;
 	var ply: usize = 0;
 	defer thread.board = board;
@@ -189,15 +187,15 @@ fn playRandom(self: *Player) !void {
 }
 
 fn playOut(self: *Player) !void {
-	const threads = self.pool.threads;
-	const thread = &threads[0];
+	const thread = &self.pool.threads.items[0];
 	const board = &thread.board;
 
 	self.data = viri.Self.fromPosition(board);
 	self.line = try @TypeOf(self.line).init(0);
 
 	while (true) {
-		try self.pool.threads[0].search();
+		self.pool.search();
+		self.pool.waitSleep();
 
 		const root_moves = &thread.root_moves;
 		const rms = root_moves.constSlice();

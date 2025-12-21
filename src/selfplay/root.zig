@@ -13,7 +13,7 @@ pub fn run(allocator: std.mem.Allocator, args: *std.process.ArgIterator) !void {
 	var games: ?usize = null;
 	var ply: ?usize = null;
 	var nodes: ?usize = null;
-	var depth: ?engine.search.Depth = null;
+	var depth: ?engine.Thread.Depth = null;
 	var opt_hash: ?usize = null;
 	var opt_threads: ?usize = null;
 

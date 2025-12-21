@@ -9,7 +9,7 @@ pub const Result = struct {
 	nodes:	[6]usize,
 };
 
-fn divRecursive(comptime root: bool, board: *engine.Board, depth: engine.search.Depth) usize {
+fn divRecursive(comptime root: bool, board: *engine.Board, depth: engine.Thread.Depth) usize {
 	if (depth <= 0) {
 		return 1;
 	}
@@ -38,7 +38,7 @@ fn divRecursive(comptime root: bool, board: *engine.Board, depth: engine.search.
 	return sum;
 }
 
-pub fn div(board: *engine.Board, depth: engine.search.Depth) !usize {
+pub fn div(board: *engine.Board, depth: engine.Thread.Depth) !usize {
 	var timer = try std.time.Timer.start();
 
 	timer.reset();
