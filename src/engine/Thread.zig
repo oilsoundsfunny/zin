@@ -12,90 +12,139 @@ const zobrist = @import("zobrist.zig");
 
 const Thread = @This();
 
+const Node = transposition.Entry.Flag;
+
+const Request = enum {
+	clear_hash,
+	quit,
+	search,
+	sleep,
+};
+
 pub const Depth = evaluation.score.Int;
-pub const Node = transposition.Entry.Flag;
 
 pub const Pool = struct {
 	allocator:	std.mem.Allocator,
-	threads:	[]Thread,
+	threads:	std.ArrayList(Thread),
+
+	searching:	bool,
+	sleeping:	bool,
+	stop:	bool align(64),
+
+	cond:	std.Thread.Condition,
+	mtx:	std.Thread.Mutex,
+
 	options:	Options,
-
-	cond:	std.Thread.Condition = .{},
-	mtx:	std.Thread.Mutex = .{},
-
 	timer:	std.time.Timer,
-	searching:	bool align(64),
 
 	quiet:	bool,
 	io:	*types.Io,
 	tt:	*transposition.Table,
 
-	pub fn deinit(self: *Pool) void {
-		self.allocator.free(self.threads);
-		self.threads = undefined;
+	fn spawn(self: *Pool) !void {
+		const config: std.Thread.SpawnConfig = .{.allocator = self.allocator};
+		for (self.threads.items) |*thread| {
+			thread.handle = try std.Thread.spawn(config, Thread.loop, .{thread});
+		}
 	}
 
-	pub fn init(allocator: std.mem.Allocator,
-	  threads: ?usize,
-	  quiet: bool,
-	  io: *types.Io,
-	  tt: *transposition.Table) !Pool {
-		const options: Options = .{};
-		return .{
-			.allocator = allocator,
-			.threads = try allocator.alloc(Thread, threads orelse options.threads),
-			.options = options,
+	pub fn destroy(self: *Pool) void {
+		self.join();
+		self.threads.deinit(self.allocator);
+		self.allocator.destroy(self);
+	}
 
+	pub fn create(allocator: std.mem.Allocator, opt_threads: ?usize,
+	  quiet: bool, io: *types.Io, tt: *transposition.Table) !*Pool {
+		const options: Options = .{};
+		const threads = opt_threads orelse options.threads;
+
+		const pool = try allocator.create(Pool);
+		pool.* = .{
+			.allocator = allocator,
+			.threads = try .initCapacity(allocator, threads),
+
+			.cond = .{},
+			.mtx = .{},
+
+			.options = options,
 			.timer = try std.time.Timer.start(),
+
 			.searching = false,
+			.sleeping = false,
+			.stop = true,
 
 			.quiet = quiet,
 			.io = io,
 			.tt = tt,
 		};
+
+		_ = try pool.threads.addManyAsSliceBounded(threads);
+		try pool.reset();
+		try pool.spawn();
+
+		return pool;
+	}
+
+	pub fn join(self: *Pool) void {
+		self.stopSearch();
+		for (self.threads.items) |*thread| {
+			thread.wake(.quit);
+			thread.handle.join();
+		}
 	}
 
 	pub fn realloc(self: *Pool, num: usize) !void {
-		if (num == 0) {
-			self.allocator.free(self.threads);
-			self.threads = undefined;
+		const board = self.threads.items[0].board;
+		const prev_len = self.threads.items.len;
+		if (prev_len == num) {
 			return;
 		}
 
-		const copy = try self.allocator.dupe(Thread, self.threads[0 .. 1]);
-		defer self.allocator.free(copy);
+		self.stopSearch();
+		self.join();
 
-		if (self.threads.len == 0) {
-			self.threads = try self.allocator.alloc(Thread, num);
+		if (prev_len < num) {
+			const add_n = num - prev_len;
+			_ = try self.threads.addManyAsSlice(self.allocator, add_n);
 		} else {
-			self.threads = try self.allocator.realloc(self.threads, num);
+			self.threads.items.len -= prev_len - num;
 		}
 
-		for (self.threads) |*thread| {
-			thread.* = copy[0];
+		for (self.threads.items, 0 ..) |*thread, i| {
+			thread.* = .{
+				.board = board,
+				.pool = self,
+				.idx = i,
+				.cnt = num,
+			};
 		}
+		try self.spawn();
 	}
 
 	pub fn reset(self: *Pool) !void {
-		self.searching = false;
+		self.stopSearch();
+		self.sleeping = false;
+
 		self.options.reset();
 		self.timer.reset();
 
-		for (self.threads) |*thread| {
-			thread.* = .{};
-			thread.pool = self;
+		for (self.threads.items, 0 ..) |*thread, i| {
+			thread.* = .{
+				.pool = self,
+				.idx = i,
+				.cnt = self.threads.items.len,
+			};
 		}
 
-		const frc = self.options.frc;
 		var board: Board = .{};
-
 		try board.parseFen(Board.Position.startpos);
-		self.setBoard(&board, frc);
+		self.setBoard(&board, false);
 	}
 
 	pub fn nodes(self: *const Pool) u64 {
 		var n: u64 = 0;
-		for (self.threads) |*thread| {
+		for (self.threads.items) |*thread| {
 			n += thread.nodes;
 		}
 		return n;
@@ -103,46 +152,52 @@ pub const Pool = struct {
 
 	pub fn setFRC(self: *Pool, frc: bool) void {
 		self.options.frc = frc;
-		for (self.threads) |*thread| {
+		for (self.threads.items) |*thread| {
 			thread.board.frc = frc;
 		}
 	}
 
 	pub fn setBoard(self: *Pool, board: *const Board, frc: bool) void {
-		for (self.threads) |*thread| {
+		self.options.frc = frc;
+		for (self.threads.items) |*thread| {
 			thread.board = board.*;
 			thread.board.frc = frc;
 		}
 	}
 
-	pub fn join(self: *Pool, comptime which: enum {main, helpers}) void {
-		if (which == .main) {
-			std.Thread.join(self.threads[0].handle);
-			self.threads[0].handle = undefined;
-		} else if (self.threads[0].cnt == 1) {
-			return;
+	pub fn clearHash(self: *Pool) void {
+		self.stopSearch();
+		for (self.threads.items) |*thread| {
+			thread.wake(.clear_hash);
 		}
+		self.waitSleep();
+	}
 
-		for (self.threads[1 ..]) |*thread| {
-			std.Thread.join(thread.handle);
-			thread.handle = undefined;
+	pub fn search(self: *Pool) void {
+		self.stopSearch();
+		self.stop = false;
+		self.tt.doAge();
+
+		const main_thread = &self.threads.items[0];
+		const board = &main_thread.board;
+		const root_moves = &main_thread.root_moves;
+		root_moves.* = movegen.Move.Root.List.init(board);
+
+		self.searching = true;
+		main_thread.wake(.search);
+	}
+
+	pub fn stopSearch(self: *Pool) void {
+		if (self.searching) {
+			self.stop = true;
+			self.threads.items[0].waitSleep();
 		}
 	}
 
-	pub fn start(self: *Pool) !void {
-		const config: std.Thread.SpawnConfig = .{
-			.stack_size = 16 * 1024 * 1024,
-			.allocator = self.allocator,
-		};
-		for (self.threads, 0 ..) |*thread, i| {
-			thread.idx = i;
-			thread.cnt = self.threads.len;
-			thread.handle = try std.Thread.spawn(config, Thread.search, .{thread});
+	pub fn waitSleep(self: *Pool) void {
+		for (self.threads.items) |*thread| {
+			thread.waitSleep();
 		}
-	}
-
-	pub fn stop(self: *Pool) void {
-		self.searching = false;
 	}
 };
 
@@ -177,7 +232,7 @@ pub const Options = struct {
 			const im: f32 = @floatFromInt(params.values.base_incr_mul);
 			const tm: f32 = @floatFromInt(params.values.base_time_mul);
 
-			const mt: u64 = @intFromFloat(time * tm + incr * im);
+			const mt: u64 = @intFromFloat(time * tm * 0.01 + incr * im * 0.01);
 			break :blk mt -| overhead;
 		} else null;
 		self.infinite = self.depth == null and self.nodes == null and self.stop == null;
@@ -223,9 +278,11 @@ pub const hist = struct {
 board:	 Board = .{},
 
 pool:	*Pool = undefined,
-handle:	 std.Thread = undefined,
 idx:	 usize = 0,
 cnt:	 usize = 0,
+
+handle:	std.Thread = undefined,
+request:	Request align(64) = .sleep,
 
 nodes:	u64 = 0,
 tbhits:	u64 = 0,
@@ -430,7 +487,7 @@ fn asp(self: *Thread) void {
 	while (true) : (w += @divTrunc(w * params.values.asp_window_mul, 256)) {
 		s = self.ab(.exact, 0, a, b, d);
 
-		if (!self.pool.searching) {
+		if (self.pool.stop) {
 			break;
 		}
 
@@ -455,11 +512,9 @@ fn ab(self: *Thread,
 
 	const is_main = self.idx == 0;
 	if (is_main and self.hardStop()) {
-		self.pool.stop();
+		self.pool.stop = true;
 		return alpha;
-	}
-
-	if (!self.pool.searching) {
+	} else if (self.pool.stop) {
 		return alpha;
 	}
 
@@ -736,7 +791,7 @@ fn ab(self: *Thread,
 			break :recur score;
 		};
 
-		if (!self.pool.searching) {
+		if (self.pool.stop) {
 			return a;
 		}
 
@@ -821,11 +876,9 @@ fn qs(self: *Thread,
 
 	const is_main = self.idx == 0;
 	if (is_main and self.hardStop()) {
-		self.pool.stop();
+		self.pool.stop = true;
 		return alpha;
-	}
-
-	if (!self.pool.searching) {
+	} else if (self.pool.stop) {
 		return alpha;
 	}
 
@@ -926,7 +979,7 @@ fn qs(self: *Thread,
 			break :recur -self.qs(ply + 1, -b, -a);
 		};
 
-		if (!self.pool.searching) {
+		if (self.pool.stop) {
 			return a;
 		}
 
@@ -964,66 +1017,109 @@ fn qs(self: *Thread,
 	return best.score;
 }
 
-fn prep(self: *Thread) void {
-	self.pool.searching = true;
-	self.pool.timer.reset();
-	self.pool.tt.doAge();
+fn loop(self: *Thread) !void {
+	idle: while (true) : (self.request = .sleep) {
+		self.pool.mtx.lock();
+		while (self.request == .sleep) {
+			self.pool.cond.signal();
+			self.pool.cond.wait(&self.pool.mtx);
+		}
+		self.pool.mtx.unlock();
 
-	for (self.pool.threads) |*thread| {
-		thread.nodes = 0;
-		thread.tbhits = 0;
-		thread.tthits = 0;
+		switch (self.request) {
+			.clear_hash => self.clearHash(),
+			.quit => break :idle,
+			.search => try self.search(),
+			.sleep => continue :idle,
+		}
 	}
+}
 
-	const board = &self.board;
-	const root_moves = &self.root_moves;
+fn waitBool(self: *Thread, cond: *bool) void {
+	self.pool.mtx.lock();
+	defer self.pool.mtx.unlock();
 
-	root_moves.* = movegen.Move.Root.List.init(board);
-	if (self.cnt == 1) {
+	while (!cond.*) {
+		self.pool.cond.wait(&self.pool.mtx);
+	}
+}
+
+fn waitSleep(self: *Thread) void {
+	self.pool.mtx.lock();
+	while (self.request != .sleep) {
+		self.pool.cond.signal();
+		self.pool.cond.wait(&self.pool.mtx);
+	}
+	self.pool.mtx.unlock();
+
+	if (self.idx == 0) {
+		self.pool.searching = false;
+	}
+}
+
+fn wake(self: *Thread, request: Request) void {
+	self.pool.mtx.lock();
+	defer self.pool.mtx.unlock();
+
+	self.request = request;
+	self.pool.cond.signal();
+}
+
+fn clearHash(self: *Thread) void {
+	const tt = self.pool.tt.slice;
+	if (tt.len == 0) {
 		return;
 	}
 
-	defer self.broadcast();
-	for (self.pool.threads[1 ..]) |*thread| {
-		thread.board = board.*;
-		thread.root_moves = root_moves.*;
+	const i = self.idx;
+	const n = self.cnt;
+	const d = tt.len / n;
+	const m = tt.len % n;
+	var p = tt.ptr;
+
+	for (0 .. i) |it| {
+		p += if (it < m) d + 1 else d;
 	}
-}
 
-fn broadcast(self: *const Thread) void {
-	self.pool.mtx.lock();
-	self.pool.cond.broadcast();
-	self.pool.mtx.unlock();
-}
-
-fn wait(self: *const Thread) void {
-	self.pool.mtx.lock();
-	self.pool.cond.wait(&self.pool.mtx);
-	self.pool.mtx.unlock();
+	const s = p[0 .. if (i < m) d + 1 else d];
+	for (s) |*c| {
+		c.* = .{};
+	}
 }
 
 pub fn search(self: *Thread) !void {
+	self.nodes = 0;
+	self.tbhits = 0;
+	self.tthits = 0;
+
 	const is_main = self.idx == 0;
 	const is_threaded = self.cnt > 1;
+	const pool = self.pool;
 
-	if (is_main) {
-		self.prep();
-	} else if (is_threaded) {
-		self.wait();
+	if (is_main and is_threaded) {
+		for (pool.threads.items[1 ..]) |*thread| {
+			thread.board = self.board;
+			thread.root_moves = self.root_moves;
+			thread.wake(.search);
+		}
 	}
 
-	const no_moves = self.root_moves.constSlice().len == 0;
-	var last_depth: Depth = 1;
-	var last_seldepth: Depth = 1;
+	var last_depth: Depth = 0;
+	var last_seldepth: Depth = 0;
 	var last_pv: movegen.Move.Root = .{};
+
+	const no_moves = self.root_moves.constSlice().len == 0;
 	last_pv = if (no_moves) {
-		if (is_main) {
-			try self.printBest(&last_pv);
+		if (!is_main) {
+			return;
 		}
+
+		try self.printInfo(&last_pv, last_depth, last_seldepth);
+		try self.printBest(&last_pv);
 		return;
 	} else self.root_moves.constSlice()[0];
 
-	const max_depth = self.pool.options.depth orelse movegen.Move.Root.capacity;
+	const max_depth = pool.options.depth orelse movegen.Move.Root.capacity;
 	const min_depth = 1;
 	var depth: Depth = min_depth;
 
@@ -1033,7 +1129,7 @@ pub fn search(self: *Thread) !void {
 		self.asp();
 
 		movegen.Move.Root.sortSlice(self.root_moves.slice());
-		if (!self.pool.searching) {
+		if (self.pool.stop) {
 			break;
 		} else if (!is_main) {
 			continue;
@@ -1050,8 +1146,12 @@ pub fn search(self: *Thread) !void {
 		return;
 	}
 
-	self.pool.stop();
-	defer self.pool.join(.helpers);
+	pool.stop = true;
+	if (is_threaded) {
+		for (pool.threads.items[1 ..]) |*thread| {
+			thread.waitSleep();
+		}
+	}
 
 	try self.printInfo(&last_pv, last_depth, last_seldepth);
 	try self.printBest(&last_pv);

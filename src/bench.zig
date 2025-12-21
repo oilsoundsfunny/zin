@@ -68,11 +68,10 @@ pub fn run(allocator: std.mem.Allocator, depth: ?engine.Thread.Depth) !void {
 	var tt = try engine.transposition.Table.init(allocator, null);
 	defer tt.deinit();
 
-	var pool = try engine.Thread.Pool.init(allocator, null, true, &io, &tt);
-	defer pool.deinit();
+	const pool = try engine.Thread.Pool.create(allocator, null, true, &io, &tt);
+	defer pool.destroy();
 
-	try pool.reset();
-	try pool.tt.clear(pool.options.threads);
+	pool.clearHash();
 	pool.options.depth = depth orelse 13;
 	pool.options.infinite = false;
 
@@ -80,8 +79,12 @@ pub fn run(allocator: std.mem.Allocator, depth: ?engine.Thread.Depth) !void {
 	var time: u64 = 0;
 
 	for (fens) |fen| {
-		try pool.threads[0].board.parseFen(fen);
-		try pool.threads[0].search();
+		var board: engine.Board = .{};
+		try board.parseFen(fen);
+
+		pool.setBoard(&board, true);
+		pool.search();
+		pool.waitSleep();
 
 		time += pool.timer.lap();
 		sum += pool.nodes();
