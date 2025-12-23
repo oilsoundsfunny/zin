@@ -727,6 +727,19 @@ fn ab(self: *Thread,
 				continue :move_loop;
 			}
 
+			// noisy futility pruning
+			const noisy_fp_margin
+			  = params.values.noisy_fp_margin0
+			  + params.values.noisy_fp_margin1 * lmr_d
+			  + @divTrunc(sm.score, params.values.noisy_fp_hist_divisor);
+			if (d <= params.values.noisy_fp_max_depth
+			  and !is_quiet
+			  and !is_checked
+			  and a < evaluation.score.win
+			  and stat_eval + noisy_fp_margin <= a) {
+				break :move_loop;
+			}
+
 			// late move pruning (lmp)
 			// 10.0+0.1: 21.30 +- 9.80
 			var very_late: usize = @intCast(d * d);
