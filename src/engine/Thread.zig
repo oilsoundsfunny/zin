@@ -713,6 +713,7 @@ fn ab(self: *Thread,
 
 		if (!is_root and best.score > evaluation.score.lose) {
 			// futility pruning
+			// 10.0+0.1: 34.28 +- 12.73
 			const lmr_d = @max(d - @divTrunc(base_lmr, 1024), 0);
 			const fp_margin
 			  = params.values.fp_margin0
