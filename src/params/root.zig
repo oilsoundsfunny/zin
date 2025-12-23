@@ -98,6 +98,11 @@ pub const tunables = [_]Tunable {
 	.{.name = "razoring_max_depth", .value = 7, .min = 1, .max = 10, .c_end = 1.0},
 	.{.name = "razoring_depth_mul", .value = 460, .min = 250, .max = 650, .c_end = 10.0},
 
+	.{.name = "fp_max_depth", .value = 8, .min = 4, .max = 9, .c_end = 1.0},
+	.{.name = "fp_margin0", .value = 146, .min = 60, .max = 360, .c_end = 12.0},
+	.{.name = "fp_margin1", .value = 128, .min = 10, .max = 180, .c_end = 12.0},
+	.{.name = "fp_hist_divisor", .value = 393, .min = 256, .max = 512, .c_end = 16.0},
+
 	.{.name = "lmr_min_depth", .value = 3, .min = 2, .max = 5, .c_end = 1.0},
 	.{.name = "lmr_non_improving", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0},
 	.{.name = "lmr_cutnode", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0},

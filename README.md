@@ -3,7 +3,7 @@
 ## features
 - uci-compatible
 - evaluation:
-	- single layer hl320 neural net
+	- single layer 320hl neural net
 	- lazy updates
 	- fused updates
 	- horizontal mirroring
@@ -16,6 +16,7 @@
 	- reverse futility pruning
 	- null move pruning
 	- razoring
+	- quiet / qs futility pruning
 	- late move pruning / reduction
 	- see pruning
 

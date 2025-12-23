@@ -83,6 +83,7 @@ pub const Pool = struct {
 		try pool.reset();
 		try pool.spawn();
 
+		pool.clearHash();
 		return pool;
 	}
 
@@ -708,7 +709,24 @@ fn ab(self: *Thread,
 		const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
 		const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
 
+		const base_lmr = @as(@TypeOf(d), params.lmr.get(d, searched, is_quiet)) * 1024;
+
 		if (!is_root and best.score > evaluation.score.lose) {
+			// futility pruning
+			// 10.0+0.1: 34.28 +- 12.73
+			const lmr_d = @max(d - @divTrunc(base_lmr, 1024), 0);
+			const fp_margin
+			  = params.values.fp_margin0
+			  + params.values.fp_margin1 * lmr_d
+			  + @divTrunc(sm.score, params.values.fp_hist_divisor);
+			if (lmr_d <= params.values.fp_max_depth
+			  and is_quiet
+			  and !is_checked
+			  and a < evaluation.score.win
+			  and stat_eval + fp_margin <= a) {
+				continue :move_loop;
+			}
+
 			// late move pruning (lmp)
 			// 10.0+0.1: 21.30 +- 9.80
 			var very_late: usize = @intCast(d * d);
@@ -744,7 +762,7 @@ fn ab(self: *Thread,
 			score = if (d >= params.values.lmr_min_depth and is_late) reduced: {
 				// late move reduction (lmr)
 				// 10.0+0.1: 48.29 +- 15.89
-				r += @as(@TypeOf(d), params.lmr.get(d, searched, is_quiet)) * 1024;
+				r += base_lmr;
 
 				r += @as(@TypeOf(d), @intFromBool(!improving))
 				  * params.values.lmr_non_improving;
