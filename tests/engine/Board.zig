@@ -14,8 +14,8 @@ test {
 	try engine.init();
 	defer engine.deinit();
 
-	var pos = std.mem.zeroInit(engine.Board.Position, .{});
-	try pos.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
+	var board: engine.Board = .{};
+	try board.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
 }
 
 test {
@@ -99,13 +99,14 @@ test {
 	};
 
 	for (fens) |fen| {
-		var pos: engine.Board.Position = .{};
-		var rma: [1 << 16]bool = undefined;
-		var list: engine.movegen.Move.Scored.List = .{};
+		var board: engine.Board = .{};
+		try board.parseFen(fen);
 
-		try pos.parseFen(fen);
-		_ = list.genNoisy(&pos);
-		_ = list.genQuiet(&pos);
+		var list: engine.movegen.Move.Scored.List = .{};
+		_ = list.genNoisy(board.top());
+		_ = list.genQuiet(board.top());
+
+		var rma: [1 << 16]bool = undefined;
 		@memset(rma[0 ..], false);
 
 		for (list.constSlice()) |sm| {
@@ -113,14 +114,14 @@ test {
 			const i = @as(u16, @bitCast(m));
 
 			rma[i] = true;
-			try std.testing.expect(pos.isMovePseudoLegal(m));
+			try std.testing.expect(board.top().isMovePseudoLegal(m));
 		}
 
 		for (0 .. 1 << 16) |idx| {
 			const i = @as(u16, @truncate(idx));
 			const m = @as(engine.movegen.Move, @bitCast(i));
 
-			std.testing.expectEqual(rma[i], pos.isMovePseudoLegal(m)) catch |err| {
+			std.testing.expectEqual(rma[i], board.top().isMovePseudoLegal(m)) catch |err| {
 				std.debug.print("fen: {s}\n", .{fen});
 
 				std.debug.print("flag: {s}\n", .{switch (m.flag) {
@@ -146,8 +147,8 @@ test {
 	try engine.init();
 	defer engine.deinit();
 
-	var pos: engine.Board.Position = .{};
-	try pos.parseFen("1k1r4/1pp4p/p7/4p3/8/P5P1/1PP4P/2K1R3 w - - 0 1");
+	var board: engine.Board = .{};
+	try board.parseFen("1k1r4/1pp4p/p7/4p3/8/P5P1/1PP4P/2K1R3 w - - 0 1");
 
 	const move: engine.movegen.Move = .{
 		.flag = .none,
@@ -155,7 +156,7 @@ test {
 		.src = .e1,
 		.dst = .e5,
 	};
-	try std.testing.expect(pos.see(move, types.Ptype.pawn.score()));
+	try std.testing.expect(board.top().see(move, types.Ptype.pawn.score()));
 }
 
 test {
@@ -168,8 +169,8 @@ test {
 	try engine.init();
 	defer engine.deinit();
 
-	var pos: engine.Board.Position = .{};
-	try pos.parseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1");
+	var board: engine.Board = .{};
+	try board.parseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1");
 
 	const move: engine.movegen.Move = .{
 		.flag = .none,
@@ -182,9 +183,9 @@ test {
 	const pawn = types.Ptype.pawn.score();
 	const draw = engine.evaluation.score.draw;
 
-	try std.testing.expect(pos.see(move, draw - knight));
-	try std.testing.expect(!pos.see(move, -draw));
+	try std.testing.expect(board.top().see(move, draw - knight));
+	try std.testing.expect(!board.top().see(move, -draw));
 
-	try std.testing.expect(pos.see(move, pawn - knight));
-	try std.testing.expect(!pos.see(move, -pawn));
+	try std.testing.expect(board.top().see(move, pawn - knight));
+	try std.testing.expect(!board.top().see(move, -pawn));
 }

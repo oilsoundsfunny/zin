@@ -45,7 +45,7 @@ test {
 	try engine.init();
 	defer engine.deinit();
 
-	const thread = try std.testing.allocator.create(engine.Thread.Thread);
+	const thread = try std.testing.allocator.create(engine.Thread);
 	defer std.testing.allocator.destroy(thread);
 
 	thread.board = .{};
