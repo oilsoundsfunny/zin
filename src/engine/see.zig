@@ -10,12 +10,28 @@
 // not, see <https://www.gnu.org/licenses/>.
 
 const bitboard = @import("bitboard");
+const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
 const Board = @import("Board.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
+
+fn ptypeValue(p: types.Ptype) evaluation.score.Int {
+	return switch (p) {
+		.pawn => params.values.see_pawn_value,
+		.knight => params.values.see_knight_value,
+		.bishop => params.values.see_bishop_value,
+		.rook => params.values.see_rook_value,
+		.queen => params.values.see_queen_value,
+		else => evaluation.score.draw,
+	};
+}
+
+fn pieceValue(p: types.Piece) evaluation.score.Int {
+	return ptypeValue(p.ptype());
+}
 
 pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
 	if (move.flag != .none) {
@@ -28,12 +44,12 @@ pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.scor
 	const sp = pos.getSquare(s);
 	const dp = pos.getSquare(d);
 
-	var v = dp.score() - min;
+	var v = pieceValue(dp) - min;
 	if (v < 0) {
 		return false;
 	}
 
-	v = sp.score() - v;
+	v = pieceValue(sp) - v;
 	if (v <= 0) {
 		return true;
 	}
@@ -63,7 +79,7 @@ pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.scor
 
 		var least = ours.bwa(pos.ptypeOcc(.pawn));
 		if (least != .none) {
-			v = types.Ptype.pawn.score() - v;
+			v = ptypeValue(.pawn) - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}
@@ -75,7 +91,7 @@ pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.scor
 
 		least = ours.bwa(pos.ptypeOcc(.knight));
 		if (least != .none) {
-			v = types.Ptype.knight.score() - v;
+			v = ptypeValue(.knight) - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}
@@ -86,7 +102,7 @@ pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.scor
 
 		least = ours.bwa(pos.ptypeOcc(.bishop));
 		if (least != .none) {
-			v = types.Ptype.bishop.score() - v;
+			v = ptypeValue(.bishop) - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}
@@ -98,7 +114,7 @@ pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.scor
 
 		least = ours.bwa(pos.ptypeOcc(.rook));
 		if (least != .none) {
-			v = types.Ptype.rook.score() - v;
+			v = ptypeValue(.rook) - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}
@@ -110,7 +126,7 @@ pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.scor
 
 		least = ours.bwa(pos.ptypeOcc(.queen));
 		if (least != .none) {
-			v = types.Ptype.queen.score() - v;
+			v = ptypeValue(.queen) - v;
 			if (v < @intFromBool(ret)) {
 				break;
 			}

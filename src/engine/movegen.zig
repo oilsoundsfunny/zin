@@ -41,7 +41,7 @@ const RootMove = struct {
 				return a.score > b.score;
 			}
 		}.inner;
-		std.mem.sort(RootMove, s, {}, desc);
+		std.sort.insertion(RootMove, s, {}, desc);
 	}
 
 	pub fn update(self: *RootMove,
@@ -96,8 +96,9 @@ const RootMoveList = struct {
 		_ = gen_moves.genNoisy(board.top());
 		_ = gen_moves.genQuiet(board.top());
 		for (gen_moves.constSlice()) |sm| {
-			board.doMove(sm.move) catch continue;
-			defer board.undoMove();
+			if (!board.top().isMoveLegal(sm.move)) {
+				continue;
+			}
 
 			var rm: RootMove = .{};
 			defer root_moves.push(rm);
@@ -121,7 +122,7 @@ const ScoredMove = struct {
 				return a.score > b.score;
 			}
 		}.inner;
-		std.mem.sort(ScoredMove, slice, {}, desc);
+		std.sort.insertion(ScoredMove, slice, {}, desc);
 	}
 };
 
@@ -506,14 +507,18 @@ pub const Picker = struct {
 	}
 
 	fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
-		return if (move == self.ttm or move == self.excluded) Thread.hist.min - 1
-		  else captures: {
-			const mvv = switch (move.flag) {
-				.en_passant => types.Ptype.pawn.score() * 7,
-				else => self.board.top().getSquare(move.dst).ptype().score() * 7,
-			};
+		return if (move == self.ttm or move == self.excluded) Thread.hist.min - 1 else captures: {
+			const dp = self.board.top().getSquare(move.dst);
+			const mvv = if (move.flag != .en_passant) switch (dp.ptype()) {
+				.pawn => params.values.mvv_pawn_value,
+				.knight => params.values.mvv_knight_value,
+				.bishop => params.values.mvv_bishop_value,
+				.rook => params.values.mvv_rook_value,
+				.queen => params.values.mvv_queen_value,
+				else => std.debug.panic("found king capture", .{}),
+			} else params.values.mvv_pawn_value;
 			const lva = self.thread.getNoisyHist(move);
-			break :captures @divTrunc(mvv + lva, 2);
+			break :captures @intCast(@divTrunc(mvv + lva, 2));
 		};
 	}
 

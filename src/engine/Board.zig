@@ -357,17 +357,68 @@ pub const Position = struct {
 		self.key ^= zobrist.enp(self.en_pas);
 	}
 
-	pub fn down(self: anytype, dist: usize) switch (@TypeOf(self)) {
-		*Position, *const Position => |T| T,
-		else => |T| @compileError("unexpected type " ++ @typeName(T)),
-	} {
+	fn tryMove(self: *const Position, move: movegen.Move) MoveError!Position {
+		var pos = self.*;
+		const stm = pos.stm;
+		const s = move.src;
+		const d = move.dst;
+		const sp = pos.getSquare(s);
+		const dp = pos.getSquare(d);
+
+		switch (move.flag) {
+			.none => {
+				@branchHint(.likely);
+				pos.popSq(s, sp);
+				pos.popSq(d, dp);
+				pos.setSq(d, sp);
+			},
+
+			.en_passant => {
+				const our_pawn = types.Piece.init(stm, .pawn);
+				const their_pawn = types.Piece.init(stm.flip(), .pawn);
+				const enp_target = d.shift(stm.forward().flip(), 1);
+
+				pos.popSq(s, our_pawn);
+				pos.setSq(d, our_pawn);
+				pos.popSq(enp_target, their_pawn);
+			},
+
+			.promote => {
+				const our_pawn = types.Piece.init(stm, .pawn);
+				const our_promotion = types.Piece.init(stm, move.info.promote.toPtype());
+
+				pos.popSq(s, our_pawn);
+				pos.popSq(d, dp);
+				pos.setSq(d, our_promotion);
+			},
+
+			.castle => {
+				const info = pos.castles.getAssertContains(move.info.castle);
+				const our_rook = types.Piece.init(stm, .rook);
+				const our_king = types.Piece.init(stm, .king);
+
+				pos.popSq(info.ks, our_king);
+				pos.popSq(info.rs, our_rook);
+
+				pos.setSq(info.kd, our_king);
+				pos.setSq(info.rd, our_rook);
+			},
+		}
+
+		const king = types.Piece.init(stm, .king);
+		const kb = pos.pieceOcc(king);
+		const ks = kb.lowSquare() orelse return error.InvalidMove;
+
+		const atkers = pos.squareAtkers(ks);
+		const them = pos.colorOcc(stm.flip());
+		return if (atkers.bwa(them) == .none) pos else error.InvalidMove;
+	}
+
+	pub fn down(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), Position, Position) {
 		return @ptrCast(self[0 .. 1].ptr - dist);
 	}
 
-	pub fn up(self: anytype, dist: usize) switch (@TypeOf(self)) {
-		*Position, *const Position => |T| T,
-		else => |T| @compileError("unexpected type " ++ @typeName(T)),
-	} {
+	pub fn up(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), Position, Position) {
 		return @ptrCast(self[0 .. 1].ptr + dist);
 	}
 
@@ -439,6 +490,10 @@ pub const Position = struct {
 
 	pub fn isMoveQuiet(self: *const Position, move: movegen.Move) bool {
 		return !self.isMoveNoisy(move);
+	}
+
+	pub fn isMoveLegal(self: *const Position, move: movegen.Move) bool {
+		return if (self.tryMove(move)) |_| true else |_| false;
 	}
 
 	pub fn isMovePseudoLegal(self: *const Position, move: movegen.Move) bool {
@@ -580,19 +635,11 @@ fn setupAccumulators(self: *Board) void {
 	}
 }
 
-pub fn bottom(self: anytype) switch (@TypeOf(self)) {
-	*Board => *Position,
-	*const Board => *const Position,
-	else => |T| @compileError("unexpected type " ++ @typeName(T)),
-} {
+pub fn bottom(self: anytype) types.SameMutPtr(@TypeOf(self), Board, Position) {
 	return &self.positions.slice()[offset];
 }
 
-pub fn top(self: anytype) switch (@TypeOf(self)) {
-	*Board => *Position,
-	*const Board => *const Position,
-	else => |T| @compileError("unexpected type " ++ @typeName(T)),
-} {
+pub fn top(self: anytype) types.SameMutPtr(@TypeOf(self), Board, Position) {
 	const sl = self.positions.slice();
 	return &sl[sl.len - 1];
 }
@@ -619,7 +666,7 @@ pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) Fe
 	self.setupAccumulators();
 }
 
-pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
+pub fn doMove(self: *Board, move: movegen.Move) void {
 	const stm = self.top().stm;
 	const s = move.src;
 	const d = move.dst;
@@ -631,7 +678,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 	self.top().dst_piece = dp;
 
 	const pos = self.positions.addOneAssumeCapacity();
-	pos.* = pos.down(1).*;
+	pos.* = pos.down(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
 	pos.en_pas = null;
 	pos.rule50 += 1;
 
@@ -642,10 +689,6 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 	switch (move.flag) {
 		.none => {
 			@branchHint(.likely);
-			pos.popSq(s, sp);
-			pos.popSq(d, dp);
-			pos.setSq(d, sp);
-
 			if (dp == .none) {
 				accumulator.queueAddSub(
 				  .{.piece = sp, .square = d},
@@ -665,10 +708,6 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			const their_pawn = types.Piece.init(stm.flip(), .pawn);
 			const enp_target = d.shift(stm.forward().flip(), 1);
 
-			pos.popSq(s, our_pawn);
-			pos.setSq(d, our_pawn);
-			pos.popSq(enp_target, their_pawn);
-
 			accumulator.queueAddSubSub(
 			  .{.piece = our_pawn, .square = d},
 			  .{.piece = our_pawn, .square = s},
@@ -679,10 +718,6 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 		.promote => {
 			const our_pawn = types.Piece.init(stm, .pawn);
 			const our_promotion = types.Piece.init(stm, move.info.promote.toPtype());
-
-			pos.popSq(s, our_pawn);
-			pos.popSq(d, dp);
-			pos.setSq(d, our_promotion);
 
 			if (dp == .none) {
 				accumulator.queueAddSub(
@@ -703,12 +738,6 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			const our_rook = types.Piece.init(stm, .rook);
 			const our_king = types.Piece.init(stm, .king);
 
-			pos.popSq(info.ks, our_king);
-			pos.popSq(info.rs, our_rook);
-
-			pos.setSq(info.kd, our_king);
-			pos.setSq(info.rd, our_rook);
-
 			accumulator.queueAddAddSubSub(
 			  .{.piece = our_king, .square = info.kd},
 			  .{.piece = our_rook, .square = info.rd},
@@ -716,22 +745,6 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 			  .{.piece = our_rook, .square = info.rs},
 			);
 		},
-	}
-
-	{
-		const king = types.Piece.init(stm, .king);
-		const kb = pos.pieceOcc(king);
-		const ks = kb.lowSquare() orelse {
-			self.undoMove();
-			return error.InvalidMove;
-		};
-
-		const atkers = pos.squareAtkers(ks);
-		const them = pos.colorOcc(stm.flip());
-		if (atkers.bwa(them) != .none) {
-			self.undoMove();
-			return error.InvalidMove;
-		}
 	}
 
 	switch (sp) {
@@ -809,11 +822,7 @@ pub fn doMove(self: *Board, move: movegen.Move) MoveError!void {
 	  ^ zobrist.enp(pos.en_pas);
 }
 
-pub fn doNull(self: *Board) MoveError!void {
-	if (self.top().isChecked()) {
-		return error.InvalidMove;
-	}
-
+pub fn doNull(self: *Board) void {
 	self.top().move = .{};
 	self.top().src_piece = .none;
 	self.top().dst_piece = .none;

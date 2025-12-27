@@ -5,6 +5,7 @@ const types = @import("types");
 
 const Board = @import("Board.zig");
 const movegen = @import("movegen.zig");
+const Thread = @import("Thread.zig");
 
 pub const score = struct {
 	const max = std.math.maxInt(i16);
@@ -96,3 +97,61 @@ pub const score = struct {
 		return .{w, 1000 - w - l, l};
 	}
 };
+
+pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
+	pool.io.deinit(pool.allocator);
+	pool.io = try types.IO.init(pool.allocator, path, 65536, null, 65536);
+
+	var board: Board = .{};
+	var cnt: u32 = 0;
+	var sum: i64 = 0;
+	var abs_sum: u64 = 0;
+	var sq_sum: u64 = 0;
+	var max: score.Int = std.math.minInt(score.Int);
+	var min: score.Int = std.math.maxInt(score.Int);
+
+	while (pool.io.reader().takeDelimiterInclusive('\n')) |line| {
+		board.parseFen(line) catch continue;
+		if (board.top().isChecked()) {
+			continue;
+		}
+
+		const eval = board.evaluate();
+		cnt += 1;
+		sum += eval;
+		abs_sum += @intCast(if (eval < 0) -eval else eval);
+		sq_sum += @intCast(eval * eval);
+		max = @max(max, eval);
+		min = @min(min, eval);
+
+		if (cnt % 1024 == 0) {
+			try pool.io.writer().print("processed {d} positions\n", .{cnt});
+			try pool.io.writer().flush();
+		}
+	} else |err| switch (err) {
+		error.EndOfStream => {},
+		else => return err,
+	}
+
+	const fcnt: f64 = @floatFromInt(cnt);
+	const fsum: f64 = @floatFromInt(sum);
+	const fabs_sum: f64 = @floatFromInt(abs_sum);
+	const fsq_sum: f64 = @floatFromInt(sq_sum);
+	const fmax: f64 = @floatFromInt(max);
+	const fmin: f64 = @floatFromInt(min);
+
+	const mean = fsum / fcnt;
+	const abs_mean = fabs_sum / fcnt;
+	const variance = fsq_sum / fcnt - mean * mean;
+	const stddev = @sqrt(variance);
+
+	try pool.io.writer().print("    mean: {d}\n", .{mean});
+	try pool.io.writer().print("abs mean: {d}\n", .{abs_mean});
+	try pool.io.writer().print("  stddev: {d}\n", .{stddev});
+	try pool.io.writer().print("     max: {d}\n", .{fmax});
+	try pool.io.writer().print("     min: {d}\n", .{fmin});
+
+	const scale = 1087.1360293824707 / abs_mean * nnue.arch.scale;
+	try pool.io.writer().print("   scale: {d}\n", .{scale});
+	try pool.io.writer().flush();
+}

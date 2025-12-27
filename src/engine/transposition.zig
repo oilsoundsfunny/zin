@@ -67,8 +67,6 @@ pub const Cluster = packed struct(u256) {
 };
 
 pub const Table = struct {
-	allocator:	std.mem.Allocator,
-
 	slice:	[]Cluster,
 	age:	u5,
 
@@ -76,8 +74,8 @@ pub const Table = struct {
 		return zobrist.index(key, self.slice.len);
 	}
 
-	pub fn deinit(self: *Table) void {
-		self.allocator.free(self.slice);
+	pub fn deinit(self: *Table, allocator: std.mem.Allocator) void {
+		allocator.free(self.slice);
 		self.slice = undefined;
 		self.resetAge();
 	}
@@ -86,32 +84,26 @@ pub const Table = struct {
 		const options: Thread.Options = .{};
 		const len = (mb orelse options.hash) * (1 << 20) / @sizeOf(Cluster);
 		return .{
-			.allocator = allocator,
 			.slice = try allocator.alloc(Cluster, len),
 			.age = 0,
 		};
 	}
 
-	pub fn realloc(self: *Table, mb: usize) !void {
+	pub fn realloc(self: *Table, allocator: std.mem.Allocator, mb: usize) !void {
 		const len = (mb << 20) / @sizeOf(Cluster);
-		self.slice = try self.allocator.realloc(self.slice, len);
-	}
-
-	// TODO: let Thread.Pool clear hash instead
-	pub fn clear(self: *const Table, _: usize) !void {
-		for (self.slice) |*ttc| {
-			ttc.* = .{};
-		}
+		self.slice = try allocator.realloc(self.slice, len);
 	}
 
 	pub fn hashfull(self: *const Table) usize {
 		var full: usize = 0;
-		for (self.slice[0 .. 1000]) |cluster| {
-			full += @intFromBool(cluster.et0 != @as(Entry, .{}));
-			full += @intFromBool(cluster.et1 != @as(Entry, .{}));
-			full += @intFromBool(cluster.et2 != @as(Entry, .{}));
+		for (self.slice[0 .. 2000]) |*cluster| {
+			inline for (0 .. 3) |i| {
+				const name = std.fmt.comptimePrint("et{d}", .{i});
+				const entry: *align(2) Entry = @ptrCast(&@field(cluster, name));
+				full += @intFromBool(entry.age == self.age);
+			}
 		}
-		return full / 3;
+		return (full + 3) / 6;
 	}
 
 	pub fn doAge(self: *Table) void {

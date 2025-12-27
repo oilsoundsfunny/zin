@@ -10,7 +10,7 @@ const Modules = enum {
 
 	const dependencies = std.EnumArray(Modules, []const Modules).init(.{
 		.bitboard = &.{.types},
-		.engine = &.{.bitboard, .nnue, .params, .types},
+		.engine = &.{.bitboard, .nnue, .params, .selfplay, .types},
 		.nnue = &.{.engine, .types},
 		.params = &.{.engine, .types},
 		.selfplay = &.{.bitboard, .engine, .params, .types},

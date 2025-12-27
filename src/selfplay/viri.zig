@@ -60,6 +60,8 @@ const Piece = enum(u4) {
 	}
 };
 
+pub const Line = bounded_array.BoundedArray(Move.Scored, 1024);
+
 pub const Move = packed struct(u16) {
 	src:	types.Square = @enumFromInt(0),
 	dst:	types.Square = @enumFromInt(0),
@@ -90,7 +92,7 @@ pub const Result = enum(u8) {
 	_,
 };
 
-pub const Self = extern struct {
+pub const Data = extern struct {
 	occ:	types.Square.Set = .none,
 	pieces:	u128 align(8) = 0,
 
@@ -103,8 +105,8 @@ pub const Self = extern struct {
 	result:	Result = .draw,
 	pad:	u8 = 0,
 
-	pub fn fromPosition(board: *engine.Board) Self {
-		var self: Self = .{};
+	pub fn fromBoard(board: *engine.Board) Data {
+		var self: Data = .{};
 		const pos = board.top();
 		const eval = board.evaluate();
 

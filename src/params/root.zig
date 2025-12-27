@@ -65,6 +65,18 @@ pub const Tunable = struct {
 
 pub const tuning = false;
 pub const tunables = [_]Tunable {
+	.{.name = "see_pawn_value", .value = 256, .min = null, .max = null, .c_end = null},
+	.{.name = "see_knight_value", .value = 256 * 44 / 16, .min = null, .max = null, .c_end = null},
+	.{.name = "see_bishop_value", .value = 256 * 52 / 16, .min = null, .max = null, .c_end = null},
+	.{.name = "see_rook_value", .value = 256 * 5, .min = null, .max = null, .c_end = null},
+	.{.name = "see_queen_value", .value = 256 * 9, .min = null, .max = null, .c_end = null},
+
+	.{.name = "mvv_pawn_value", .value = 256 * 7, .min = null, .max = null, .c_end = 200.0},
+	.{.name = "mvv_knight_value", .value = 256 * 44 / 16 * 7, .min = null, .max = null, .c_end = 200.0},
+	.{.name = "mvv_bishop_value", .value = 256 * 52 / 16 * 7, .min = null, .max = null, .c_end = 200.0},
+	.{.name = "mvv_rook_value", .value = 256 * 5 * 7, .min = null, .max = null, .c_end = 200.0},
+	.{.name = "mvv_queen_value", .value = 256 * 9 * 7, .min = null, .max = null, .c_end = 200.0},
+
 	.{.name = "base_time_mul", .value = 5, .min = 2, .max = 13, .c_end = 1.0},
 	.{.name = "base_incr_mul", .value = 50, .min = 25, .max = 100, .c_end = 5.0},
 
@@ -158,17 +170,14 @@ pub fn parseTunable(name: []const u8, aux: []const u8,
 	opt_value.?.* = value;
 }
 
-pub fn printOptions(io: *types.Io) !void {
-	const writer = io.writer();
+pub fn printOptions(writer: *std.Io.Writer) !void {
 	for (tunables) |tunable| {
 		try writer.print("option name {s} type spin default {d} min {d} max {d}\n",
 		  .{tunable.name, tunable.value, tunable.getMin(), tunable.getMax()});
 	}
-	try writer.flush();
 }
 
-pub fn printValues(io: *types.Io) !void {
-	const writer = io.writer();
+pub fn printValues(writer: *std.Io.Writer) !void {
 	for (tunables) |tunable| {
 		try writer.print("{s}, int, {d:.1}, {d:.1}, {d:.1}, {d:.3}, 0.002\n", .{
 		  tunable.name,
@@ -178,5 +187,4 @@ pub fn printValues(io: *types.Io) !void {
 		  tunable.getCEnd(),
 		});
 	}
-	try writer.flush();
 }

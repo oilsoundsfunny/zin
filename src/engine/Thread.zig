@@ -1,5 +1,6 @@
 const bounded_array = @import("bounded_array");
 const params = @import("params");
+const selfplay = @import("selfplay");
 const std = @import("std");
 const types = @import("types");
 
@@ -14,11 +15,22 @@ const Thread = @This();
 
 const Node = transposition.Entry.Flag;
 
-const Request = enum {
-	clear_hash,
-	quit,
-	search,
-	sleep,
+const Request = union(Tag) {
+	bench:		void,
+	clear_hash:	void,
+	datagen:	selfplay.Request,
+	quit:	void,
+	search:	void,
+	sleep:	void,
+
+	const Tag = enum {
+		bench,
+		clear_hash,
+		datagen,
+		quit,
+		search,
+		sleep,
+	};
 };
 
 pub const Depth = evaluation.score.Int;
@@ -37,9 +49,8 @@ pub const Pool = struct {
 	options:	Options,
 	timer:	std.time.Timer,
 
-	quiet:	bool,
-	io:	*types.Io,
-	tt:	*transposition.Table,
+	io:	types.IO,
+	tt:	transposition.Table,
 
 	fn spawn(self: *Pool) !void {
 		const config: std.Thread.SpawnConfig = .{.allocator = self.allocator};
@@ -48,14 +59,42 @@ pub const Pool = struct {
 		}
 	}
 
+	fn waitHelpers(self: *Pool) void {
+		if (self.threads.items.len > 1) {
+			for (self.threads.items[1 ..]) |*thread| {
+				thread.waitSleep();
+			}
+		}
+	}
+
+	fn waitMain(self: *Pool) void {
+		self.threads.items[0].waitSleep();
+	}
+
+	fn wakeHelpers(self: *Pool, rq: Request) void {
+		if (self.threads.items.len > 1) {
+			for (self.threads.items[1 ..]) |*thread| {
+				thread.wake(rq);
+			}
+		}
+	}
+
+	fn wakeMain(self: *Pool, rq: Request) void {
+		self.threads.items[0].wake(rq);
+	}
+
 	pub fn destroy(self: *Pool) void {
 		self.join();
 		self.threads.deinit(self.allocator);
+
+		self.io.deinit(self.allocator);
+		self.tt.deinit(self.allocator);
+
 		self.allocator.destroy(self);
 	}
 
 	pub fn create(allocator: std.mem.Allocator, opt_threads: ?usize,
-	  quiet: bool, io: *types.Io, tt: *transposition.Table) !*Pool {
+	  io: types.IO, tt: transposition.Table) !*Pool {
 		const options: Options = .{};
 		const threads = opt_threads orelse options.threads;
 
@@ -74,7 +113,6 @@ pub const Pool = struct {
 			.sleeping = false,
 			.stop = true,
 
-			.quiet = quiet,
 			.io = io,
 			.tt = tt,
 		};
@@ -82,8 +120,8 @@ pub const Pool = struct {
 		_ = try pool.threads.addManyAsSliceBounded(threads);
 		try pool.reset();
 		try pool.spawn();
-
 		pool.clearHash();
+
 		return pool;
 	}
 
@@ -166,39 +204,53 @@ pub const Pool = struct {
 		}
 	}
 
+	pub fn bench(self: *Pool) void {
+		self.stopSearch();
+		self.tt.doAge();
+
+		self.stop = false;
+		self.searching = true;
+		self.wakeMain(.bench);
+		self.waitMain();
+	}
+
 	pub fn clearHash(self: *Pool) void {
 		self.stopSearch();
-		for (self.threads.items) |*thread| {
-			thread.wake(.clear_hash);
-		}
+		self.wakeMain(.clear_hash);
+		self.wakeHelpers(.clear_hash);
 		self.waitSleep();
+	}
+
+	pub fn datagen(self: *Pool, rq: selfplay.Request) void {
+		self.stopSearch();
+		self.tt.doAge();
+
+		self.stop = false;
+		self.searching = true;
+
+		self.wakeMain(.{.datagen = rq});
+		self.wakeHelpers(.{.datagen = rq});
 	}
 
 	pub fn search(self: *Pool) void {
 		self.stopSearch();
-		self.stop = false;
 		self.tt.doAge();
 
-		const main_thread = &self.threads.items[0];
-		const board = &main_thread.board;
-		const root_moves = &main_thread.root_moves;
-		root_moves.* = movegen.Move.Root.List.init(board);
-
+		self.stop = false;
 		self.searching = true;
-		main_thread.wake(.search);
+		self.wakeMain(.search);
 	}
 
 	pub fn stopSearch(self: *Pool) void {
 		if (self.searching) {
 			self.stop = true;
-			self.threads.items[0].waitSleep();
+			self.waitMain();
 		}
 	}
 
 	pub fn waitSleep(self: *Pool) void {
-		for (self.threads.items) |*thread| {
-			thread.waitSleep();
-		}
+		self.waitMain();
+		self.waitHelpers();
 	}
 };
 
@@ -209,24 +261,33 @@ pub const Options = struct {
 	overhead:	u64 = 10,
 
 	infinite:	bool = true,
-	depth:	?Depth = null,
-	nodes:	?u64 = null,
+	depth:		?Depth = null,
+	movetime:	?u64 = null,
+
+	hard_nodes:	?u64 = null,
+	soft_nodes:	?u64 = null,
 
 	incr: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
 	time: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
 
-	movetime:	?u64 = null,
-	stop:	?u64 = null,
+	hard_stop:	?u64 = null,
+	soft_stop:	?u64 = null,
 
 	pub fn reset(self: *Options) void {
-		self.* = .{};
+		self.* = .{
+			.frc = self.frc,
+			.hash = self.hash,
+			.threads = self.threads,
+			.overhead = self.overhead,
+		};
 	}
 
-	pub fn calcLimits(self: *Options, stm: types.Color) void {
+	pub fn setLimits(self: *Options, stm: types.Color) void {
 		const has_clock = self.incr.get(stm) != null and self.time.get(stm) != null;
 		const overhead = self.overhead;
 
-		self.stop = if (self.movetime) |mt| mt -| overhead else if (has_clock) blk: {
+		const from_movetime = if (self.movetime) |mt| mt -| overhead else std.math.maxInt(u64);
+		const from_clock = if (!has_clock) std.math.maxInt(u64) else blk: {
 			const incr: f32 = @floatFromInt(self.incr.get(stm).?);
 			const time: f32 = @floatFromInt(self.time.get(stm).?);
 
@@ -235,8 +296,13 @@ pub const Options = struct {
 
 			const mt: u64 = @intFromFloat(time * tm * 0.01 + incr * im * 0.01);
 			break :blk mt -| overhead;
-		} else null;
-		self.infinite = self.depth == null and self.nodes == null and self.stop == null;
+		};
+		const min_time = @min(from_movetime, from_clock);
+
+		self.hard_stop = if (min_time < std.math.maxInt(u64)) min_time else null;
+		self.infinite = self.depth == null
+		  and self.soft_nodes == null and self.soft_stop == null
+		  and self.hard_nodes == null and self.hard_stop == null;
 	}
 };
 
@@ -264,11 +330,7 @@ pub const hist = struct {
 
 	fn gravity(p: *Int, dx: evaluation.score.Int) void {
 		const clamped = std.math.clamp(dx, min, max);
-		const abs = switch (clamped) {
-			min ... -1 => -clamped,
-			0 ... max => clamped,
-			else => std.debug.panic("integer overflow: {d}", .{clamped}),
-		};
+		const abs = if (clamped < 0) -clamped else clamped;
 
 		const curr: evaluation.score.Int = p.*;
 		const next = curr + clamped - @divTrunc(curr * abs, max);
@@ -304,20 +366,14 @@ conthist:	[types.Color.cnt][4]
   [1 << types.Ptype.tag_info.bits][types.Square.cnt]hist.Int
   = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
 
-fn quietHistPtr(self: anytype, move: movegen.Move) switch (@TypeOf(self)) {
-	*Thread => *hist.Int,
-	*const Thread => *const hist.Int,
-	else => |T| @compileError("unexpected type " ++ @typeName(T)),
-} {
+fn quietHistPtr(self: anytype,
+  move: movegen.Move) types.SameMutPtr(@TypeOf(self), Thread, hist.Int) {
 	const sp = self.board.top().getSquare(move.src);
 	return &self.quiethist[sp.color().tag()][sp.ptype().tag()][move.dst.tag()];
 }
 
-fn noisyHistPtr(self: anytype, move: movegen.Move) switch (@TypeOf(self)) {
-	*Thread => *hist.Int,
-	*const Thread => *const hist.Int,
-	else => |T| @compileError("unexpected type " ++ @typeName(T)),
-} {
+fn noisyHistPtr(self: anytype,
+  move: movegen.Move) types.SameMutPtr(@TypeOf(self), Thread, hist.Int) {
 	const sp = self.board.top().getSquare(move.src);
 	const dp = self.board.top().getSquare(move.dst);
 
@@ -325,26 +381,21 @@ fn noisyHistPtr(self: anytype, move: movegen.Move) switch (@TypeOf(self)) {
 	  [sp.color().tag()]
 	  [sp.ptype().tag()]
 	  [move.dst.tag()]
-	  [if (dp == .none) types.Ptype.cnt else dp.ptype().tag()];
+	  [dp.ptype().tag()];
 }
 
-fn contHistPtr(self: anytype, move: movegen.Move, ply: usize) switch (@TypeOf(self)) {
-	*Thread => *hist.Int,
-	*const Thread => *const hist.Int,
-	else => |T| @compileError("unexpected type " ++ @typeName(T)),
-} {
-	const last_m = self.board.top().down(ply).move;
-	const last_spt = if (last_m.isNone()) types.Ptype.cnt
-	  else self.board.top().down(ply).src_piece.ptype().tag();
-	const last_dst = last_m.dst.tag();
+fn contHistPtr(self: anytype, move: movegen.Move,
+  ply: usize) types.SameMutPtr(@TypeOf(self), Thread, hist.Int) {
+	const last_spt = self.board.top().down(ply).src_piece.ptype();
+	const last_dst = self.board.top().down(ply).move.dst;
 
-	const this_spt = self.board.top().getSquare(move.src).ptype().tag();
-	const this_dst = move.dst.tag();
+	const this_spt = self.board.top().getSquare(move.src).ptype();
+	const this_dst = move.dst;
 
 	return &self.conthist
 	  [self.board.top().stm.tag()][ply / 2]
-	  [last_spt][last_dst]
-	  [this_spt][this_dst];
+	  [last_spt.tag()][last_dst.tag()]
+	  [this_spt.tag()][this_dst.tag()];
 }
 
 fn updateHist(self: *Thread, depth: Depth, move: movegen.Move,
@@ -380,25 +431,24 @@ fn updateHist(self: *Thread, depth: Depth, move: movegen.Move,
 fn printInfo(self: *const Thread,
   pv: *const movegen.Move.Root,
   depth: Depth, seldepth: Depth) !void {
-	if (self.pool.quiet) {
-		return;
-	}
+	const io = &self.pool.io;
+	const tt = &self.pool.tt;
 
-	const writer = self.pool.io.writer();
+	self.pool.mtx.lock();
+	defer self.pool.mtx.unlock();
+
+	const writer = io.writer();
 	const timer = &self.pool.timer;
 
 	const nodes = self.pool.nodes();
 	const ntime = timer.read();
 	const mtime = ntime / std.time.ns_per_ms;
 
-	self.pool.io.lockWriter();
-	defer self.pool.io.unlockWriter();
-
 	try writer.print("info", .{});
 	try writer.print(" depth {d}", .{depth});
 	try writer.print(" seldepth {d}", .{seldepth});
 
-	try writer.print(" hashfull {d}", .{self.pool.tt.hashfull()});
+	try writer.print(" hashfull {d}", .{tt.hashfull()});
 	try writer.print(" nodes {d}", .{nodes});
 	try writer.print(" time {d}", .{mtime});
 	try writer.print(" nps {d}", .{nodes * std.time.ns_per_s / ntime});
@@ -431,12 +481,8 @@ fn printInfo(self: *const Thread,
 }
 
 fn printBest(self: *const Thread, pv: *const movegen.Move.Root) !void {
-	if (self.pool.quiet) {
-		return;
-	}
-
-	self.pool.io.lockWriter();
-	defer self.pool.io.unlockWriter();
+	self.pool.mtx.lock();
+	defer self.pool.mtx.unlock();
 
 	if (pv.constSlice().len == 0) {
 		try self.pool.io.writer().print("bestmove 0000\n", .{});
@@ -451,23 +497,29 @@ fn printBest(self: *const Thread, pv: *const movegen.Move.Root) !void {
 	try self.pool.io.writer().flush();
 }
 
-fn hardStop(self: *Thread) bool {
+fn datagenStop(self: *Thread, comptime which: enum {hard, soft}) bool {
+	const options = &self.pool.options;
+	const nodes_lim = if (which == .hard) options.hard_nodes else options.soft_nodes;
+	return if (nodes_lim) |lim| self.nodes >= lim else false;
+}
+
+fn searchStop(self: *Thread, comptime which: enum {hard, soft}) bool {
 	const options = &self.pool.options;
 	if (options.infinite) {
 		return false;
 	}
 
 	const nodes = self.nodes;
-	if (options.nodes) |lim| {
-		if (nodes >= lim) {
-			return true;
-		}
+	const nodes_lim = if (which == .hard) options.hard_nodes else options.soft_nodes;
+	if (nodes_lim != null and nodes >= nodes_lim.?) {
+		return true;
 	}
 
 	const timer = &self.pool.timer;
+	const time_lim = if (which == .hard) options.hard_stop else options.soft_stop;
 	return nodes % 2048 == 0
-	  and options.stop != null
-	  and options.stop.? * std.time.ns_per_ms <= timer.read();
+	  and time_lim != null
+	  and time_lim.? * std.time.ns_per_ms <= timer.read();
 }
 
 fn asp(self: *Thread) void {
@@ -478,26 +530,30 @@ fn asp(self: *Thread) void {
 	var w: @TypeOf(pvs) = params.values.asp_window;
 
 	const d = self.depth;
-	var a: @TypeOf(pvs) = evaluation.score.lose;
-	var b: @TypeOf(pvs) = evaluation.score.win;
+	var a: @TypeOf(pvs) = evaluation.score.mated;
+	var b: @TypeOf(pvs) = evaluation.score.mate;
 	if (d >= params.values.asp_min_depth) {
-		a = std.math.clamp(pvs - w, evaluation.score.lose, evaluation.score.win);
-		b = std.math.clamp(pvs + w, evaluation.score.lose, evaluation.score.win);
+		a = std.math.clamp(pvs - w, evaluation.score.mated, evaluation.score.mate);
+		b = std.math.clamp(pvs + w, evaluation.score.mated, evaluation.score.mate);
 	}
 
-	while (true) : (w += @divTrunc(w * params.values.asp_window_mul, 256)) {
+	while (true) : ({
+		w = w + @divTrunc(w * params.values.asp_window_mul, 256);
+		w = std.math.clamp(w, evaluation.score.mated, evaluation.score.mate);
+	}) {
 		s = self.ab(.exact, 0, a, b, d);
 
-		if (self.pool.stop) {
+		const datagen_stop = self.request == .datagen and self.datagenStop(.hard);
+		if (datagen_stop or self.pool.stop) {
 			break;
 		}
 
 		if (s <= a) {
 			b = @divTrunc(a + b, 2);
-			a = std.math.clamp(a - w, evaluation.score.lose, evaluation.score.win);
+			a = std.math.clamp(a - w, evaluation.score.mated, evaluation.score.mate);
 		} else if (s >= b) {
 			a = @divTrunc(a + b, 2);
-			b = std.math.clamp(b + w, evaluation.score.lose, evaluation.score.win);
+			b = std.math.clamp(b + w, evaluation.score.mated, evaluation.score.mate);
 		} else break;
 	}
 }
@@ -511,11 +567,18 @@ fn ab(self: *Thread,
 	self.nodes += 1;
 	self.board.top().pv.line.resize(0) catch unreachable;
 
-	const is_main = self.idx == 0;
-	if (is_main and self.hardStop()) {
-		self.pool.stop = true;
+	if (self.pool.stop) {
 		return alpha;
-	} else if (self.pool.stop) {
+	}
+
+	const is_datagen = self.request == .datagen;
+	if (is_datagen and self.datagenStop(.hard)) {
+		return alpha;
+	}
+
+	const is_main = self.idx == 0;
+	if (!is_datagen and is_main and self.searchStop(.hard)) {
+		self.pool.stop = true;
 		return alpha;
 	}
 
@@ -549,14 +612,16 @@ fn ab(self: *Thread,
 	}
 
 	const board = &self.board;
+	const is_drawn = self.board.isDrawn();
+	const is_terminal = self.board.isTerminal();
+	if (is_drawn or is_terminal) {
+		@branchHint(.unlikely);
+		return if (is_drawn) draw else board.evaluate();
+	}
+
 	const pos = board.top();
 	const key = pos.key;
 	const is_checked = pos.isChecked();
-	if (self.board.isDrawn()) {
-		return draw;
-	} else if (self.board.isTerminal()) {
-		return board.evaluate();
-	}
 
 	var tte: transposition.Entry = .{};
 	const tt = self.pool.tt;
@@ -654,7 +719,7 @@ fn ab(self: *Thread,
 		  + @intFromBool(improving);
 
 		var s = null_search: {
-			board.doNull() catch std.debug.panic("invalid null move", .{});
+			board.doNull();
 			defer board.undoNull();
 
 			break :null_search -self.ab(node.flip(), ply + 1, -b, 1 - b, d - r);
@@ -704,6 +769,9 @@ fn ab(self: *Thread,
 
 	move_loop: while (mp.next()) |sm| {
 		const m = sm.move;
+		if (!pos.isMoveLegal(m)) {
+			continue :move_loop;
+		}
 
 		const is_ttm = m == mp.ttm;
 		const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
@@ -741,7 +809,7 @@ fn ab(self: *Thread,
 		var r: Depth = 0;
 
 		const s = recur: {
-			board.doMove(m) catch continue :move_loop;
+			board.doMove(m);
 			tt.prefetch(board.top().key);
 
 			defer board.undoMove();
@@ -809,7 +877,8 @@ fn ab(self: *Thread,
 			break :recur score;
 		};
 
-		if (self.pool.stop) {
+		const datagen_stop = is_datagen and self.datagenStop(.hard);
+		if (datagen_stop or self.pool.stop) {
 			return a;
 		}
 
@@ -892,11 +961,18 @@ fn qs(self: *Thread,
 	self.nodes += 1;
 	self.board.top().pv.line.resize(0) catch unreachable;
 
-	const is_main = self.idx == 0;
-	if (is_main and self.hardStop()) {
-		self.pool.stop = true;
+	if (self.pool.stop) {
 		return alpha;
-	} else if (self.pool.stop) {
+	}
+
+	const is_datagen = self.request == .datagen;
+	if (is_datagen and self.datagenStop(.hard)) {
+		return alpha;
+	}
+
+	const is_main = self.idx == 0;
+	if (!is_datagen and is_main and self.searchStop(.hard)) {
+		self.pool.stop = true;
 		return alpha;
 	}
 
@@ -907,14 +983,16 @@ fn qs(self: *Thread,
 	var a = alpha;
 
 	const board = &self.board;
+	const is_drawn = self.board.isDrawn();
+	const is_terminal = self.board.isTerminal();
+	if (is_drawn or is_terminal) {
+		@branchHint(.unlikely);
+		return if (is_drawn) draw else board.evaluate();
+	}
+
 	const pos = board.top();
 	const key = pos.key;
 	const is_checked = pos.isChecked();
-	if (self.board.isDrawn()) {
-		return draw;
-	} else if (self.board.isTerminal()) {
-		return board.evaluate();
-	}
 
 	var tte: transposition.Entry = .{};
 	const tt = self.pool.tt;
@@ -964,6 +1042,7 @@ fn qs(self: *Thread,
 
 	move_loop: while (mp.next()) |sm| {
 		const m = sm.move;
+
 		if (searched > 0) {
 			if (mp.stage.isBad()) {
 				break :move_loop;
@@ -987,7 +1066,11 @@ fn qs(self: *Thread,
 		}
 
 		const s = recur: {
-			board.doMove(m) catch continue :move_loop;
+			// TODO: move this to top of the loop
+			if (!pos.isMoveLegal(m)) {
+				continue :move_loop;
+			}
+			board.doMove(m);
 			tt.prefetch(board.top().key);
 
 			defer board.undoMove();
@@ -997,7 +1080,8 @@ fn qs(self: *Thread,
 			break :recur -self.qs(ply + 1, -b, -a);
 		};
 
-		if (self.pool.stop) {
+		const datagen_stop = is_datagen and self.datagenStop(.hard);
+		if (datagen_stop or self.pool.stop) {
 			return a;
 		}
 
@@ -1036,7 +1120,7 @@ fn qs(self: *Thread,
 }
 
 fn loop(self: *Thread) !void {
-	idle: while (true) : (self.request = .sleep) {
+	idle: while (true) {
 		self.pool.mtx.lock();
 		while (self.request == .sleep) {
 			self.pool.cond.signal();
@@ -1044,10 +1128,12 @@ fn loop(self: *Thread) !void {
 		}
 		self.pool.mtx.unlock();
 
+		defer self.request = .sleep;
 		switch (self.request) {
+			.bench, .search => try self.search(),
 			.clear_hash => self.clearHash(),
+			.datagen => try self.datagen(),
 			.quit => break :idle,
-			.search => try self.search(),
 			.sleep => continue :idle,
 		}
 	}
@@ -1105,16 +1191,31 @@ fn clearHash(self: *Thread) void {
 	}
 }
 
+fn datagen(self: *Thread) !void {
+	return selfplay.thread.datagen(self);
+}
+
 pub fn search(self: *Thread) !void {
 	self.nodes = 0;
 	self.tbhits = 0;
 	self.tthits = 0;
 
+	const pool = self.pool;
+	const rq = self.request;
+
 	const is_main = self.idx == 0;
 	const is_threaded = self.cnt > 1;
-	const pool = self.pool;
 
-	if (is_main and is_threaded) {
+	const is_bench = rq == .bench;
+	const is_datagen = rq == .datagen;
+	const is_search = rq == .search;
+	const should_report = !is_bench and !is_datagen and is_main;
+
+	if (!is_search or is_main) {
+		self.root_moves = movegen.Move.Root.List.init(&self.board);
+	}
+
+	if (is_search and is_main and is_threaded) {
 		for (pool.threads.items[1 ..]) |*thread| {
 			thread.board = self.board;
 			thread.root_moves = self.root_moves;
@@ -1128,7 +1229,7 @@ pub fn search(self: *Thread) !void {
 
 	const no_moves = self.root_moves.constSlice().len == 0;
 	last_pv = if (no_moves) {
-		if (!is_main) {
+		if (!should_report) {
 			return;
 		}
 
@@ -1149,18 +1250,21 @@ pub fn search(self: *Thread) !void {
 		movegen.Move.Root.sortSlice(self.root_moves.slice());
 		if (self.pool.stop) {
 			break;
-		} else if (!is_main) {
+		} else if (!should_report) {
 			continue;
 		}
 
 		last_depth = self.depth;
 		last_seldepth = self.seldepth;
 		last_pv = self.root_moves.constSlice()[0];
-
 		try self.printInfo(&last_pv, last_depth, last_seldepth);
+
+		if (self.searchStop(.soft)) {
+			break;
+		}
 	}
 
-	if (!is_main) {
+	if (!should_report) {
 		return;
 	}
 

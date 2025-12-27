@@ -1,22 +1,28 @@
 # mostly yoinked from pawnocchio
 # https://github.com/JonathanHallstrom/pawnocchio/blob/main/Makefile
 
-ifndef	EXE
-EXE	= zin
+ifndef EXE
+EXE = zin
 endif
 
-ifeq	($(OS), Windows_NT)
-MV	= move .\zig-out\bin\zin.exe $(EXE).exe
+ifdef ARCH
+CPU = -Dcpu=$(ARCH)
 else
-MV	= mv ./zig-out/bin/zin $(EXE)
+CPU =
 endif
 
-ifdef	EVALFILE
-NETWORK	= -Devalfile=$(EVALFILE)
+ifeq ($(OS), Windows_NT)
+MV = move .\zig-out\bin\zin.exe $(EXE).exe
 else
-NETWORK	=
+MV = mv ./zig-out/bin/zin $(EXE)
+endif
+
+ifdef EVALFILE
+NETWORK = -Devalfile=$(EVALFILE)
+else
+NETWORK =
 endif
 
 default:
-	-zig build $(NETWORK) --release=fast
+	-zig build $(CPU) $(NETWORK) --release=fast
 	@$(MV)

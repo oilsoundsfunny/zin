@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const Io = @import("Io.zig");
+pub const IO = @import("IO.zig");
 
 const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
 	none = (1 << (Square.cnt * 0)) - 1,
@@ -197,6 +197,53 @@ const CastleSet = enum(std.meta.Int(.unsigned, Castle.cnt)) {
 	}
 };
 
+pub const Ptype = enum(u3) {
+	pawn,
+	knight,
+	bishop,
+	rook,
+	queen,
+	king,
+	none,
+
+	const char_array = std.EnumArray(Ptype, u8).init(.{
+		.pawn = 'p',
+		.knight = 'n',
+		.bishop = 'b',
+		.rook = 'r',
+		.queen = 'q',
+		.king = 'k',
+		.none = '.',
+	});
+
+	pub const Tag = std.meta.Tag(Ptype);
+	pub const tag_info = @typeInfo(Tag).int;
+
+	pub const cnt: comptime_int = values.len - 1;
+	pub const values = std.enums.values(Ptype);
+
+	pub fn fromTag(i: Tag) Ptype {
+		return @enumFromInt(i);
+	}
+
+	pub fn tag(self: Ptype) Tag {
+		return @intFromEnum(self);
+	}
+
+	pub fn char(self: Ptype) u8 {
+		return char_array.getPtrConst(self).*;
+	}
+
+	pub fn fromChar(c: u8) ?Ptype {
+		inline for (values) |v| {
+			if (c == v.char()) {
+				return v;
+			}
+		}
+		return null;
+	}
+};
+
 pub const Color = enum(u1) {
 	white,
 	black,
@@ -266,84 +313,26 @@ pub const Color = enum(u1) {
 	}
 };
 
-pub const Ptype = enum(u3) {
-	pawn,
-	knight,
-	bishop,
-	rook,
-	queen,
-	king,
-
-	const char_array = std.EnumArray(Ptype, u8).init(.{
-		.pawn = 'p',
-		.knight = 'n',
-		.bishop = 'b',
-		.rook = 'r',
-		.queen = 'q',
-		.king = 'k',
-	});
-
-	pub const scores = std.EnumArray(Ptype, i16).init(.{
-		.pawn = 256,
-		.knight = 256 * 44 / 16,
-		.bishop = 256 * 52 / 16,
-		.rook  = 256 * 5,
-		.queen = 256 * 9,
-		.king  = 0,
-	});
-
-	pub const Tag = std.meta.Tag(Ptype);
-	pub const tag_info = @typeInfo(Tag).int;
-
-	pub const cnt: comptime_int = values.len;
-	pub const values = std.enums.values(Ptype);
-
-	pub fn fromTag(i: Tag) Ptype {
-		return @enumFromInt(i);
-	}
-
-	pub fn tag(self: Ptype) Tag {
-		return @intFromEnum(self);
-	}
-
-	pub fn char(self: Ptype) u8 {
-		return char_array.getPtrConst(self).*;
-	}
-
-	pub fn score(self: Ptype) i16 {
-		return scores.getPtrConst(self).*;
-	}
-
-	pub fn fromChar(c: u8) ?Ptype {
-		inline for (values) |v| {
-			if (c == v.char()) {
-				return v;
-			}
-		}
-		return null;
-	}
-};
-
 pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_info.bits)) {
-	w_pawn
-	  = @as(comptime_int, Color.white.tag()) << Ptype.tag_info.bits
-	  + @as(comptime_int, Ptype.pawn.tag()),
-	w_knight,
-	w_bishop,
-	w_rook,
-	w_queen,
-	w_king,
+	w_pawn,
+	b_pawn,
 
-	b_pawn
-	  = @as(comptime_int, Color.black.tag()) << Ptype.tag_info.bits
-	  + @as(comptime_int, Ptype.pawn.tag()),
+	w_knight,
 	b_knight,
+
+	w_bishop,
 	b_bishop,
+
+	w_rook,
 	b_rook,
+
+	w_queen,
 	b_queen,
+
+	w_king,
 	b_king,
 
-	none = Ptype.cnt,
+	none,
 
 	const char_map = std.EnumMap(Piece, u8).init(.{
 		.w_pawn = 'P',
@@ -359,22 +348,38 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_i
 		.b_rook = 'r',
 		.b_queen = 'q',
 		.b_king = 'k',
+
+		.none = '.',
 	});
 
 	pub const Tag = std.meta.Tag(Piece);
 	pub const tag_info = @typeInfo(Tag).int;
 
-	pub const cnt: comptime_int = values.len;
+	pub const cnt: comptime_int = values.len - 1;
 	pub const values = std.enums.values(Piece);
 
-	pub const w_pieces = values[0 ..][0 .. 6];
-	pub const b_pieces = values[6 ..][0 .. 6];
+	pub const w_pieces = [_]Piece {
+		.w_pawn,
+		.w_knight,
+		.w_bishop,
+		.w_rook,
+		.w_queen,
+		.w_king,
+	};
+
+	pub const b_pieces = [_]Piece {
+		.b_pawn,
+		.b_knight,
+		.b_bishop,
+		.b_rook,
+		.b_queen,
+		.b_king,
+	};
 
 	pub fn init(c: Color, p: Ptype) Piece {
-		const m = 1 << Ptype.tag_info.bits;
-		const ci = @as(Tag, c.tag()) * m;
-		const pi = @as(Tag, p.tag());
-		return fromTag(ci + pi);
+		const pi = @as(Tag, p.tag()) * Color.cnt;
+		const ci = @as(Tag, c.tag());
+		return fromTag(pi + ci);
 	}
 
 	pub fn tag(self: Piece) Tag {
@@ -386,14 +391,12 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.tag_info.bits + Ptype.tag_i
 	}
 
 	pub fn color(self: Piece) Color {
-		const m = 1 << Ptype.tag_info.bits;
-		const i = self.tag() / m;
+		const i = self.tag() % Color.cnt;
 		return Color.fromTag(@truncate(i));
 	}
 
 	pub fn ptype(self: Piece) Ptype {
-		const m = 1 << Ptype.tag_info.bits;
-		const i = self.tag() % m;
+		const i = self.tag() / Color.cnt;
 		return Ptype.fromTag(@truncate(i));
 	}
 
@@ -748,3 +751,16 @@ pub const Castle = enum(u2) {
 		return Set.fromCastle(self);
 	}
 };
+
+pub fn SameMutPtr(comptime SrcPtr: type, comptime Expected: type, comptime Dst: type) type {
+	const src_info = @typeInfo(SrcPtr).pointer;
+	if (src_info.child != Expected) {
+		const msg = std.fmt.comptimePrint("expected pointer to type {s}",
+		  .{@typeName(Expected), @typeName(src_info.child)});
+		@compileError(msg);
+	}
+
+	comptime var dst_info = @typeInfo(*Dst).pointer;
+	dst_info.is_const = src_info.is_const;
+	return @Type(.{.pointer = dst_info});
+}
