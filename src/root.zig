@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const bitboard = @import("bitboard");
 pub const engine = @import("engine");
 pub const nnue = @import("nnue");
@@ -5,14 +7,22 @@ pub const params = @import("params");
 pub const selfplay = @import("selfplay");
 pub const types = @import("types");
 
+pub const author = "oilsoundsfunny";
+pub const name = "zin";
+pub const version: std.SemanticVersion = .{
+    .major = 0,
+    .minor = 2,
+    .patch = 0,
+};
+
 pub fn deinit() void {
-	defer bitboard.deinit();
-	defer params.deinit();
-	defer engine.deinit();
+    defer bitboard.deinit();
+    defer params.deinit();
+    defer engine.deinit();
 }
 
 pub fn init() !void {
-	try bitboard.init();
-	try params.init();
-	try engine.init();
+    try bitboard.init();
+    try params.init();
+    try engine.init();
 }

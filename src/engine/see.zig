@@ -19,127 +19,127 @@ const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
 
 fn ptypeValue(p: types.Ptype) evaluation.score.Int {
-	return switch (p) {
-		.pawn => params.values.see_pawn_value,
-		.knight => params.values.see_knight_value,
-		.bishop => params.values.see_bishop_value,
-		.rook => params.values.see_rook_value,
-		.queen => params.values.see_queen_value,
-		else => evaluation.score.draw,
-	};
+    return switch (p) {
+        .pawn => params.values.see_pawn_value,
+        .knight => params.values.see_knight_value,
+        .bishop => params.values.see_bishop_value,
+        .rook => params.values.see_rook_value,
+        .queen => params.values.see_queen_value,
+        else => evaluation.score.draw,
+    };
 }
 
 fn pieceValue(p: types.Piece) evaluation.score.Int {
-	return ptypeValue(p.ptype());
+    return ptypeValue(p.ptype());
 }
 
 pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
-	if (move.flag != .none) {
-		return true;
-	}
+    if (move.flag != .none) {
+        return true;
+    }
 
-	const s = move.src;
-	const d = move.dst;
+    const s = move.src;
+    const d = move.dst;
 
-	const sp = pos.getSquare(s);
-	const dp = pos.getSquare(d);
+    const sp = pos.getSquare(s);
+    const dp = pos.getSquare(d);
 
-	var v = pieceValue(dp) - min;
-	if (v < 0) {
-		return false;
-	}
+    var v = pieceValue(dp) - min;
+    if (v < 0) {
+        return false;
+    }
 
-	v = pieceValue(sp) - v;
-	if (v <= 0) {
-		return true;
-	}
+    v = pieceValue(sp) - v;
+    if (v <= 0) {
+        return true;
+    }
 
-	const diag = pos.ptypeOcc(.queen).bwo(pos.ptypeOcc(.bishop));
-	const line = pos.ptypeOcc(.queen).bwo(pos.ptypeOcc(.rook));
+    const diag = pos.ptypeOcc(.queen).bwo(pos.ptypeOcc(.bishop));
+    const line = pos.ptypeOcc(.queen).bwo(pos.ptypeOcc(.rook));
 
-	var ret = true;
-	var stm = pos.stm;
-	var occ = pos.bothOcc()
-	  .bwx(s.toSet())
-	  .bwx(d.toSet());
-	var atkers = types.Square.Set.none
-	  .bwo(bitboard.pAtk(d.toSet(), .white).bwa(pos.pieceOcc(.b_pawn)))
-	  .bwo(bitboard.pAtk(d.toSet(), .black).bwa(pos.pieceOcc(.w_pawn)))
-	  .bwo(bitboard.nAtk(d).bwa(pos.ptypeOcc(.knight)))
-	  .bwo(bitboard.kAtk(d).bwa(pos.ptypeOcc(.king)))
-	  .bwo(bitboard.bAtk(d, occ).bwa(diag))
-	  .bwo(bitboard.rAtk(d, occ).bwa(line));
+    var ret = true;
+    var stm = pos.stm;
+    var occ = pos.bothOcc()
+        .bwx(s.toSet())
+        .bwx(d.toSet());
+    var atkers = types.Square.Set.none
+        .bwo(bitboard.pAtk(d.toSet(), .white).bwa(pos.pieceOcc(.b_pawn)))
+        .bwo(bitboard.pAtk(d.toSet(), .black).bwa(pos.pieceOcc(.w_pawn)))
+        .bwo(bitboard.nAtk(d).bwa(pos.ptypeOcc(.knight)))
+        .bwo(bitboard.kAtk(d).bwa(pos.ptypeOcc(.king)))
+        .bwo(bitboard.bAtk(d, occ).bwa(diag))
+        .bwo(bitboard.rAtk(d, occ).bwa(line));
 
-	while (true) {
-		atkers.popOther(occ.flip());
-		stm = stm.flip();
+    while (true) {
+        atkers.popOther(occ.flip());
+        stm = stm.flip();
 
-		const ours = atkers.bwa(pos.colorOcc(stm));
-		ret = if (ours == .none) break else !ret;
+        const ours = atkers.bwa(pos.colorOcc(stm));
+        ret = if (ours == .none) break else !ret;
 
-		var least = ours.bwa(pos.ptypeOcc(.pawn));
-		if (least != .none) {
-			v = ptypeValue(.pawn) - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
+        var least = ours.bwa(pos.ptypeOcc(.pawn));
+        if (least != .none) {
+            v = ptypeValue(.pawn) - v;
+            if (v < @intFromBool(ret)) {
+                break;
+            }
 
-			occ.popOther(least.getLow());
-			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
-			continue;
-		}
+            occ.popOther(least.getLow());
+            atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+            continue;
+        }
 
-		least = ours.bwa(pos.ptypeOcc(.knight));
-		if (least != .none) {
-			v = ptypeValue(.knight) - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
+        least = ours.bwa(pos.ptypeOcc(.knight));
+        if (least != .none) {
+            v = ptypeValue(.knight) - v;
+            if (v < @intFromBool(ret)) {
+                break;
+            }
 
-			occ.popOther(least.getLow());
-			continue;
-		}
+            occ.popOther(least.getLow());
+            continue;
+        }
 
-		least = ours.bwa(pos.ptypeOcc(.bishop));
-		if (least != .none) {
-			v = ptypeValue(.bishop) - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
+        least = ours.bwa(pos.ptypeOcc(.bishop));
+        if (least != .none) {
+            v = ptypeValue(.bishop) - v;
+            if (v < @intFromBool(ret)) {
+                break;
+            }
 
-			occ.popOther(least.getLow());
-			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
-			continue;
-		}
+            occ.popOther(least.getLow());
+            atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+            continue;
+        }
 
-		least = ours.bwa(pos.ptypeOcc(.rook));
-		if (least != .none) {
-			v = ptypeValue(.rook) - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
+        least = ours.bwa(pos.ptypeOcc(.rook));
+        if (least != .none) {
+            v = ptypeValue(.rook) - v;
+            if (v < @intFromBool(ret)) {
+                break;
+            }
 
-			occ.popOther(least.getLow());
-			atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
-			continue;
-		}
+            occ.popOther(least.getLow());
+            atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
+            continue;
+        }
 
-		least = ours.bwa(pos.ptypeOcc(.queen));
-		if (least != .none) {
-			v = ptypeValue(.queen) - v;
-			if (v < @intFromBool(ret)) {
-				break;
-			}
+        least = ours.bwa(pos.ptypeOcc(.queen));
+        if (least != .none) {
+            v = ptypeValue(.queen) - v;
+            if (v < @intFromBool(ret)) {
+                break;
+            }
 
-			occ.popOther(least.getLow());
-			atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
-			atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
-			continue;
-		}
+            occ.popOther(least.getLow());
+            atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+            atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
+            continue;
+        }
 
-		ret = if (atkers.bwx(ours) == .none) ret else !ret;
-		break;
-	}
+        ret = if (atkers.bwx(ours) == .none) ret else !ret;
+        break;
+    }
 
-	return ret;
+    return ret;
 }
