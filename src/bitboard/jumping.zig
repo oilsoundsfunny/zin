@@ -1,37 +1,28 @@
 const std = @import("std");
 const types = @import("types");
 
-const misc = @import("misc.zig");
+const utils = @import("utils.zig");
 
 var n_atk: std.EnumArray(types.Square, types.Square.Set) align(std.atomic.cache_line) =
     .initFill(.none);
 var k_atk: std.EnumArray(types.Square, types.Square.Set) align(std.atomic.cache_line) =
     .initFill(.none);
 
-fn nAtkInit() !void {
+fn nAtkInit() void {
     for (types.Square.values) |s| {
-        n_atk.set(s, misc.genAtk(.knight, s, .none));
+        n_atk.set(s, utils.genAtk(.knight, s, .none));
     }
 }
 
-fn kAtkInit() !void {
+fn kAtkInit() void {
     for (types.Square.values) |s| {
-        k_atk.set(s, misc.genAtk(.king, s, .none));
+        k_atk.set(s, utils.genAtk(.king, s, .none));
     }
-}
-
-fn prefetch() void {
-    @prefetch(&n_atk, .{});
-    @prefetch(&k_atk, .{});
-
-    @prefetch(&nAtk, .{ .cache = .instruction });
-    @prefetch(&kAtk, .{ .cache = .instruction });
 }
 
 pub fn init() !void {
-    defer prefetch();
-    try nAtkInit();
-    try kAtkInit();
+    nAtkInit();
+    kAtkInit();
 }
 
 pub fn nAtk(s: types.Square) types.Square.Set {
