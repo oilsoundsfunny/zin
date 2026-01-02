@@ -18,8 +18,9 @@ pub const Self = extern struct {
     pub fn infer(
         self: *const Self,
         accumulator: *const Accumulator,
-        stm: types.Color,
+        pos: *const engine.Board.Position,
     ) engine.evaluation.score.Int {
+        const stm = pos.stm;
         const vecs = std.EnumArray(types.Color, *const [arch.hl0_len]arch.Int).init(.{
             .white = accumulator.perspectives.getPtrConst(stm),
             .black = accumulator.perspectives.getPtrConst(stm.flip()),

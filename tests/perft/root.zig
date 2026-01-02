@@ -22,7 +22,11 @@ fn div(comptime root: bool, board: *engine.Board, depth: engine.Thread.Depth) us
 
     for (ml.slice()) |sm| {
         const m = sm.move;
-        board.doMove(m) catch continue;
+        if (!board.top().isMoveLegal(m)) {
+            continue;
+        }
+
+        board.doMove(m);
         defer board.undoMove();
 
         const this = div(false, board, depth - 1);

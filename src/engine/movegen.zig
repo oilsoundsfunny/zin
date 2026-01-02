@@ -146,17 +146,17 @@ const ScoredMoveList = struct {
         const stm = pos.stm;
         const occ = pos.bothOcc();
 
-        const cas: types.Castle = switch (stm) {
-            .white => if (is_k) .wk else .wq,
+        const right: types.Castle = switch (stm) {
             .black => if (is_k) .bk else .bq,
+            .white => if (is_k) .wk else .wq,
         };
-        const info = pos.castles.getPtrConst(cas) orelse return self.slice().len - len;
+        const castle = pos.castles.getPtrConst(right) orelse return self.slice().len - len;
 
-        if (!pos.castles.contains(cas) or pos.isChecked() or occ.bwa(info.occ) != .none) {
+        if (pos.isChecked() or occ.bwa(castle.occ) != .none) {
             return self.slice().len - len;
         }
 
-        var am = info.atk;
+        var am = castle.atk;
         while (am.lowSquare()) |s| : (am.popLow()) {
             const atkers = pos.squareAtkers(s);
             const theirs = pos.colorOcc(stm.flip());
@@ -165,10 +165,10 @@ const ScoredMoveList = struct {
             }
         }
 
-        const s = info.ks;
-        const d = info.rs;
+        const s = castle.ks;
+        const d = castle.rs;
         self.push(.{
-            .move = .{ .flag = .castle, .info = .{ .castle = cas }, .src = s, .dst = d },
+            .move = .{ .flag = if (is_k) .k_castle else .q_castle, .src = s, .dst = d },
             .score = evaluation.score.draw,
         });
         return self.slice().len - len;
@@ -179,14 +179,14 @@ const ScoredMoveList = struct {
         const stm = pos.stm;
         const enp = pos.en_pas orelse return self.slice().len - len;
 
-        const src = pos.pieceOcc(types.Piece.init(stm, .pawn));
+        const src = pos.pieceOcc(types.Piece.init(.pawn, stm));
         const dst = enp.toSet();
 
         const ea = bitboard.pAtkEast(src, stm).bwa(dst);
         if (ea.lowSquare()) |d| {
             const s = d.shift(stm.forward().add(.east).flip(), 1);
             self.push(.{
-                .move = .{ .flag = .en_passant, .info = .{ .en_passant = 0 }, .src = s, .dst = d },
+                .move = .{ .flag = .en_passant, .src = s, .dst = d },
                 .score = evaluation.score.draw,
             });
         }
@@ -195,7 +195,7 @@ const ScoredMoveList = struct {
         if (wa.lowSquare()) |d| {
             const s = d.shift(stm.forward().add(.west).flip(), 1);
             self.push(.{
-                .move = .{ .flag = .en_passant, .info = .{ .en_passant = 0 }, .src = s, .dst = d },
+                .move = .{ .flag = .en_passant, .src = s, .dst = d },
                 .score = evaluation.score.draw,
             });
         }
@@ -209,21 +209,27 @@ const ScoredMoveList = struct {
         comptime promo: ?types.Ptype,
         comptime noisy: bool,
     ) usize {
-        const is_promote = promo != null;
-        const flag: Move.Flag = if (!is_promote) .none else .promote;
-        const info: Move.Info = if (!is_promote)
-            .{ .none = 0 }
+        const flag: Move.Flag = if (promo) |p|
+            switch (p) {
+                .knight => if (noisy) .noisy_n_promo else .quiet_n_promo,
+                .bishop => if (noisy) .noisy_b_promo else .quiet_b_promo,
+                .rook => if (noisy) .noisy_r_promo else .quiet_r_promo,
+                .queen => if (noisy) .noisy_q_promo else .quiet_q_promo,
+                else => @compileError("unexpected enum tag " ++ @tagName(p)),
+            }
+        else if (noisy)
+            .capture
         else
-            .{ .promote = Move.Promotion.fromPtype(promo.?) };
+            .none;
 
         const len = self.slice().len;
         const stm = pos.stm;
         const occ = pos.bothOcc();
         const promotion_bb = stm.promotionRank().toSet();
 
-        const src = pos.pieceOcc(types.Piece.init(stm, .pawn));
+        const src = pos.pieceOcc(types.Piece.init(.pawn, stm));
         const dst = pos.checks
-            .bwa(if (is_promote) promotion_bb else promotion_bb.flip())
+            .bwa(if (flag.isPromotion()) promotion_bb else promotion_bb.flip())
             .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
         if (noisy) {
@@ -231,7 +237,7 @@ const ScoredMoveList = struct {
             while (ea.lowSquare()) |d| : (ea.popLow()) {
                 const s = d.shift(stm.forward().add(.east).flip(), 1);
                 self.push(.{
-                    .move = .{ .flag = flag, .info = info, .src = s, .dst = d },
+                    .move = .{ .flag = flag, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
             }
@@ -240,7 +246,7 @@ const ScoredMoveList = struct {
             while (wa.lowSquare()) |d| : (wa.popLow()) {
                 const s = d.shift(stm.forward().add(.west).flip(), 1);
                 self.push(.{
-                    .move = .{ .flag = flag, .info = info, .src = s, .dst = d },
+                    .move = .{ .flag = flag, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
             }
@@ -249,7 +255,7 @@ const ScoredMoveList = struct {
             while (push1.lowSquare()) |d| : (push1.popLow()) {
                 const s = d.shift(stm.forward().flip(), 1);
                 self.push(.{
-                    .move = .{ .flag = flag, .info = info, .src = s, .dst = d },
+                    .move = .{ .flag = flag, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
             }
@@ -258,7 +264,7 @@ const ScoredMoveList = struct {
             while (push2.lowSquare()) |d| : (push2.popLow()) {
                 const s = d.shift(stm.forward().flip(), 2);
                 self.push(.{
-                    .move = .{ .flag = flag, .info = info, .src = s, .dst = d },
+                    .move = .{ .flag = .torped, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
             }
@@ -281,12 +287,12 @@ const ScoredMoveList = struct {
             .bwa(if (ptype != .king) pos.checks else .full)
             .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
-        var src = pos.pieceOcc(types.Piece.init(stm, ptype));
+        var src = pos.pieceOcc(types.Piece.init(ptype, stm));
         while (src.lowSquare()) |s| : (src.popLow()) {
             var dst = bitboard.ptAtk(ptype, s, occ).bwa(target);
             while (dst.lowSquare()) |d| : (dst.popLow()) {
                 self.push(.{
-                    .move = .{ .flag = .none, .info = .{ .none = 0 }, .src = s, .dst = d },
+                    .move = .{ .flag = if (noisy) .capture else .none, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
             }
@@ -355,45 +361,60 @@ const ScoredMoveList = struct {
 
 pub const Move = packed struct(u16) {
     flag: Flag = .none,
-    info: Info = .{ .none = 0 },
     src: types.Square = @enumFromInt(0),
     dst: types.Square = @enumFromInt(0),
 
-    pub const Flag = enum(u2) {
-        none,
-        en_passant,
-        castle,
-        promote,
-    };
+    pub const Flag = enum(u4) {
+        none = 0b0000,
+        torped = 0b0001,
 
-    pub const Promotion = enum(u2) {
-        knight,
-        bishop,
-        rook,
-        queen,
+        q_castle = 0b0010,
+        k_castle = 0b0011,
 
-        fn fromPtype(p: types.Ptype) Promotion {
-            return switch (p) {
-                .knight => .knight,
-                .bishop => .bishop,
-                .rook => .rook,
-                .queen => .queen,
-                else => std.debug.panic("invalid promotion", .{}),
-            };
+        quiet_n_promo = 0b0100,
+        quiet_b_promo = 0b0101,
+        quiet_r_promo = 0b0110,
+        quiet_q_promo = 0b0111,
+
+        capture = 0b1000,
+        en_passant = 0b1001,
+
+        noisy_n_promo = 0b1100,
+        noisy_b_promo = 0b1101,
+        noisy_r_promo = 0b1110,
+        noisy_q_promo = 0b1111,
+
+        pub const Int = std.meta.Tag(Flag);
+
+        pub fn int(self: Flag) Int {
+            return @intFromEnum(self);
         }
 
-        pub fn toPtype(self: Promotion) types.Ptype {
+        pub fn isCastle(self: Flag) bool {
+            return self == .q_castle or self == .k_castle;
+        }
+
+        pub fn isPromotion(self: Flag) bool {
+            return self.int() & 0b0100 != 0;
+        }
+
+        pub fn isNoisy(self: Flag) bool {
+            return self.int() & 0b1000 != 0;
+        }
+
+        pub fn isQuiet(self: Flag) bool {
+            return !self.isNoisy();
+        }
+
+        pub fn promotion(self: Flag) ?types.Ptype {
             return switch (self) {
-                inline else => |e| @field(types.Ptype, @tagName(e)),
+                .quiet_n_promo, .noisy_n_promo => .knight,
+                .quiet_b_promo, .noisy_b_promo => .bishop,
+                .quiet_r_promo, .noisy_r_promo => .rook,
+                .quiet_q_promo, .noisy_q_promo => .queen,
+                else => null,
             };
         }
-    };
-
-    pub const Info = packed union {
-        none: u2,
-        en_passant: u2,
-        castle: types.Castle,
-        promote: Promotion,
     };
 
     pub const List = struct {
@@ -428,32 +449,33 @@ pub const Move = packed struct(u16) {
     }
 
     pub fn toString(self: Move, board: *const Board) [8]u8 {
-        var buf: [8]u8 = undefined;
+        var buf: [8]u8 = @splat(0);
 
         buf[0] = self.src.file().char();
         buf[1] = self.src.rank().char();
-        switch (self.flag) {
-            .none, .en_passant, .promote => |f| {
-                buf[2] = self.dst.file().char();
-                buf[3] = self.dst.rank().char();
-                if (f == .promote) {
-                    buf[4] = self.info.promote.toPtype().char();
-                }
+        buf[2], buf[3] = switch (self.flag) {
+            .q_castle, .k_castle => |f| blk: {
+                const frc = board.frc;
+                const stm = board.top().stm;
+
+                const right: types.Castle = switch (stm) {
+                    .black => if (f == .q_castle) .bq else .bk,
+                    .white => if (f == .q_castle) .wq else .wk,
+                };
+                const castle = board.top().castles.getPtrConstAssertContains(right);
+
+                const s = if (frc) castle.rs else castle.kd;
+                break :blk .{ s.file().char(), s.rank().char() };
             },
-            .castle => {
-                const info = self.info.castle;
-                const castle = board.top().castles.getPtrConstAssertContains(info);
-                const s = if (board.frc) castle.rs else castle.kd;
-                buf[2] = s.file().char();
-                buf[3] = s.rank().char();
-            },
-        }
+            else => .{ self.dst.file().char(), self.dst.rank().char() },
+        };
+        buf[4] = if (self.flag.promotion()) |pt| pt.char() else buf[4];
 
         return buf;
     }
 
     pub fn toStringLen(self: Move) usize {
-        return if (self.flag == .promote) 5 else 4;
+        return if (self.flag.isPromotion()) 5 else 4;
     }
 };
 
