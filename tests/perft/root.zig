@@ -5,52 +5,51 @@ const std = @import("std");
 const types = @import("types");
 
 pub const Result = struct {
-	fen:	[]const u8,
-	nodes:	[6]usize,
+    fen: []const u8,
+    nodes: [6]usize,
 };
 
-fn divRecursive(comptime root: bool, board: *engine.Board, depth: engine.Thread.Depth) usize {
-	if (depth <= 0) {
-		return 1;
-	}
+fn div(comptime root: bool, board: *engine.Board, depth: engine.Thread.Depth) usize {
+    if (depth <= 0) {
+        return 1;
+    }
 
-	const pos = board.top();
-	var ml: engine.movegen.Move.Scored.List = .{};
-	var sum: usize = 0;
-	_ = ml.genNoisy(pos);
-	_ = ml.genQuiet(pos);
+    const pos = board.top();
+    var ml: engine.movegen.Move.Scored.List = .{};
+    var sum: usize = 0;
+    _ = ml.genNoisy(pos);
+    _ = ml.genQuiet(pos);
 
-	for (ml.slice()) |sm| {
-		const m = sm.move;
-		board.doMove(m) catch continue;
-		defer board.undoMove();
+    for (ml.slice()) |sm| {
+        const m = sm.move;
+        board.doMove(m) catch continue;
+        defer board.undoMove();
 
-		const this = divRecursive(false, board, depth - 1);
-		sum += this;
+        const this = div(false, board, depth - 1);
+        sum += this;
 
-		if (root) {
-			const s = m.toString(board);
-			const l = m.toStringLen();
-			std.debug.print("{s}:\t{d}\n", .{s[0 .. l], this});
-		}
-	}
+        if (root) {
+            const s = m.toString(board);
+            const l = m.toStringLen();
+            std.debug.print("{s}:\t{d}\n", .{ s[0..l], this });
+        }
+    }
 
-	return sum;
+    return sum;
 }
 
-pub fn div(board: *engine.Board, depth: engine.Thread.Depth) !usize {
-	var timer = try std.time.Timer.start();
+pub fn perft(board: *engine.Board, depth: engine.Thread.Depth) !usize {
+    var timer = try std.time.Timer.start();
+    const nodes = div(true, board, depth);
+    const time = timer.lap();
+    const mtime = time / std.time.ns_per_ms;
+    const nps = nodes * std.time.ns_per_s / time;
 
-	timer.reset();
-	const nodes = divRecursive(true, board, depth);
-	const time = timer.lap();
-	const nps = nodes * std.time.ns_per_s / time;
-
-	std.debug.print("info perft depth {d} nodes {d} nps {d}\n", .{depth, nodes, nps});
-	return nodes;
+    std.debug.print("info depth {d} nodes {d} time {d} nps {d}\n", .{ depth, nodes, mtime, nps });
+    return nodes;
 }
 
 test {
-	_ = @import("standard.zig");
-	_ = @import("frc.zig");
+    _ = @import("standard.zig");
+    _ = @import("frc.zig");
 }

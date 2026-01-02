@@ -1,6 +1,4 @@
-pub const Board = @import("Board.zig");
-pub const movegen = @import("movegen.zig");
-
 test {
-	@import("std").testing.refAllDecls(@This());
+    _ = @import("Board.zig");
+    _ = @import("movegen.zig");
 }

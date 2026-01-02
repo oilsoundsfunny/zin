@@ -1,9 +1,7 @@
-pub const bitboard = @import("bitboard/root.zig");
-pub const engine = @import("engine/root.zig");
-pub const nnue = @import("nnue/root.zig");
-pub const params = @import("params/root.zig");
-pub const types = @import("types/root.zig");
-
 test {
-	@import("std").testing.refAllDecls(@This());
+    _ = @import("bitboard/root.zig");
+    _ = @import("engine/root.zig");
+    _ = @import("nnue/root.zig");
+    _ = @import("params/root.zig");
+    _ = @import("types/root.zig");
 }
