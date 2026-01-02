@@ -6,7 +6,7 @@ pub const lmr = @import("lmr.zig");
 
 const Values = blk: {
     var fields: [tunables.len]std.builtin.Type.StructField = undefined;
-    for (tunables, 0..) |tunable, i| {
+    for (tunables[0..], 0..) |*tunable, i| {
         fields[i] = .{
             .name = tunable.name,
             .type = Int,
@@ -23,6 +23,15 @@ const Values = blk: {
         .is_tuple = false,
     } });
 };
+
+const map = if (tuning)
+init_map: {
+    var kvs: [tunables.len]struct { []const u8, struct { *const Tunable, *Int } } = undefined;
+    for (kvs[0..], tunables[0..]) |*kv, *tunable| {
+        kv.* = .{ tunable.name, .{ tunable, &@field(values, tunable.name) } };
+    }
+    break :init_map std.StaticStringMap(struct { *const Tunable, *Int }).initComptime(kvs);
+} else {};
 
 pub const Int = engine.evaluation.score.Int;
 pub const Tunable = struct {
@@ -63,7 +72,7 @@ pub const Tunable = struct {
     }
 };
 
-pub const tuning = false;
+pub const tuning = true;
 pub const tunables = [_]Tunable{
     .{ .name = "see_pawn_value", .value = 256, .min = null, .max = null, .c_end = null },
     .{ .name = "see_knight_value", .value = 256 * 44 / 16, .min = null, .max = null, .c_end = null },
@@ -145,15 +154,7 @@ pub fn parseTunable(
     aux: []const u8,
     tokens: *std.mem.TokenIterator(u8, .any),
 ) engine.uci.Error!void {
-    var opt_tunable: ?*const Tunable = null;
-    var opt_value: ?*Int = null;
-    inline for (tunables[0..]) |*tunable| {
-        if (std.mem.eql(u8, name, tunable.name)) {
-            opt_tunable = tunable;
-            opt_value = &@field(values, tunable.name);
-        }
-    }
-    const tunable = opt_tunable orelse return error.UnknownCommand;
+    const tunable, const dst = map.get(name) orelse return error.UnknownCommand;
 
     if (!std.mem.eql(u8, aux, "value")) {
         return error.UnknownCommand;
@@ -169,7 +170,7 @@ pub fn parseTunable(
         return error.UnknownCommand;
     }
 
-    opt_value.?.* = value;
+    dst.* = value;
 }
 
 pub fn printOptions(writer: *std.Io.Writer) !void {
