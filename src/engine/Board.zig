@@ -652,7 +652,7 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
     const pos = self.positions.addOneAssumeCapacity();
     pos.* = pos.down(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
     pos.en_pas = null;
-    pos.rule50 += 1;
+    pos.rule50 = if (sp.ptype() != .pawn or dp == .none) pos.rule50 + 1 else 0;
 
     const accumulator = self.accumulators.addOneAssumeCapacity();
     accumulator.clear();
@@ -708,13 +708,9 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
     }
 
     switch (sp) {
-        .w_pawn, .b_pawn => {
-            pos.rule50 = 0;
-
-            // TODO: check en passant (pseudo-)legality
-            if (move.flag == .torped) {
-                pos.en_pas = d.shift(stm.forward().flip(), 1);
-            }
+        // TODO: check en passant (pseudo-)legality
+        .w_pawn, .b_pawn => if (move.flag == .torped) {
+            pos.en_pas = d.shift(stm.forward().flip(), 1);
         },
 
         .w_rook, .b_rook => {

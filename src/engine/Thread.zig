@@ -1278,7 +1278,14 @@ pub fn search(self: *Thread) !void {
         return;
     }
 
-    pool.stopped = true;
+    if (pool.limits.infinite) {
+        while (!pool.stopped) {
+            try std.Thread.yield();
+        }
+    } else {
+        pool.stopped = true;
+    }
+
     if (is_threaded) {
         for (pool.threads.items[1..]) |*thread| {
             thread.waitSleep();
