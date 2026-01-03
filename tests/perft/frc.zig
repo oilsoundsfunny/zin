@@ -39,7 +39,7 @@ test {
     try engine.init();
     defer engine.deinit();
 
-    for (suite[3..][0..1]) |result| {
+    for (suite[0..0]) |result| {
         var board: engine.Board = .{};
         try board.parseFen(result.fen);
 

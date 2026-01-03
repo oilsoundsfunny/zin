@@ -132,7 +132,7 @@ pub const Position = struct {
         const occ = self.bothOcc();
         const stm = self.stm;
 
-        const kb = self.pieceOcc(types.Piece.init(.king, stm));
+        const kb = self.pieceOcc(types.Piece.init(stm, .king));
         const ks = kb.lowSquare() orelse std.debug.panic("invalid position", .{});
         const atkers = self.squareAtkers(ks).bwa(self.colorOcc(stm.flip()));
         var ka = atkers;
@@ -177,7 +177,7 @@ pub const Position = struct {
         self.* = .{};
         errdefer self.* = backup;
 
-        const sa = [types.Square.num]types.Square{
+        const sa = [types.Square.cnt]types.Square{
             .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
             .a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
             .a6, .b6, .c6, .d6, .e6, .f6, .g6, .h6,
@@ -240,10 +240,10 @@ pub const Position = struct {
                 else => return error.InvalidPiece,
             };
 
-            if (si > types.Square.num) {
+            if (si > types.Square.cnt) {
                 return error.InvalidSquare;
             }
-            if (si < types.Square.num and sa[si].rank() != s.rank() and sa[si].file() != .file_a) {
+            if (si < types.Square.cnt and sa[si].rank() != s.rank() and sa[si].file() != .file_a) {
                 return error.InvalidSquare;
             }
         }
@@ -355,50 +355,46 @@ pub const Position = struct {
         const dp = pos.getSquare(d);
 
         switch (move.flag) {
-            .none, .torped, .quiet_n_promo, .quiet_b_promo, .quiet_r_promo, .quiet_q_promo => |f| {
-                const added = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-
+            .none => {
+                @branchHint(.likely);
                 pos.popSq(s, sp);
-                pos.setSq(d, added);
+                pos.popSq(d, dp);
+                pos.setSq(d, sp);
             },
 
-            .q_castle, .k_castle => |f| {
-                const right: types.Castle = switch (stm) {
-                    .black => if (f == .q_castle) .bq else .bk,
-                    .white => if (f == .q_castle) .wq else .wk,
-                };
-                const castle = self.castles.getAssertContains(right);
+            .en_passant => {
+                const our_pawn = types.Piece.init(stm, .pawn);
+                const their_pawn = types.Piece.init(stm.flip(), .pawn);
+                const enp_target = d.shift(stm.forward().flip(), 1);
 
-                const rook = types.Piece.init(.rook, stm);
-                const king = types.Piece.init(.king, stm);
-
-                pos.popSq(castle.ks, king);
-                pos.popSq(castle.rs, rook);
-
-                pos.setSq(castle.kd, king);
-                pos.setSq(castle.rd, rook);
+                pos.popSq(s, our_pawn);
+                pos.setSq(d, our_pawn);
+                pos.popSq(enp_target, their_pawn);
             },
 
-            .capture,
-            .en_passant,
-            .noisy_n_promo,
-            .noisy_b_promo,
-            .noisy_r_promo,
-            .noisy_q_promo,
-            => |f| {
-                const added = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-                const rm_p, const rm_s = if (f == .en_passant)
-                    .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
-                else
-                    .{ dp, d };
+            .promote => {
+                const our_pawn = types.Piece.init(stm, .pawn);
+                const our_promotion = types.Piece.init(stm, move.info.promote.toPtype());
 
-                pos.popSq(rm_s, rm_p);
-                pos.setSq(d, added);
-                pos.popSq(s, sp);
+                pos.popSq(s, our_pawn);
+                pos.popSq(d, dp);
+                pos.setSq(d, our_promotion);
+            },
+
+            .castle => {
+                const info = pos.castles.getAssertContains(move.info.castle);
+                const our_rook = types.Piece.init(stm, .rook);
+                const our_king = types.Piece.init(stm, .king);
+
+                pos.popSq(info.ks, our_king);
+                pos.popSq(info.rs, our_rook);
+
+                pos.setSq(info.kd, our_king);
+                pos.setSq(info.rd, our_rook);
             },
         }
 
-        const king = types.Piece.init(.king, stm);
+        const king = types.Piece.init(stm, .king);
         const kb = pos.pieceOcc(king);
         const ks = kb.lowSquare() orelse return error.InvalidMove;
 
@@ -468,8 +464,17 @@ pub const Position = struct {
     }
 
     pub fn isMoveNoisy(self: *const Position, move: movegen.Move) bool {
-        _ = self;
-        return move.flag.isNoisy() or move.flag == .quiet_n_promo or move.flag == .quiet_q_promo;
+        const dp = self.getSquare(move.dst);
+        const is_capt = dp != .none and dp.color() != self.stm;
+
+        return is_capt or switch (move.flag) {
+            .en_passant => true,
+            .promote => blk: {
+                const promotion = move.info.promote.toPtype();
+                break :blk promotion == .queen or promotion == .knight;
+            },
+            else => false,
+        };
     }
 
     pub fn isMoveQuiet(self: *const Position, move: movegen.Move) bool {
@@ -484,79 +489,89 @@ pub const Position = struct {
         const stm = self.stm;
         const occ = self.bothOcc();
         const them = self.colorOcc(stm.flip());
-        const promotion_bb = stm.promotionRank().toSet();
 
         const s = move.src;
         const d = move.dst;
         const sp = self.getSquare(s);
         const dp = self.getSquare(d);
 
-        if (sp == .none or sp.color() != stm) {
-            return false;
-        }
+        const spc = sp.color();
+        const dpc = dp.color();
 
-        const atk, const push1, const push2 = switch (sp.ptype()) {
-            .pawn => .{
-                bitboard.pAtk(s.toSet(), stm),
-                bitboard.pPush1(s.toSet(), occ, stm),
-                bitboard.pPush2(s.toSet(), occ, stm),
-            },
-            else => |pt| .{ bitboard.ptAtk(pt, s, occ), .none, .none },
-        };
+        return sp != .none and spc == stm and switch (move.flag) {
+            .none => move.info.none == 0 and none: {
+                if (dp != .none and dpc == stm) {
+                    break :none false;
+                }
 
-        return switch (move.flag) {
-            .none => none: {
-                const bb = switch (sp.ptype()) {
-                    .pawn => push1.bwa(promotion_bb.flip()),
-                    else => atk.bwa(occ.flip()),
+                const noisy = switch (sp.ptype()) {
+                    .pawn => bitboard.pAtk(s.toSet(), stm)
+                        .bwa(them)
+                        .bwa(stm.promotionRank().toSet().flip()),
+                    else => |pt| bitboard.ptAtk(pt, s, occ).bwa(them),
                 };
-                break :none bb.get(d);
+                const quiet = switch (sp.ptype()) {
+                    .pawn => types.Square.Set.none
+                        .bwo(bitboard.pPush1(s.toSet(), occ, stm))
+                        .bwo(bitboard.pPush2(s.toSet(), occ, stm))
+                        .bwa(stm.promotionRank().toSet().flip()),
+                    else => |pt| bitboard.ptAtk(pt, s, occ).bwa(occ.flip()),
+                };
+
+                break :none if (dp == .none) quiet.get(d) else noisy.get(d);
             },
 
-            .torped => push2.bwa(promotion_bb.flip()).get(d),
+            .en_passant => move.info.en_passant == 0 and
+                sp.ptype() == .pawn and dp == .none and
+                bitboard.pAtk(s.toSet(), stm).get(d) and
+                self.en_pas != null and self.en_pas.? == d and
+                en_passant: {
+                    const capt = d.shift(stm.forward().flip(), 1);
+                    const their_pawn = types.Piece.init(stm.flip(), .pawn);
+                    break :en_passant self.getSquare(capt) == their_pawn;
+                },
 
-            .q_castle, .k_castle => |f| castle: {
-                const right: types.Castle = switch (stm) {
-                    .black => if (f == .q_castle) .bq else .bk,
-                    .white => if (f == .q_castle) .wq else .wk,
-                };
-                const cas = self.castles.get(right) orelse break :castle false;
+            .castle => castle: {
+                const info = self.castles.getPtrConst(move.info.castle) orelse break :castle false;
+                const ks = info.ks;
+                const rs = info.rs;
 
                 const is_checked = self.isChecked();
-                const between = occ.bwa(cas.occ)
-                    .bwa(cas.ks.toSet().flip())
-                    .bwa(cas.rs.toSet().flip());
+                var between = occ.bwa(info.occ);
+                between.pop(ks);
+                between.pop(rs);
 
-                const rook = types.Piece.init(.rook, stm);
-                const king = types.Piece.init(.king, stm);
+                const rook = types.Piece.init(stm, .rook);
+                const king = types.Piece.init(stm, .king);
 
-                break :castle !is_checked and
-                    between == .none and
-                    s == cas.ks and sp == king and
-                    d == cas.rs and dp == rook;
+                const illegal = is_checked or
+                    between != .none or
+                    !self.castles.contains(move.info.castle) or
+                    s != ks or sp != king or
+                    d != rs or dp != rook;
+                break :castle !illegal;
             },
 
-            .quiet_n_promo,
-            .quiet_b_promo,
-            .quiet_r_promo,
-            .quiet_q_promo,
-            => sp.ptype() == .pawn and push1.bwa(promotion_bb).get(d),
+            .promote => promote: {
+                const noisy = bitboard.pAtk(s.toSet(), stm).bwa(them);
+                const quiet = types.Square.Set.none
+                    .bwo(bitboard.pPush1(s.toSet(), occ, stm))
+                    .bwo(bitboard.pPush2(s.toSet(), occ, stm));
 
-            .capture => capture: {
-                const bb = switch (sp.ptype()) {
-                    .pawn => atk.bwa(them).bwa(promotion_bb.flip()),
-                    else => atk.bwa(them),
-                };
-                break :capture bb.get(d);
+                break :promote sp.ptype() == .pawn and d.rank() == stm.promotionRank() and
+                    !(dp == .none and !quiet.get(d)) and
+                    !(dp != .none and !noisy.get(d));
             },
-            .en_passant => if (self.en_pas) |ep| d == ep and atk.get(d) else false,
-
-            .noisy_n_promo,
-            .noisy_b_promo,
-            .noisy_r_promo,
-            .noisy_q_promo,
-            => sp.ptype() == .pawn and atk.bwa(them).bwa(promotion_bb).get(d),
         };
+    }
+
+    fn evaluate(self: *const Position, accumulator: *const nnue.Accumulator) evaluation.score.Int {
+        const inferred = nnue.net.embed.infer(accumulator, self.stm);
+        const scaled = @divTrunc(inferred * (100 - self.rule50), 100);
+
+        const min = evaluation.score.lose + 1;
+        const max = evaluation.score.win - 1;
+        return std.math.clamp(scaled, min, max);
     }
 };
 
@@ -591,7 +606,7 @@ fn setupAccumulators(self: *Board) void {
 
     accumulator.* = .{};
     for (types.Color.values) |c| {
-        const ks = pos.pieceOcc(.init(.king, c)).lowSquare() orelse
+        const ks = pos.pieceOcc(types.Piece.init(c, .king)).lowSquare() orelse
             std.debug.panic("no king found", .{});
         accumulator.mirrored.set(c, switch (ks.file()) {
             .file_e, .file_f, .file_g, .file_h => true,
@@ -652,65 +667,81 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
     const pos = self.positions.addOneAssumeCapacity();
     pos.* = pos.down(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
     pos.en_pas = null;
-    pos.rule50 = if (sp.ptype() != .pawn or dp == .none) pos.rule50 + 1 else 0;
+    pos.rule50 += 1;
 
     const accumulator = self.accumulators.addOneAssumeCapacity();
     accumulator.clear();
     accumulator.mark();
 
     switch (move.flag) {
-        .none, .torped, .quiet_n_promo, .quiet_b_promo, .quiet_r_promo, .quiet_q_promo => |f| {
-            const added = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-
-            accumulator.queueSubAdd(
-                .{ .piece = sp, .square = s },
-                .{ .piece = added, .square = d },
-            );
+        .none => {
+            @branchHint(.likely);
+            if (dp == .none) {
+                accumulator.queueSubAdd(
+                    .{ .piece = sp, .square = s },
+                    .{ .piece = sp, .square = d },
+                );
+            } else {
+                accumulator.queueSubAddSub(
+                    .{ .piece = sp, .square = s },
+                    .{ .piece = sp, .square = d },
+                    .{ .piece = dp, .square = d },
+                );
+            }
         },
 
-        .q_castle, .k_castle => |f| {
-            const right: types.Castle = switch (stm) {
-                .black => if (f == .q_castle) .bq else .bk,
-                .white => if (f == .q_castle) .wq else .wk,
-            };
-            const castle = self.top().castles.getAssertContains(right);
-
-            const rook = types.Piece.init(.rook, stm);
-            const king = types.Piece.init(.king, stm);
-
-            accumulator.queueSubAddSubAdd(
-                .{ .piece = king, .square = castle.ks },
-                .{ .piece = king, .square = castle.kd },
-                .{ .piece = rook, .square = castle.rs },
-                .{ .piece = rook, .square = castle.rd },
-            );
-        },
-
-        .capture,
-        .en_passant,
-        .noisy_n_promo,
-        .noisy_b_promo,
-        .noisy_r_promo,
-        .noisy_q_promo,
-        => |f| {
-            const added = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-            const rm_p, const rm_s = if (f == .en_passant)
-                .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
-            else
-                .{ dp, d };
+        .en_passant => {
+            const our_pawn = types.Piece.init(stm, .pawn);
+            const their_pawn = types.Piece.init(stm.flip(), .pawn);
+            const enp_target = d.shift(stm.forward().flip(), 1);
 
             accumulator.queueSubAddSub(
-                .{ .piece = rm_p, .square = rm_s },
-                .{ .piece = added, .square = d },
-                .{ .piece = sp, .square = s },
+                .{ .piece = our_pawn, .square = s },
+                .{ .piece = our_pawn, .square = d },
+                .{ .piece = their_pawn, .square = enp_target },
+            );
+        },
+
+        .promote => {
+            const our_pawn = types.Piece.init(stm, .pawn);
+            const our_promotion = types.Piece.init(stm, move.info.promote.toPtype());
+
+            if (dp == .none) {
+                accumulator.queueSubAdd(
+                    .{ .piece = our_pawn, .square = s },
+                    .{ .piece = our_promotion, .square = d },
+                );
+            } else {
+                accumulator.queueSubAddSub(
+                    .{ .piece = our_pawn, .square = s },
+                    .{ .piece = our_promotion, .square = d },
+                    .{ .piece = dp, .square = d },
+                );
+            }
+        },
+
+        .castle => {
+            const info = pos.castles.getAssertContains(move.info.castle);
+            const our_rook = types.Piece.init(stm, .rook);
+            const our_king = types.Piece.init(stm, .king);
+
+            accumulator.queueSubAddSubAdd(
+                .{ .piece = our_king, .square = info.ks },
+                .{ .piece = our_king, .square = info.kd },
+                .{ .piece = our_rook, .square = info.rs },
+                .{ .piece = our_rook, .square = info.rd },
             );
         },
     }
 
     switch (sp) {
-        // TODO: check en passant (pseudo-)legality
-        .w_pawn, .b_pawn => if (move.flag == .torped) {
-            pos.en_pas = d.shift(stm.forward().flip(), 1);
+        .w_pawn, .b_pawn => {
+            pos.rule50 = 0;
+
+            // TODO: check en passant (pseudo-)legality
+            if (d.shift(stm.forward().flip(), 2) == s) {
+                pos.en_pas = d.shift(stm.forward().flip(), 1);
+            }
         },
 
         .w_rook, .b_rook => {
@@ -730,13 +761,13 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
             defer pos.popCastle(if (stm == .white) .wk else .bk);
             defer pos.popCastle(if (stm == .white) .wq else .bq);
 
-            const ks, const kd = if (!move.flag.isCastle()) .{ s, d } else castle: {
-                const right: types.Castle = switch (stm) {
-                    .black => if (move.flag == .q_castle) .bq else .bk,
-                    .white => if (move.flag == .q_castle) .wq else .wk,
-                };
-                const cas = pos.castles.getAssertContains(right);
-                break :castle .{ cas.ks, cas.kd };
+            const ks = switch (move.flag) {
+                .castle => pos.castles.getPtrConstAssertContains(move.info.castle).ks,
+                else => s,
+            };
+            const kd = switch (move.flag) {
+                .castle => pos.castles.getPtrConstAssertContains(move.info.castle).kd,
+                else => d,
             };
 
             const is_s_mirrored = switch (ks.file()) {
@@ -831,12 +862,6 @@ pub fn evaluate(self: *Board) evaluation.score.Int {
     self.updateAccumulators();
 
     const accumulator = &self.accumulators.constSlice()[offset + self.ply()];
-    const position = &self.positions.constSlice()[offset + self.ply()];
-
-    const inferred = nnue.net.embed.infer(accumulator, position);
-    const scaled = @divTrunc(inferred * (100 - position.rule50), 100);
-
-    const max = evaluation.score.win - 1;
-    const min = evaluation.score.lose + 1;
-    return std.math.clamp(scaled, min, max);
+    const pos = self.top();
+    return pos.evaluate(accumulator);
 }

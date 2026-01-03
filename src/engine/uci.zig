@@ -283,10 +283,6 @@ pub fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
         );
         try pool.io.writer().print(
             "option name {s} type {s} default {d} min {d} max {d}\n",
-            .{ "MultiPV", "spin", 1, 1, 1 },
-        );
-        try pool.io.writer().print(
-            "option name {s} type {s} default {d} min {d} max {d}\n",
             .{ "Threads", "spin", 1, 1, 256 },
         );
         try pool.io.writer().print(

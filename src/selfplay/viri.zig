@@ -64,7 +64,8 @@ pub const Line = bounded_array.BoundedArray(Move.Scored, 1024);
 pub const Move = packed struct(u16) {
     src: types.Square = @enumFromInt(0),
     dst: types.Square = @enumFromInt(0),
-    flag: u4 = 0,
+    info: engine.movegen.Move.Info = .{ .none = 0 },
+    flag: engine.movegen.Move.Flag = .none,
 
     pub const Scored = extern struct {
         move: Move = .{},
@@ -75,15 +76,8 @@ pub const Move = packed struct(u16) {
 
     pub fn fromMove(move: engine.movegen.Move) Move {
         return .{
-            .flag = switch (move.flag) {
-                .q_castle, .k_castle => 0b1000,
-                .quiet_n_promo, .noisy_n_promo => 0b1100,
-                .quiet_b_promo, .noisy_b_promo => 0b1101,
-                .quiet_r_promo, .noisy_r_promo => 0b1110,
-                .quiet_q_promo, .noisy_q_promo => 0b1111,
-                .en_passant => 0b0100,
-                else => 0b0000,
-            },
+            .flag = move.flag,
+            .info = if (move.flag == .promote) move.info else .{ .none = 0 },
             .src = move.src,
             .dst = move.dst,
         };
@@ -116,7 +110,7 @@ pub const Data = extern struct {
         const eval = board.evaluate();
 
         self.ply = pos.rule50;
-        self.length = 1;
+        self.length = 0;
         self.score = @intCast(switch (pos.stm) {
             .white => eval,
             .black => -eval,
@@ -133,7 +127,7 @@ pub const Data = extern struct {
             self.pieces |= std.math.shl(u128, t, i * Piece.int_info.bits);
         }
 
-        self.flag = if (pos.en_pas) |s| s.int() else types.Square.num;
+        self.flag = if (pos.en_pas) |s| s.int() else types.Square.cnt;
         if (pos.stm == .black) {
             self.flag |= 1 << 7;
         }

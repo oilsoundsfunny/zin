@@ -30,7 +30,7 @@ fn ptypeValue(p: types.Ptype) evaluation.score.Int {
 }
 
 fn pieceValue(p: types.Piece) evaluation.score.Int {
-    return if (p != .none) ptypeValue(p.ptype()) else evaluation.score.draw;
+    return ptypeValue(p.ptype());
 }
 
 pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
