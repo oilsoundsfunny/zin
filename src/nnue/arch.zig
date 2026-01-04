@@ -5,9 +5,9 @@ const types = @import("types");
 pub const Int = i16;
 pub const Native = @Vector(native_len, Int);
 
-pub const color_n = types.Color.cnt;
-pub const ptype_n = types.Ptype.cnt;
-pub const square_n = types.Square.cnt;
+pub const color_n = types.Color.num;
+pub const ptype_n = types.Ptype.num;
+pub const square_n = types.Square.num;
 
 pub const inp_len = color_n * ptype_n * square_n;
 pub const hl0_len = 320;

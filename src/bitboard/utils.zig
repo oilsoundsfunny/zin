@@ -16,7 +16,7 @@ pub fn genAtk(comptime pt: types.Ptype, s: types.Square, b: types.Square.Set) ty
     };
     const max = switch (pt) {
         .knight, .king => 1,
-        .bishop, .rook => types.Square.cnt,
+        .bishop, .rook => types.Square.num,
         else => @compileError("unexpected int" ++ @tagName(pt)),
     };
 

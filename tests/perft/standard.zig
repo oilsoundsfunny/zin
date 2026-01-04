@@ -38,12 +38,12 @@ test {
     try engine.init();
     defer engine.deinit();
 
-    for (suite[0..0]) |result| {
+    for (suite[0..][0..0]) |result| {
         var board: engine.Board = .{};
         try board.parseFen(result.fen);
 
         for (result.nodes, 1..) |expected, depth| {
-            const actual = try root.standard(&board, @intCast(depth));
+            const actual = try root.perft(&board, @intCast(depth));
             try std.testing.expectEqual(expected, actual);
         }
     }

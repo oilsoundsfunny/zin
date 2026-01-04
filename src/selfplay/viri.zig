@@ -127,7 +127,7 @@ pub const Data = extern struct {
             self.pieces |= std.math.shl(u128, t, i * Piece.int_info.bits);
         }
 
-        self.flag = if (pos.en_pas) |s| s.int() else types.Square.cnt;
+        self.flag = if (pos.en_pas) |s| s.int() else types.Square.num;
         if (pos.stm == .black) {
             self.flag |= 1 << 7;
         }

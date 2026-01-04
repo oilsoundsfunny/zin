@@ -2,16 +2,16 @@ const std = @import("std");
 
 pub const IO = @import("IO.zig");
 
-const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
-    none = (1 << (Square.cnt * 0)) - 1,
-    full = (1 << (Square.cnt * 1)) - 1,
+const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
+    none = (1 << (Square.num * 0)) - 1,
+    full = (1 << (Square.num * 1)) - 1,
     _,
 
     pub const Int = std.meta.Tag(SquareSet);
 
     fn fromRank(r: Rank) SquareSet {
         // TODO: make this fn order-agnostic
-        const s = @as(Square.Int, r.int()) * File.cnt;
+        const s = @as(Square.Int, r.int()) * File.num;
         return fromInt(std.math.shl(Int, 0x00000000000000ff, s));
     }
 
@@ -132,13 +132,13 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.cnt)) {
 
     pub fn lowSquare(self: SquareSet) ?Square {
         const ctz = @ctz(self.int());
-        return if (ctz >= Square.cnt) null else Square.fromInt(@intCast(ctz));
+        return if (ctz >= Square.num) null else Square.fromInt(@intCast(ctz));
     }
 };
 
-const CastleSet = enum(std.meta.Int(.unsigned, Castle.cnt)) {
-    none = (1 << (Castle.cnt * 0)) - 1,
-    full = (1 << (Castle.cnt * 1)) - 1,
+const CastleSet = enum(std.meta.Int(.unsigned, Castle.num)) {
+    none = (1 << (Castle.num * 0)) - 1,
+    full = (1 << (Castle.num * 1)) - 1,
     _,
 
     pub const Int = std.meta.Tag(CastleSet);
@@ -219,7 +219,7 @@ pub const Ptype = enum(u3) {
     pub const Int = std.meta.Tag(Ptype);
     pub const int_info = @typeInfo(Int).int;
 
-    pub const cnt: comptime_int = values.len;
+    pub const num: comptime_int = values.len;
     pub const values = init: {
         const v = std.enums.values(Ptype);
         break :init v[0 .. v.len - 1];
@@ -259,7 +259,7 @@ pub const Color = enum(u1) {
     pub const Int = std.meta.Tag(Color);
     pub const int_info = @typeInfo(Int).int;
 
-    pub const cnt: comptime_int = values.len;
+    pub const num: comptime_int = values.len;
     pub const values = std.enums.values(Color);
 
     pub fn fromInt(i: Int) Color {
@@ -358,7 +358,7 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
     pub const Int = std.meta.Tag(Piece);
     pub const int_info = @typeInfo(Int).int;
 
-    pub const cnt: comptime_int = values.len;
+    pub const num: comptime_int = values.len;
     pub const values = init: {
         const v = std.enums.values(Piece);
         break :init v[0 .. v.len - 1];
@@ -383,7 +383,7 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
     };
 
     pub fn init(c: Color, p: Ptype) Piece {
-        const pi = @as(Int, p.int()) * Color.cnt;
+        const pi = @as(Int, p.int()) * Color.num;
         const ci = @as(Int, c.int());
         return fromInt(pi + ci);
     }
@@ -397,12 +397,12 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
     }
 
     pub fn color(self: Piece) Color {
-        const i = self.int() % Color.cnt;
+        const i = self.int() % Color.num;
         return Color.fromInt(@truncate(i));
     }
 
     pub fn ptype(self: Piece) Ptype {
-        const i = self.int() / Color.cnt;
+        const i = self.int() / Color.num;
         return Ptype.fromInt(@truncate(i));
     }
 
@@ -449,25 +449,15 @@ pub const Rank = enum(u3) {
         .rank_8 = '8',
     });
 
-    pub const cnt: comptime_int = values.len;
+    pub const num: comptime_int = values.len;
     pub const values = std.enums.values(Rank);
-
-    fn fromInt(i: Int) Rank {
-        return @enumFromInt(i);
-    }
-
-    fn int(self: Rank) Int {
-        return @intFromEnum(self);
-    }
 
     pub fn char(self: Rank) u8 {
         return char_array.getPtrConst(self).*;
     }
 
-    pub fn flip(self: Rank) Rank {
-        const i = self.int();
-        const m = cnt - 1;
-        return fromInt(i ^ m);
+    pub fn int(self: Rank) Int {
+        return @intFromEnum(self);
     }
 
     pub fn fromChar(c: u8) ?Rank {
@@ -477,6 +467,16 @@ pub const Rank = enum(u3) {
             }
         }
         return null;
+    }
+
+    pub fn fromInt(i: Int) Rank {
+        return @enumFromInt(i);
+    }
+
+    pub fn flip(self: Rank) Rank {
+        const i = self.int();
+        const m = num - 1;
+        return fromInt(i ^ m);
     }
 
     pub fn toSet(self: Rank) Square.Set {
@@ -508,25 +508,15 @@ pub const File = enum(u3) {
         .file_h = 'h',
     });
 
-    pub const cnt: comptime_int = values.len;
+    pub const num: comptime_int = values.len;
     pub const values = std.enums.values(File);
-
-    fn fromInt(i: Int) File {
-        return @enumFromInt(i);
-    }
-
-    fn int(self: File) Int {
-        return @intFromEnum(self);
-    }
 
     pub fn char(self: File) u8 {
         return char_array.getPtrConst(self).*;
     }
 
-    pub fn flip(self: File) File {
-        const i = self.int();
-        const m = cnt - 1;
-        return fromInt(i ^ m);
+    pub fn int(self: File) Int {
+        return @intFromEnum(self);
     }
 
     pub fn fromChar(c: u8) ?File {
@@ -538,83 +528,39 @@ pub const File = enum(u3) {
         return null;
     }
 
+    pub fn fromInt(i: Int) File {
+        return @enumFromInt(i);
+    }
+
+    pub fn flip(self: File) File {
+        const i = self.int();
+        const m = num - 1;
+        return fromInt(i ^ m);
+    }
+
     pub fn toSet(self: File) Square.Set {
         return Square.Set.fromFile(self);
     }
 };
 
 pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_info.bits)) {
-    a1,
-    b1,
-    c1,
-    d1,
-    e1,
-    f1,
-    g1,
-    h1,
-    a2,
-    b2,
-    c2,
-    d2,
-    e2,
-    f2,
-    g2,
-    h2,
-    a3,
-    b3,
-    c3,
-    d3,
-    e3,
-    f3,
-    g3,
-    h3,
-    a4,
-    b4,
-    c4,
-    d4,
-    e4,
-    f4,
-    g4,
-    h4,
-    a5,
-    b5,
-    c5,
-    d5,
-    e5,
-    f5,
-    g5,
-    h5,
-    a6,
-    b6,
-    c6,
-    d6,
-    e6,
-    f6,
-    g6,
-    h6,
-    a7,
-    b7,
-    c7,
-    d7,
-    e7,
-    f7,
-    g7,
-    h7,
-    a8,
-    b8,
-    c8,
-    d8,
-    e8,
-    f8,
-    g8,
-    h8,
+    // zig fmt: off
+    a1, b1, c1, d1, e1, f1, g1, h1,
+    a2, b2, c2, d2, e2, f2, g2, h2,
+    a3, b3, c3, d3, e3, f3, g3, h3,
+    a4, b4, c4, d4, e4, f4, g4, h4,
+    a5, b5, c5, d5, e5, f5, g5, h5,
+    a6, b6, c6, d6, e6, f6, g6, h6,
+    a7, b7, c7, d7, e7, f7, g7, h7,
+    a8, b8, c8, d8, e8, f8, g8, h8,
+    // zig fmt: on
 
     pub const Int = std.meta.Tag(Square);
     pub const int_info = @typeInfo(Int).int;
 
     pub const Set = SquareSet;
 
-    pub const cnt: comptime_int = values.len;
+    pub const num: comptime_int = values.len;
     pub const values = std.enums.values(Square);
 
     fn fromInt(i: Int) Square {
@@ -622,7 +568,7 @@ pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_in
     }
 
     pub fn init(r: Rank, f: File) Square {
-        const ri = @as(Int, r.int()) * File.cnt;
+        const ri = @as(Int, r.int()) * File.num;
         const fi = @as(Int, f.int());
         return fromInt(ri + fi);
     }
@@ -632,12 +578,12 @@ pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_in
     }
 
     pub fn rank(self: Square) Rank {
-        const i = self.int() / File.cnt;
+        const i = self.int() / File.num;
         return Rank.fromInt(@truncate(i));
     }
 
     pub fn file(self: Square) File {
-        const i = self.int() % File.cnt;
+        const i = self.int() % File.num;
         return File.fromInt(@truncate(i));
     }
 
@@ -770,7 +716,7 @@ pub const Castle = enum(u2) {
 
     pub const Set = CastleSet;
 
-    pub const cnt: comptime_int = values.len;
+    pub const num: comptime_int = values.len;
     pub const values = std.enums.values(Castle);
 
     fn int(self: Castle) Int {

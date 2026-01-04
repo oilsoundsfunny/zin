@@ -4,6 +4,8 @@ const types = @import("types");
 const jumping = @import("jumping.zig");
 const sliding = @import("sliding.zig");
 
+pub const rays = @import("rays.zig");
+
 pub const nAtk = jumping.nAtk;
 pub const kAtk = jumping.kAtk;
 
@@ -15,6 +17,8 @@ pub fn deinit() void {}
 pub fn init() !void {
     try jumping.init();
     try sliding.init();
+
+    try rays.init();
 }
 
 pub fn pAtkEast(pawns: types.Square.Set, stm: types.Color) types.Square.Set {
