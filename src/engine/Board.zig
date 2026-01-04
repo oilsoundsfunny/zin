@@ -43,6 +43,17 @@ pub const Castle = struct {
 
     rs: types.Square,
     rd: types.Square,
+
+    fn init(ks: types.Square, kd: types.Square, rs: types.Square, rd: types.Square) Castle {
+        const kb = bitboard.rays.rRayIncl(ks, kd);
+        const rb = bitboard.rays.rRayIncl(rs, rd);
+
+        var occ = kb.bwo(rb);
+        occ.pop(ks);
+        occ.pop(rs);
+
+        return .{ .ks = ks, .kd = kd, .rs = rs, .rd = rd, .atk = kb, .occ = occ };
+    }
 };
 
 pub const Position = struct {
@@ -177,7 +188,7 @@ pub const Position = struct {
         self.* = .{};
         errdefer self.* = backup;
 
-        const sa = [types.Square.cnt]types.Square{
+        const sa = [types.Square.num]types.Square{
             .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
             .a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
             .a6, .b6, .c6, .d6, .e6, .f6, .g6, .h6,
@@ -201,20 +212,16 @@ pub const Position = struct {
             si += if (from_c) |p| blk: {
                 self.setSq(s, p);
 
-                switch (p) {
+                break :blk sw: switch (p) {
                     .w_rook => {
                         if (kings.contains(.white)) {
                             rooks.put(.wk, s);
                         } else if (!rooks.contains(.wq)) {
                             rooks.put(.wq, s);
                         }
+                        break :sw 1;
                     },
-                    .w_king => {
-                        if (kings.contains(.white)) {
-                            return error.InvalidPiece;
-                        }
-                        kings.put(.white, s);
-                    },
+                    .w_king => if (kings.fetchPut(.white, s)) |_| return error.InvalidPiece else 1,
 
                     .b_rook => {
                         if (kings.contains(.black)) {
@@ -222,28 +229,22 @@ pub const Position = struct {
                         } else if (!rooks.contains(.bq)) {
                             rooks.put(.bq, s);
                         }
+                        break :sw 1;
                     },
-                    .b_king => {
-                        if (kings.contains(.black)) {
-                            return error.InvalidPiece;
-                        }
-                        kings.put(.black, s);
-                    },
+                    .b_king => if (kings.fetchPut(.black, s)) |_| return error.InvalidPiece else 1,
 
-                    else => {},
-                }
-
-                break :blk 1;
+                    else => 1,
+                };
             } else switch (c) {
                 '1'...'8' => c - '0',
                 '/' => 0,
                 else => return error.InvalidPiece,
             };
 
-            if (si > types.Square.cnt) {
+            if (si > types.Square.num) {
                 return error.InvalidSquare;
             }
-            if (si < types.Square.cnt and sa[si].rank() != s.rank() and sa[si].file() != .file_a) {
+            if (si < types.Square.num and sa[si].rank() != s.rank() and sa[si].file() != .file_a) {
                 return error.InvalidSquare;
             }
         }
@@ -268,56 +269,38 @@ pub const Position = struct {
                 }
                 break;
             }
-            const cas = types.Castle.fromChar(c) orelse sw: switch (c) {
-                'A'...'H', 'a'...'h' => {
-                    const is_lower = std.ascii.isLower(c);
-                    const to_lower = std.ascii.toLower(c);
 
-                    const kf = kings.getAssertContains(if (is_lower) .white else .black).file();
-                    const rf = types.File.fromChar(to_lower) orelse unreachable;
+            const right = types.Castle.fromChar(c) orelse frc: {
+                const is_lower = std.ascii.isLower(c);
+                const to_lower = std.ascii.toLower(c);
+                const color: types.Color = if (is_lower) .black else .white;
 
-                    const kfi: isize = @intFromEnum(kf);
-                    const rfi: isize = @intFromEnum(rf);
-                    const ei: isize = std.math.sign(types.Direction.west.int());
-                    const is_k = std.math.sign(rfi - kfi) == ei;
+                const kf = kings.getAssertContains(color).file();
+                const rf = types.File.fromChar(to_lower) orelse return error.InvalidCastle;
 
-                    if (is_lower) {
-                        break :sw if (is_k) types.Castle.bk else types.Castle.bq;
-                    } else {
-                        break :sw if (is_k) types.Castle.wk else types.Castle.wq;
-                    }
-                },
-                else => return error.InvalidCastle,
+                const kfi: i8 = kf.int();
+                const rfi: i8 = rf.int();
+                const diff = rfi - kfi;
+                const west = types.Direction.west.int();
+                const is_q = diff * west > 0;
+
+                break :frc switch (color) {
+                    .black => if (is_q) types.Castle.bq else types.Castle.bk,
+                    .white => if (is_q) types.Castle.wq else types.Castle.wk,
+                };
             };
+            if (self.castles.contains(right)) {
+                return error.InvalidCastle;
+            }
 
-            const ks = kings.getAssertContains(cas.color());
-            const rs = rooks.getAssertContains(cas);
+            const ks = kings.getAssertContains(right.color());
+            const rs = rooks.getAssertContains(right);
 
-            const is_q = cas == .bq or cas == .wq;
-            const kd = types.Square.init(cas.color().homeRank(), if (is_q) .file_c else .file_g);
-            const rd = types.Square.init(cas.color().homeRank(), if (is_q) .file_d else .file_f);
+            const is_q = right.ptype() == .queen;
+            const kd = types.Square.init(right.color().homeRank(), if (is_q) .file_c else .file_g);
+            const rd = types.Square.init(right.color().homeRank(), if (is_q) .file_d else .file_f);
 
-            const kb = if (ks != kd) types.Square.Set
-                .full
-                .bwa(bitboard.rAtk(ks, kd.toSet()))
-                .bwa(bitboard.rAtk(kd, ks.toSet()))
-                .bwo(kd.toSet()) else .none;
-            const rb = if (rs != rd) types.Square.Set
-                .full
-                .bwa(bitboard.rAtk(rs, rd.toSet()))
-                .bwa(bitboard.rAtk(rd, rs.toSet()))
-                .bwo(rd.toSet()) else .none;
-
-            self.setCastle(cas, .{
-                .ks = ks,
-                .kd = kd,
-                .rs = rs,
-                .rd = rd,
-                .atk = kb,
-                .occ = kb.bwo(rb)
-                    .bwa(rs.toSet().flip())
-                    .bwa(ks.toSet().flip()),
-            });
+            self.setCastle(right, .init(ks, kd, rs, rd));
         }
 
         const enp_token = tokens.next() orelse return error.InvalidFen;

@@ -141,22 +141,22 @@ const ScoredMoveList = struct {
         self.array.appendAssumeCapacity(sm);
     }
 
-    fn genCastle(self: *ScoredMoveList, pos: *const Board.Position, is_k: bool) usize {
+    fn genCastle(self: *ScoredMoveList, pos: *const Board.Position, is_q: bool) usize {
         const len = self.slice().len;
         const stm = pos.stm;
         const occ = pos.bothOcc();
 
-        const cas: types.Castle = switch (stm) {
-            .white => if (is_k) .wk else .wq,
-            .black => if (is_k) .bk else .bq,
+        const right: types.Castle = switch (stm) {
+            .black => if (is_q) .bq else .bk,
+            .white => if (is_q) .wq else .wk,
         };
-        const info = pos.castles.getPtrConst(cas) orelse return self.slice().len - len;
+        const castle = pos.castles.get(right) orelse return self.slice().len - len;
 
-        if (!pos.castles.contains(cas) or pos.isChecked() or occ.bwa(info.occ) != .none) {
+        if (pos.isChecked() or occ.bwa(castle.occ) != .none) {
             return self.slice().len - len;
         }
 
-        var am = info.atk;
+        var am = castle.atk;
         while (am.lowSquare()) |s| : (am.popLow()) {
             const atkers = pos.squareAtkers(s);
             const theirs = pos.colorOcc(stm.flip());
@@ -165,10 +165,10 @@ const ScoredMoveList = struct {
             }
         }
 
-        const s = info.ks;
-        const d = info.rs;
+        const s = castle.ks;
+        const d = castle.rs;
         self.push(.{
-            .move = .{ .flag = .castle, .info = .{ .castle = cas }, .src = s, .dst = d },
+            .move = .{ .flag = .castle, .info = .{ .castle = right }, .src = s, .dst = d },
             .score = evaluation.score.draw,
         });
         return self.slice().len - len;
