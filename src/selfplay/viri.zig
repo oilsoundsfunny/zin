@@ -64,8 +64,7 @@ pub const Line = bounded_array.BoundedArray(Move.Scored, 1024);
 pub const Move = packed struct(u16) {
     src: types.Square = @enumFromInt(0),
     dst: types.Square = @enumFromInt(0),
-    info: engine.movegen.Move.Info = .{ .none = 0 },
-    flag: engine.movegen.Move.Flag = .none,
+    flag: u4 = 0b0000,
 
     pub const Scored = extern struct {
         move: Move = .{},
@@ -76,8 +75,15 @@ pub const Move = packed struct(u16) {
 
     pub fn fromMove(move: engine.movegen.Move) Move {
         return .{
-            .flag = move.flag,
-            .info = if (move.flag == .promote) move.info else .{ .none = 0 },
+            .flag = switch (move.flag) {
+                .q_castle, .k_castle => 0b1000,
+                .promote_n, .noisy_promote_n => 0b1100,
+                .promote_b, .noisy_promote_b => 0b1101,
+                .promote_r, .noisy_promote_r => 0b1110,
+                .promote_q, .noisy_promote_q => 0b1111,
+                .en_passant => 0b0100,
+                else => 0b0000,
+            },
             .src = move.src,
             .dst = move.dst,
         };

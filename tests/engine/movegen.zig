@@ -52,28 +52,28 @@ test {
     try thread.board.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 
     const seq = [_]engine.movegen.Move{
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .a2, .dst = .a3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .b2, .dst = .b3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .c2, .dst = .c3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .d2, .dst = .d3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .e2, .dst = .e3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .f2, .dst = .f3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .g2, .dst = .g3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .h2, .dst = .h3 },
+        .{ .flag = .none, .src = .a2, .dst = .a3 },
+        .{ .flag = .none, .src = .b2, .dst = .b3 },
+        .{ .flag = .none, .src = .c2, .dst = .c3 },
+        .{ .flag = .none, .src = .d2, .dst = .d3 },
+        .{ .flag = .none, .src = .e2, .dst = .e3 },
+        .{ .flag = .none, .src = .f2, .dst = .f3 },
+        .{ .flag = .none, .src = .g2, .dst = .g3 },
+        .{ .flag = .none, .src = .h2, .dst = .h3 },
 
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .a2, .dst = .a4 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .b2, .dst = .b4 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .c2, .dst = .c4 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .d2, .dst = .d4 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .e2, .dst = .e4 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .f2, .dst = .f4 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .g2, .dst = .g4 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .h2, .dst = .h4 },
+        .{ .flag = .torped, .src = .a2, .dst = .a4 },
+        .{ .flag = .torped, .src = .b2, .dst = .b4 },
+        .{ .flag = .torped, .src = .c2, .dst = .c4 },
+        .{ .flag = .torped, .src = .d2, .dst = .d4 },
+        .{ .flag = .torped, .src = .e2, .dst = .e4 },
+        .{ .flag = .torped, .src = .f2, .dst = .f4 },
+        .{ .flag = .torped, .src = .g2, .dst = .g4 },
+        .{ .flag = .torped, .src = .h2, .dst = .h4 },
 
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .b1, .dst = .a3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .b1, .dst = .c3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .g1, .dst = .f3 },
-        .{ .flag = .none, .info = .{ .none = 0 }, .src = .g1, .dst = .h3 },
+        .{ .flag = .none, .src = .b1, .dst = .a3 },
+        .{ .flag = .none, .src = .b1, .dst = .c3 },
+        .{ .flag = .none, .src = .g1, .dst = .f3 },
+        .{ .flag = .none, .src = .g1, .dst = .h3 },
     };
     var nmp = engine.movegen.Picker.init(thread, .{});
     var qmp = engine.movegen.Picker.init(thread, .{});

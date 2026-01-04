@@ -30,11 +30,13 @@ fn ptypeValue(p: types.Ptype) evaluation.score.Int {
 }
 
 fn pieceValue(p: types.Piece) evaluation.score.Int {
-    return ptypeValue(p.ptype());
+    return if (p != .none) ptypeValue(p.ptype()) else evaluation.score.draw;
 }
 
 pub fn func(pos: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
-    if (move.flag != .none) {
+    if (move.flag == .none or move.flag == .torped) {
+        return min <= evaluation.score.draw;
+    } else if (move.flag != .noisy) {
         return true;
     }
 

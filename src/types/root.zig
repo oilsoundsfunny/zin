@@ -204,7 +204,6 @@ pub const Ptype = enum(u3) {
     rook,
     queen,
     king,
-    none,
 
     const char_array = std.EnumArray(Ptype, u8).init(.{
         .pawn = 'p',
@@ -213,17 +212,13 @@ pub const Ptype = enum(u3) {
         .rook = 'r',
         .queen = 'q',
         .king = 'k',
-        .none = '.',
     });
 
     pub const Int = std.meta.Tag(Ptype);
     pub const int_info = @typeInfo(Int).int;
 
     pub const num: comptime_int = values.len;
-    pub const values = init: {
-        const v = std.enums.values(Ptype);
-        break :init v[0 .. v.len - 1];
-    };
+    pub const values = std.enums.values(Ptype);
 
     pub fn fromInt(i: Int) Ptype {
         return @enumFromInt(i);
@@ -351,8 +346,6 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
         .b_rook = 'r',
         .b_queen = 'q',
         .b_king = 'k',
-
-        .none = '.',
     });
 
     pub const Int = std.meta.Tag(Piece);
@@ -364,7 +357,7 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
         break :init v[0 .. v.len - 1];
     };
 
-    pub const w_pieces = [_]Piece{
+    pub const w_pieces: [Ptype.num]Piece = .{
         .w_pawn,
         .w_knight,
         .w_bishop,
@@ -373,7 +366,7 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
         .w_king,
     };
 
-    pub const b_pieces = [_]Piece{
+    pub const b_pieces: [Ptype.num]Piece = .{
         .b_pawn,
         .b_knight,
         .b_bishop,
@@ -382,7 +375,7 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
         .b_king,
     };
 
-    pub fn init(c: Color, p: Ptype) Piece {
+    pub fn init(p: Ptype, c: Color) Piece {
         const pi = @as(Int, p.int()) * Color.num;
         const ci = @as(Int, c.int());
         return fromInt(pi + ci);
@@ -563,10 +556,6 @@ pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_in
     pub const num: comptime_int = values.len;
     pub const values = std.enums.values(Square);
 
-    fn fromInt(i: Int) Square {
-        return @enumFromInt(i);
-    }
-
     pub fn init(r: Rank, f: File) Square {
         const ri = @as(Int, r.int()) * File.num;
         const fi = @as(Int, f.int());
@@ -575,6 +564,10 @@ pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_in
 
     pub fn int(self: Square) Int {
         return @intFromEnum(self);
+    }
+
+    pub fn fromInt(i: Int) Square {
+        return @enumFromInt(i);
     }
 
     pub fn rank(self: Square) Rank {

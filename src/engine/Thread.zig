@@ -305,6 +305,14 @@ pub const Options = struct {
 };
 
 pub const hist = struct {
+    const color_n = 1 << types.Color.int_info.bits;
+    const ptype_n = 1 << types.Ptype.int_info.bits;
+    const square_n = 1 << types.Square.int_info.bits;
+
+    const Quiet = [color_n][ptype_n][square_n]Int;
+    const Noisy = [color_n][ptype_n][square_n][ptype_n]Int;
+    const Cont = [4][color_n][ptype_n][square_n][ptype_n][square_n]Int;
+
     pub const Int = i16;
 
     pub const min = std.math.minInt(Int) / 2;
@@ -354,17 +362,9 @@ seldepth: Depth = 0,
 root_moves: movegen.Move.Root.List = .{},
 
 nmp_verif: bool = false,
-quiethist: QuietHist = @splat(@splat(@splat(0))),
-noisyhist: NoisyHist = @splat(@splat(@splat(@splat(0)))),
-conthist: ContHist = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
-
-const color_n = 1 << types.Color.int_info.bits;
-const ptype_n = 1 << types.Ptype.int_info.bits;
-const square_n = 1 << types.Square.int_info.bits;
-
-const QuietHist = [color_n][ptype_n][square_n]hist.Int;
-const NoisyHist = [color_n][ptype_n][square_n][ptype_n]hist.Int;
-const ContHist = [4][color_n][ptype_n][square_n][ptype_n][square_n]hist.Int;
+quiethist: hist.Quiet = @splat(@splat(@splat(0))),
+noisyhist: hist.Noisy = @splat(@splat(@splat(@splat(0)))),
+conthist: hist.Cont = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
 
 fn quietHistPtr(
     self: anytype,
@@ -379,9 +379,12 @@ fn noisyHistPtr(
     move: movegen.Move,
 ) types.SameMutPtr(@TypeOf(self), Thread, hist.Int) {
     const sp = self.board.top().getSquare(move.src);
-    const dp = self.board.top().getSquare(move.dst);
+    const dp = switch (self.board.top().getSquare(move.dst)) {
+        .none => types.Ptype.num,
+        else => |p| p.ptype().int(),
+    };
 
-    return &self.noisyhist[sp.color().int()][sp.ptype().int()][move.dst.int()][dp.ptype().int()];
+    return &self.noisyhist[sp.color().int()][sp.ptype().int()][move.dst.int()][dp];
 }
 
 fn contHistPtr(
@@ -389,7 +392,10 @@ fn contHistPtr(
     move: movegen.Move,
     ply: usize,
 ) types.SameMutPtr(@TypeOf(self), Thread, hist.Int) {
-    const last_spt = self.board.top().down(ply).src_piece.ptype().int();
+    const last_spt = switch (self.board.top().down(ply).src_piece) {
+        .none => types.Ptype.num,
+        else => |p| p.ptype().int(),
+    };
     const last_dst = self.board.top().down(ply).move.dst.int();
 
     const this_spt = self.board.top().getSquare(move.src).ptype().int();
@@ -409,8 +415,7 @@ fn updateHist(
     const bonus = hist.bonus(depth);
     const malus = hist.malus(depth);
 
-    const pos = self.board.top();
-    const is_quiet = pos.isMoveQuiet(move);
+    const is_quiet = move.flag.isQuiet();
     if (is_quiet) {
         hist.gravity(self.quietHistPtr(move), bonus);
         for (bad_quiet_moves) |qm| {
@@ -778,8 +783,8 @@ fn ab(
     var bad_quiet_moves: movegen.Move.List = .{};
     var mp = movegen.Picker.init(self, tte.move);
 
-    const is_ttm_noisy = !mp.ttm.isNone() and pos.isMoveNoisy(mp.ttm);
-    const is_ttm_quiet = !mp.ttm.isNone() and !is_ttm_noisy;
+    const is_ttm_noisy = !mp.ttm.isNone() and mp.ttm.flag.isNoisy();
+    const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
 
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
