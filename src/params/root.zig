@@ -115,6 +115,11 @@ pub const tunables = [_]Tunable{
     .{ .name = "fp_margin1", .value = 128, .min = 10, .max = 180, .c_end = 12.0 },
     .{ .name = "fp_hist_divisor", .value = 393, .min = 256, .max = 512, .c_end = 16.0 },
 
+    .{ .name = "pvs_see_quiet_mul", .value = -67, .min = -120, .max = -30, .c_end = 6.0 },
+    .{ .name = "pvs_see_noisy_mul", .value = -96, .min = -120, .max = -30, .c_end = 6.0 },
+    .{ .name = "pvs_see_max_capthist", .value = 103, .min = 50, .max = 200, .c_end = 6.0 },
+    .{ .name = "pvs_see_capthist_div", .value = 30, .min = 16, .max = 96, .c_end = 2.0 },
+
     .{ .name = "lmr_min_depth", .value = 3, .min = 2, .max = 5, .c_end = 1.0 },
     .{ .name = "lmr_non_improving", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
     .{ .name = "lmr_cutnode", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },

@@ -822,6 +822,20 @@ fn ab(
             if (searched > very_late) {
                 break :move_loop;
             }
+
+            // pvs see
+            const see_margin = if (is_quiet)
+                d * params.values.pvs_see_quiet_mul
+            else
+                noisy: {
+                    const base = params.values.pvs_see_noisy_mul * d;
+                    const div = params.values.pvs_see_capthist_div;
+                    const max = params.values.pvs_see_max_capthist * d;
+                    break :noisy base - std.math.clamp(@divTrunc(sm.score, div), -max, max);
+                };
+            if (!pos.see(m, see_margin)) {
+                continue :move_loop;
+            }
         }
 
         var recur_d = d - 1;
