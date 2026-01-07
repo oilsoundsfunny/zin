@@ -39,6 +39,8 @@ pub const Pool = struct {
     allocator: std.mem.Allocator,
     threads: std.ArrayList(Thread),
 
+    corrhists: std.EnumArray(hist.Corr, []align(std.atomic.cache_line) [hist.color_n]hist.Int),
+
     searching: bool align(std.atomic.cache_line),
     sleeping: bool align(std.atomic.cache_line),
     stopped: bool align(std.atomic.cache_line),
@@ -88,6 +90,12 @@ pub const Pool = struct {
         self.join();
         self.threads.deinit(self.allocator);
 
+        for (hist.Corr.values) |t| {
+            const p = self.corrhists.getPtrConst(t).*;
+            self.allocator.free(p);
+            self.corrhists.set(t, undefined);
+        }
+
         self.io.deinit(self.allocator);
         self.tt.deinit(self.allocator);
 
@@ -108,6 +116,8 @@ pub const Pool = struct {
             .allocator = allocator,
             .threads = try .initCapacity(allocator, threads),
 
+            .corrhists = .initUndefined(),
+
             .cond = .{},
             .mtx = .{},
 
@@ -126,8 +136,16 @@ pub const Pool = struct {
         _ = try pool.threads.addManyAsSliceBounded(threads);
         try pool.reset();
         try pool.spawn();
-        pool.clearHash();
 
+        for (hist.Corr.values) |t| {
+            pool.corrhists.set(t, try allocator.alignedAlloc(
+                [hist.color_n]hist.Int,
+                .fromByteUnits(128),
+                hist.Corr.size * threads,
+            ));
+        }
+
+        pool.clearHash();
         return pool;
     }
 
@@ -154,6 +172,16 @@ pub const Pool = struct {
             _ = try self.threads.addManyAsSlice(self.allocator, add_n);
         } else {
             self.threads.items.len -= prev_len - num;
+        }
+
+        for (hist.Corr.values) |t| {
+            const p = self.corrhists.getPtr(t);
+            p.* = try self.allocator.realloc(p.*, num * hist.Corr.size);
+
+            var i: usize = 0;
+            while (i < p.len) : (i += hist.Corr.size) {
+                p.*[i..][0..hist.Corr.size].* = @splat(@splat(0));
+            }
         }
 
         for (self.threads.items, 0..) |*thread, i| {
@@ -315,6 +343,20 @@ pub const hist = struct {
 
     pub const Int = i16;
 
+    pub const Corr = enum {
+        pawn,
+        minor,
+        major,
+
+        pub const num: comptime_int = values.len;
+        pub const size = 65536;
+        pub const values = std.enums.values(Corr);
+
+        fn update(p: *hist.Int, diff: evaluation.score.Int, weight: evaluation.score.Int) void {
+            gravity(p, std.math.clamp(@divTrunc(diff * weight, 1024), -16000, 16000));
+        }
+    };
+
     pub const min = std.math.minInt(Int) / 2;
     pub const max = -min;
 
@@ -403,6 +445,49 @@ fn contHistPtr(
 
     const stm = self.board.top().stm.int();
     return &self.conthist[ply / 2][stm][last_spt][last_dst][this_spt][this_dst];
+}
+
+fn correctedEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score.Int {
+    const stm = self.board.top().stm;
+
+    var corr: isize = 0;
+    inline for (hist.Corr.values) |t| {
+        const key = self.board.top().corr_keys.getPtrConst(t).*;
+        const len = hist.Corr.size * self.pool.threads.items.len;
+        const idx = zobrist.index(key, len);
+
+        const add: isize = self.pool.corrhists.getPtrConst(t).*[idx][stm.int()];
+        const wgt: isize = @field(params.values, "corr_" ++ @tagName(t) ++ "_w");
+
+        corr += add * wgt;
+    }
+    corr = @divTrunc(corr, 1 << 18);
+
+    const corrected = eval + @as(evaluation.score.Int, @intCast(corr));
+    return std.math.clamp(corrected, evaluation.score.lose + 1, evaluation.score.win - 1);
+}
+
+fn updateCorrHists(
+    self: *const Thread,
+    depth: Depth,
+    diff: evaluation.score.Int,
+) void {
+    const stm = self.board.top().stm;
+    const weight = @min(depth + 1, 16);
+
+    inline for (hist.Corr.values) |t| {
+        const key = self.board.top().corr_keys.getPtrConst(t).*;
+        const len = hist.Corr.size * self.pool.threads.items.len;
+        const idx = zobrist.index(key, len);
+
+        const ptr = &self.pool.corrhists.getPtrConst(t).*[idx][stm.int()];
+        const wgt = @field(params.values, "corr_" ++ @tagName(t) ++ "_update_w");
+
+        const bonus = diff * weight;
+        const scaled = @divTrunc(bonus * wgt, 1024);
+        const clamped = std.math.clamp(scaled, -16000, 16000);
+        hist.gravity(ptr, clamped);
+    }
 }
 
 fn updateHist(
@@ -655,17 +740,22 @@ fn ab(
         tte.eval < evaluation.score.win;
     const stat_eval = if (is_checked)
         evaluation.score.none
-    else if (has_tteval) tte.eval else board.evaluate();
+    else if (has_tteval)
+        tte.eval
+    else
+        board.evaluate();
 
     const use_ttscore = tth and
         ttscore > evaluation.score.lose and
         ttscore < evaluation.score.win and
         !(tte.flag == .upperbound and ttscore > stat_eval) and
         !(tte.flag == .lowerbound and ttscore <= stat_eval);
-    // TODO: correct eval in case tt score is unusable
     const corr_eval = if (use_ttscore)
         ttscore
-    else if (is_checked) evaluation.score.none else stat_eval;
+    else if (is_checked)
+        evaluation.score.none
+    else
+        self.correctedEval(stat_eval);
 
     pos.stat_eval = stat_eval;
     pos.corr_eval = corr_eval;
@@ -826,13 +916,12 @@ fn ab(
             // pvs see
             const see_margin = if (is_quiet)
                 d * params.values.pvs_see_quiet_mul
-            else
-                noisy: {
-                    const base = params.values.pvs_see_noisy_mul * d;
-                    const div = params.values.pvs_see_capthist_div;
-                    const max = params.values.pvs_see_max_capthist * d;
-                    break :noisy base - std.math.clamp(@divTrunc(sm.score, div), -max, max);
-                };
+            else noisy: {
+                const base = params.values.pvs_see_noisy_mul * d;
+                const div = params.values.pvs_see_capthist_div;
+                const max = params.values.pvs_see_max_capthist * d;
+                break :noisy base - std.math.clamp(@divTrunc(sm.score, div), -max, max);
+            };
             if (!pos.see(m, see_margin)) {
                 continue :move_loop;
             }
@@ -978,6 +1067,14 @@ fn ab(
     };
     tt.write(key, tte);
 
+    if (!is_checked and
+        !best.move.flag.isNoisy() and
+        !(flag == .upperbound and best.score > corr_eval) and
+        !(flag == .lowerbound and best.score < corr_eval))
+    {
+        self.updateCorrHists(depth, best.score - corr_eval);
+    }
+
     return best.score;
 }
 
@@ -1044,10 +1141,12 @@ fn qs(
         ttscore < evaluation.score.win and
         !(tte.flag == .upperbound and ttscore > stat_eval) and
         !(tte.flag == .lowerbound and ttscore <= stat_eval);
-    // TODO: correct eval in case tt score is unusable
     const corr_eval = if (use_ttscore)
         ttscore
-    else if (is_checked) evaluation.score.none else stat_eval;
+    else if (is_checked)
+        evaluation.score.none
+    else
+        stat_eval;
 
     pos.stat_eval = stat_eval;
     pos.corr_eval = corr_eval;
@@ -1218,6 +1317,11 @@ fn clearHash(self: *Thread) void {
     const s = p[0..if (i < m) d + 1 else d];
     for (s) |*c| {
         c.* = .{};
+    }
+
+    for (hist.Corr.values) |corr_t| {
+        const corr_h = self.pool.corrhists.getPtrConst(corr_t).*;
+        corr_h[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
     }
 }
 

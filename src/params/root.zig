@@ -65,30 +65,38 @@ pub const Tunable = struct {
 
 pub const tuning = false;
 pub const tunables = [_]Tunable{
-    .{ .name = "see_pawn_value", .value = 256, .min = null, .max = null, .c_end = null },
-    .{ .name = "see_knight_value", .value = 256 * 44 / 16, .min = null, .max = null, .c_end = null },
-    .{ .name = "see_bishop_value", .value = 256 * 52 / 16, .min = null, .max = null, .c_end = null },
-    .{ .name = "see_rook_value", .value = 256 * 5, .min = null, .max = null, .c_end = null },
-    .{ .name = "see_queen_value", .value = 256 * 9, .min = null, .max = null, .c_end = null },
+    .{ .name = "see_pawn_value", .value = 256 },
+    .{ .name = "see_knight_value", .value = 704 },
+    .{ .name = "see_bishop_value", .value = 832 },
+    .{ .name = "see_rook_value", .value = 1280 },
+    .{ .name = "see_queen_value", .value = 2304 },
 
-    .{ .name = "mvv_pawn_value", .value = 256 * 7, .min = null, .max = null, .c_end = 200.0 },
-    .{ .name = "mvv_knight_value", .value = 256 * 44 / 16 * 7, .min = null, .max = null, .c_end = 200.0 },
-    .{ .name = "mvv_bishop_value", .value = 256 * 52 / 16 * 7, .min = null, .max = null, .c_end = 200.0 },
-    .{ .name = "mvv_rook_value", .value = 256 * 5 * 7, .min = null, .max = null, .c_end = 200.0 },
-    .{ .name = "mvv_queen_value", .value = 256 * 9 * 7, .min = null, .max = null, .c_end = 200.0 },
+    .{ .name = "mvv_pawn_value", .value = 1792 },
+    .{ .name = "mvv_knight_value", .value = 4928 },
+    .{ .name = "mvv_bishop_value", .value = 5824 },
+    .{ .name = "mvv_rook_value", .value = 8960 },
+    .{ .name = "mvv_queen_value", .value = 16128 },
 
     .{ .name = "base_time_mul", .value = 5, .min = 2, .max = 13, .c_end = 1.0 },
     .{ .name = "base_incr_mul", .value = 50, .min = 25, .max = 100, .c_end = 5.0 },
 
-    .{ .name = "max_hist_bonus", .value = 768, .min = 512, .max = 3072, .c_end = 256 },
-    .{ .name = "hist_bonus2", .value = 0, .min = 0, .max = 1536, .c_end = 64 },
-    .{ .name = "hist_bonus1", .value = 64, .min = 64, .max = 384, .c_end = 32 },
-    .{ .name = "hist_bonus0", .value = 0, .min = -768, .max = 384, .c_end = 64 },
+    .{ .name = "max_hist_bonus", .value = 768, .min = 512, .max = 3072, .c_end = 256.0 },
+    .{ .name = "hist_bonus2", .value = 0, .min = 0, .max = 1536, .c_end = 64.0 },
+    .{ .name = "hist_bonus1", .value = 64, .min = 64, .max = 384, .c_end = 32.0 },
+    .{ .name = "hist_bonus0", .value = 0, .min = -768, .max = 384, .c_end = 64.0 },
 
-    .{ .name = "max_hist_malus", .value = 768, .min = 512, .max = 3072, .c_end = 256 },
-    .{ .name = "hist_malus2", .value = 0, .min = 0, .max = 1536, .c_end = 64 },
-    .{ .name = "hist_malus1", .value = 64, .min = 64, .max = 384, .c_end = 32 },
-    .{ .name = "hist_malus0", .value = 0, .min = -768, .max = 384, .c_end = 64 },
+    .{ .name = "max_hist_malus", .value = 768, .min = 512, .max = 3072, .c_end = 256.0 },
+    .{ .name = "hist_malus2", .value = 0, .min = 0, .max = 1536, .c_end = 64.0 },
+    .{ .name = "hist_malus1", .value = 64, .min = 64, .max = 384, .c_end = 32.0 },
+    .{ .name = "hist_malus0", .value = 0, .min = -768, .max = 384, .c_end = 64.0 },
+
+    .{ .name = "corr_pawn_w", .value = 986 },
+    .{ .name = "corr_minor_w", .value = 1006 },
+    .{ .name = "corr_major_w", .value = 1149 },
+
+    .{ .name = "corr_pawn_update_w", .value = 2379 },
+    .{ .name = "corr_minor_update_w", .value = 2035 },
+    .{ .name = "corr_major_update_w", .value = 1921 },
 
     .{ .name = "asp_min_depth", .value = 6, .min = 3, .max = 7, .c_end = 1.0 },
     .{ .name = "asp_window", .value = 10, .min = 5, .max = 20, .c_end = 2.0 },
@@ -130,9 +138,9 @@ pub const tunables = [_]Tunable{
     .{ .name = "lmr_was_pv", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
     .{ .name = "lmr_was_pv_non_fail_low", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
 
-    .{ .name = "deeper_margin0", .value = 0, .min = null, .max = null, .c_end = null },
-    .{ .name = "deeper_margin1", .value = 0, .min = null, .max = null, .c_end = null },
-    .{ .name = "shallower_margin", .value = 0, .min = null, .max = null, .c_end = null },
+    .{ .name = "deeper_margin0", .value = 0 },
+    .{ .name = "deeper_margin1", .value = 0 },
+    .{ .name = "shallower_margin", .value = 0 },
 
     .{ .name = "qs_fp_margin", .value = 64, .min = 0, .max = 250, .c_end = 16.0 },
 };

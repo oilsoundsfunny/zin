@@ -70,7 +70,9 @@ pub const Position = struct {
     checks: types.Square.Set = .full,
     en_pas: ?types.Square = null,
     rule50: u8 = 0,
+
     key: zobrist.Int = 0,
+    corr_keys: std.EnumArray(Thread.hist.Corr, zobrist.Int) = .initFill(0),
 
     corr_eval: evaluation.score.Int = evaluation.score.none,
     stat_eval: evaluation.score.Int = evaluation.score.none,
@@ -110,6 +112,15 @@ pub const Position = struct {
 
         const z = zobrist.psq(s, p);
         self.key ^= z;
+        switch (t) {
+            .pawn => self.corr_keys.getPtr(.pawn).* ^= z,
+            .knight, .bishop => self.corr_keys.getPtr(.minor).* ^= z,
+            .rook, .queen => self.corr_keys.getPtr(.major).* ^= z,
+            .king => {
+                self.corr_keys.getPtr(.minor).* ^= z;
+                self.corr_keys.getPtr(.major).* ^= z;
+            },
+        }
     }
 
     fn setSq(self: *Position, s: types.Square, p: types.Piece) void {
@@ -125,6 +136,15 @@ pub const Position = struct {
 
         const z = zobrist.psq(s, p);
         self.key ^= z;
+        switch (t) {
+            .pawn => self.corr_keys.getPtr(.pawn).* ^= z,
+            .knight, .bishop => self.corr_keys.getPtr(.minor).* ^= z,
+            .rook, .queen => self.corr_keys.getPtr(.major).* ^= z,
+            .king => {
+                self.corr_keys.getPtr(.minor).* ^= z;
+                self.corr_keys.getPtr(.major).* ^= z;
+            },
+        }
     }
 
     fn popCastle(self: *Position, c: types.Castle) void {
@@ -518,15 +538,6 @@ pub const Position = struct {
             else => sp.ptype() == .pawn and atk.bwa(promote_bb).bwa(them).get(d),
         };
     }
-
-    fn evaluate(self: *const Position, accumulator: *const nnue.Accumulator) evaluation.score.Int {
-        const inferred = nnue.net.embed.infer(accumulator, self.stm);
-        const scaled = @divTrunc(inferred * (100 - self.rule50), 100);
-
-        const min = evaluation.score.lose + 1;
-        const max = evaluation.score.win - 1;
-        return std.math.clamp(scaled, min, max);
-    }
 };
 
 pub const capacity = 1024 - offset;
@@ -789,6 +800,9 @@ pub fn evaluate(self: *Board) evaluation.score.Int {
     self.updateAccumulators();
 
     const accumulator = &self.accumulators.constSlice()[offset + self.ply()];
-    const pos = self.top();
-    return pos.evaluate(accumulator);
+    const position = &self.positions.constSlice()[offset + self.ply()];
+
+    const inferred = nnue.net.embed.infer(accumulator, position.stm);
+    const scaled = @divTrunc(inferred * (100 - position.rule50), 100);
+    return std.math.clamp(scaled, evaluation.score.lose + 1, evaluation.score.win - 1);
 }
