@@ -63,19 +63,19 @@ pub const Tunable = struct {
     }
 };
 
-pub const tuning = false;
+pub const tuning = true;
 pub const tunables = [_]Tunable{
-    .{ .name = "see_pawn_value", .value = 256 },
-    .{ .name = "see_knight_value", .value = 704 },
-    .{ .name = "see_bishop_value", .value = 832 },
-    .{ .name = "see_rook_value", .value = 1280 },
-    .{ .name = "see_queen_value", .value = 2304 },
+    .{ .name = "see_ordering_pawn", .value = 256, .min = 0, .max = 2340 },
+    .{ .name = "see_ordering_knight", .value = 704, .min = 0, .max = 2340 },
+    .{ .name = "see_ordering_bishop", .value = 832, .min = 0, .max = 2340 },
+    .{ .name = "see_ordering_rook", .value = 1280, .min = 0, .max = 2340 },
+    .{ .name = "see_ordering_queen", .value = 2304, .min = 0, .max = 2340 },
 
-    .{ .name = "mvv_pawn_value", .value = 1792 },
-    .{ .name = "mvv_knight_value", .value = 4928 },
-    .{ .name = "mvv_bishop_value", .value = 5824 },
-    .{ .name = "mvv_rook_value", .value = 8960 },
-    .{ .name = "mvv_queen_value", .value = 16128 },
+    .{ .name = "see_pruning_pawn", .value = 256, .min = 0, .max = 2340 },
+    .{ .name = "see_pruning_knight", .value = 704, .min = 0, .max = 2340 },
+    .{ .name = "see_pruning_bishop", .value = 832, .min = 0, .max = 2340 },
+    .{ .name = "see_pruning_rook", .value = 1280, .min = 0, .max = 2340 },
+    .{ .name = "see_pruning_queen", .value = 2304, .min = 0, .max = 2340 },
 
     .{ .name = "base_time_mul", .value = 5, .min = 2, .max = 13, .c_end = 1.0 },
     .{ .name = "base_incr_mul", .value = 50, .min = 25, .max = 100, .c_end = 5.0 },
@@ -101,6 +101,14 @@ pub const tunables = [_]Tunable{
     .{ .name = "asp_min_depth", .value = 6, .min = 3, .max = 7, .c_end = 1.0 },
     .{ .name = "asp_window", .value = 10, .min = 5, .max = 20, .c_end = 2.0 },
     .{ .name = "asp_window_mul", .value = 58, .min = 1, .max = 512, .c_end = 24.0 },
+
+    .{ .name = "tt_depth_w", .value = 1024, .min = 0, .max = 2048, .c_end = 128.0 },
+    .{ .name = "tt_age_w", .value = 2048, .min = 0, .max = 8192, .c_end = 256.0 },
+    .{ .name = "tt_pv_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
+    .{ .name = "tt_upperbound_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
+    .{ .name = "tt_exact_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
+    .{ .name = "tt_lowerbound_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
+    .{ .name = "tt_move_w", .value = 0, .min = 0, .max = 8192, .c_end = 256.0 },
 
     .{ .name = "iir_min_depth", .value = 4, .min = 2, .max = 9, .c_end = 1.0 },
 
