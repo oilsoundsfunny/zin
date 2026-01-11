@@ -494,21 +494,24 @@ pub const Move = packed struct(u16) {
 };
 
 pub const Picker = struct {
-    list: Move.Scored.List,
+    list: Move.Scored.List = .{},
     board: *const Board,
     thread: *const Thread,
 
     skip_quiets: bool,
     stage: Stage,
 
-    excluded: Move,
-    ttm: Move,
+    excluded: Move = .{},
+    ttm: Move = .{},
 
-    noisy_n: usize,
-    quiet_n: usize,
+    first: usize = 0,
+    last: usize = 0,
 
-    bad_noisy_n: usize,
-    bad_quiet_n: usize,
+    noisy_n: usize = 0,
+    quiet_n: usize = 0,
+
+    bad_noisy_n: usize = 0,
+    bad_quiet_n: usize = 0,
 
     pub const Stage = enum(u8) {
         ttm,
@@ -558,19 +561,15 @@ pub const Picker = struct {
 
     fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
         return if (move == self.ttm or move == self.excluded) Thread.hist.min - 1 else captures: {
-            const mvv = if (move.flag != .en_passant)
-                switch (self.board.top().getSquare(move.dst).ptype()) {
-                    .pawn => params.values.mvv_pawn_value,
-                    .knight => params.values.mvv_knight_value,
-                    .bishop => params.values.mvv_bishop_value,
-                    .rook => params.values.mvv_rook_value,
-                    .queen => params.values.mvv_queen_value,
-                    else => std.debug.panic("found king capture", .{}),
-                }
-            else
-                params.values.mvv_pawn_value;
+            const mvv = if (move.flag == .en_passant)
+                params.values.see_ordering_pawn
+            else switch (self.board.top().getSquare(move.dst).ptype()) {
+                .king => std.debug.panic("found king capture", .{}),
+                inline else => |e| @field(params.values, "see_ordering_" ++ @tagName(e)),
+            };
+
             const hist = self.thread.getNoisyHist(move);
-            break :captures @intCast(@divTrunc(mvv + hist, 2));
+            break :captures @intCast(@divTrunc(mvv * 7 + hist, 2));
         };
     }
 
@@ -587,30 +586,21 @@ pub const Picker = struct {
     }
 
     pub fn init(thread: *const Thread, ttm: Move) Picker {
-        var self: Picker = .{
-            .list = .{},
+        var mp: Picker = .{
             .board = &thread.board,
             .thread = thread,
 
             .skip_quiets = false,
             .stage = .gen_noisy,
-
-            .excluded = .{},
-            .ttm = .{},
-
-            .noisy_n = 0,
-            .quiet_n = 0,
-
-            .bad_noisy_n = 0,
-            .bad_quiet_n = 0,
         };
 
-        if (!ttm.isNone() and self.board.top().isMovePseudoLegal(ttm)) {
-            self.ttm = ttm;
-            self.stage = .ttm;
+        const pos = mp.board.top();
+        if (!ttm.isNone() and pos.isMovePseudoLegal(ttm)) {
+            mp.ttm = ttm;
+            mp.stage = .ttm;
         }
 
-        return self;
+        return mp;
     }
 
     pub fn next(self: *Picker) ?Move.Scored {

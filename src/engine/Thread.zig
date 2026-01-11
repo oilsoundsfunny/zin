@@ -922,7 +922,7 @@ fn ab(
                 const max = params.values.pvs_see_max_capthist * d;
                 break :noisy base - std.math.clamp(@divTrunc(sm.score, div), -max, max);
             };
-            if (!pos.see(m, see_margin)) {
+            if (!pos.see(.pruning, m, see_margin)) {
                 continue :move_loop;
             }
         }
@@ -1178,7 +1178,7 @@ fn qs(
 
             // qs see pruning
             // 10.0+0.1: 206.81 +- 35.91
-            if (!pos.see(m, draw)) {
+            if (!pos.see(.pruning, m, draw)) {
                 continue :move_loop;
             }
         }
@@ -1187,7 +1187,7 @@ fn qs(
             // qs futility pruning
             // 10.0+0.1: 65.37 +- 17.63
             const margin = params.values.qs_fp_margin;
-            if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
+            if (corr_eval + margin <= a and !pos.see(.pruning, m, draw + 1)) {
                 best.score = @intCast(@max(best.score, corr_eval + margin));
                 continue :move_loop;
             }

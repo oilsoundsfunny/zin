@@ -81,8 +81,6 @@ pub const Position = struct {
     pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
 
-    pub const see = @import("see.zig").func;
-
     fn colorOccPtr(self: *Position, c: types.Color) *types.Square.Set {
         return self.by_color.getPtr(c);
     }
@@ -537,6 +535,15 @@ pub const Position = struct {
 
             else => sp.ptype() == .pawn and atk.bwa(promote_bb).bwa(them).get(d),
         };
+    }
+
+    pub fn see(
+        self: *const Position,
+        comptime mode: @import("see.zig").Mode,
+        move: movegen.Move,
+        min: evaluation.score.Int,
+    ) bool {
+        return @import("see.zig").func(mode, self, move, min);
     }
 };
 

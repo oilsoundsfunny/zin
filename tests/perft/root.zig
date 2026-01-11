@@ -6,7 +6,8 @@ const types = @import("types");
 
 pub const Result = struct {
     fen: []const u8,
-    nodes: [6]usize,
+    moves: []const []const u8,
+    nodes: []const usize,
 };
 
 fn div(comptime root: bool, board: *engine.Board, depth: engine.Thread.Depth) usize {

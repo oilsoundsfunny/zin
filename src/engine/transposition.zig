@@ -1,3 +1,4 @@
+const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
@@ -45,6 +46,18 @@ pub const Entry = packed struct(u80) {
             return self.tag() & Flag.upperbound.tag() != 0;
         }
     };
+
+    fn value(self: Entry, tt_age: i32) i32 {
+        const depth = params.values.tt_depth_w * self.depth;
+        const age = params.values.tt_age_w * @mod(tt_age - self.age, 32);
+        const pv = if (self.was_pv) params.values.tt_pv_w else evaluation.score.draw;
+        const flag = switch (self.flag) {
+            .none => evaluation.score.draw,
+            inline else => |e| @field(params.values, "tt_" ++ @tagName(e) ++ "_w"),
+        };
+        const move = if (!self.move.isNone()) params.values.tt_move_w else evaluation.score.draw;
+        return depth - age + pv + flag + move;
+    }
 
     pub fn shouldTrust(
         self: Entry,
@@ -154,16 +167,9 @@ pub const Table = struct {
                 break;
             }
 
-            const cycle = 1 << @bitSizeOf(@TypeOf(self.age));
-            const age: u8 = self.age;
-
-            const ta: isize = (cycle + age - tte.age) % cycle;
-            const td: isize = tte.depth;
-            const rel_age = td - ta * 2;
-
-            if (rel_age < min) {
+            if (tte.value(self.age) < min) {
                 opt_replace = entry;
-                min = rel_age;
+                min = tte.value(self.age);
             }
         }
 
