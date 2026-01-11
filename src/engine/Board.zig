@@ -802,7 +802,7 @@ pub fn evaluate(self: *Board) evaluation.score.Int {
     const accumulator = &self.accumulators.constSlice()[offset + self.ply()];
     const position = &self.positions.constSlice()[offset + self.ply()];
 
-    const inferred = nnue.net.embed.infer(accumulator, position.stm);
+    const inferred = nnue.net.embed.infer(accumulator, position);
     const scaled = @divTrunc(inferred * (100 - position.rule50), 100);
     return std.math.clamp(scaled, evaluation.score.lose + 1, evaluation.score.win - 1);
 }

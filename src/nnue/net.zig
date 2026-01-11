@@ -12,23 +12,29 @@ pub const Self = extern struct {
     hl0_w: [arch.inp_len][arch.hl0_len]arch.Int,
     hl0_b: [arch.hl0_len]arch.Int,
 
-    out_w: [arch.color_n][arch.hl0_len / 2]arch.Int,
-    out_b: arch.Int align(64),
+    out_w: [arch.out_len][arch.color_n][arch.hl0_len / 2]arch.Int,
+    out_b: [arch.out_len]arch.Int align(64),
 
     pub fn infer(
         self: *const Self,
         accumulator: *const Accumulator,
-        stm: types.Color,
+        position: *const engine.Board.Position,
     ) engine.evaluation.score.Int {
+        const stm = position.stm;
         const vecs = std.EnumArray(types.Color, *const [arch.hl0_len]arch.Int).init(.{
             .white = accumulator.perspectives.getPtrConst(stm),
             .black = accumulator.perspectives.getPtrConst(stm.flip()),
         });
 
         const half_len = arch.hl0_len / 2;
+        const bucket = blk: {
+            const d = 32 / arch.out_len;
+            const m = 32 % arch.out_len;
+            break :blk (position.bothOcc().count() - 2) / if (m == 0) d else d + 1;
+        };
         const wgts = std.EnumArray(types.Color, *const [half_len]arch.Int).init(.{
-            .white = self.out_w[types.Color.white.int()][0..half_len],
-            .black = self.out_w[types.Color.black.int()][0..half_len],
+            .white = self.out_w[bucket][types.Color.white.int()][0..half_len],
+            .black = self.out_w[bucket][types.Color.black.int()][0..half_len],
         });
 
         var out: Madd = @splat(engine.evaluation.score.draw);
@@ -52,7 +58,7 @@ pub const Self = extern struct {
         }
 
         var ev = @reduce(.Add, out);
-        ev = @divTrunc(ev, arch.qa) + self.out_b;
+        ev = @divTrunc(ev, arch.qa) + self.out_b[bucket];
         ev = @divTrunc(ev * arch.scale, arch.qa * arch.qb);
         return ev;
     }

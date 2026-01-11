@@ -10,10 +10,10 @@ pub const ptype_n = types.Ptype.num;
 pub const square_n = types.Square.num;
 
 pub const inp_len = color_n * ptype_n * square_n;
-pub const hl0_len = 320;
-pub const out_len = 1;
+pub const hl0_len = 512;
+pub const out_len = 8;
 pub const native_len = std.simd.suggestVectorLength(Int) orelse @compileError("unsupported cpu");
 
-pub const scale = 400;
+pub const scale = 534;
 pub const qa = 255;
 pub const qb = 64;

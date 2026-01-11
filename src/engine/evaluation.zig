@@ -151,7 +151,7 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
     try pool.io.writer().print("     max: {d}\n", .{fmax});
     try pool.io.writer().print("     min: {d}\n", .{fmin});
 
-    const scale = 1087.1360293824707 / abs_mean * nnue.arch.scale;
+    const scale = 1087.1360293824707 / abs_mean * 400.0;
     try pool.io.writer().print("   scale: {d}\n", .{scale});
     try pool.io.writer().flush();
 }
