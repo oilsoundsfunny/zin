@@ -108,7 +108,10 @@ test {
 
         for (result.nodes, 1..) |expected, depth| {
             const actual = try root.perft(&board, @intCast(depth));
-            try std.testing.expectEqual(expected, actual);
+            std.testing.expectEqual(expected, actual) catch |err| {
+                @breakpoint();
+                return err;
+            };
         }
     }
 }

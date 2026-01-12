@@ -232,9 +232,10 @@ pub const Position = struct {
 
                 break :blk sw: switch (p) {
                     .w_rook => {
-                        if (kings.contains(.white)) {
+                        const is_home = s.rank() == types.Color.white.homeRank();
+                        if (is_home and kings.contains(.white)) {
                             rooks.put(.wk, s);
-                        } else if (!rooks.contains(.wq)) {
+                        } else if (is_home and !rooks.contains(.wq)) {
                             rooks.put(.wq, s);
                         }
                         break :sw 1;
@@ -242,9 +243,10 @@ pub const Position = struct {
                     .w_king => if (kings.fetchPut(.white, s)) |_| return error.InvalidPiece else 1,
 
                     .b_rook => {
-                        if (kings.contains(.black)) {
+                        const is_home = s.rank() == types.Color.black.homeRank();
+                        if (is_home and kings.contains(.black)) {
                             rooks.put(.bk, s);
-                        } else if (!rooks.contains(.bq)) {
+                        } else if (is_home and !rooks.contains(.bq)) {
                             rooks.put(.bq, s);
                         }
                         break :sw 1;
@@ -293,7 +295,12 @@ pub const Position = struct {
                 const to_lower = std.ascii.toLower(c);
                 const color: types.Color = if (is_lower) .black else .white;
 
-                const kf = kings.getAssertContains(color).file();
+                const ks = kings.get(color) orelse return error.InvalidFen;
+                if (ks.rank() != color.homeRank()) {
+                    return error.InvalidCastle;
+                }
+
+                const kf = ks.file();
                 const rf = types.File.fromChar(to_lower) orelse return error.InvalidCastle;
 
                 const kfi: i8 = kf.int();
