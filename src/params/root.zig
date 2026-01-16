@@ -125,7 +125,7 @@ const tunables = blk: {
         .{ .name = "corr_minor_update_w", .value = 2035, .c_end = 216.0 },
         .{ .name = "corr_major_update_w", .value = 1921, .c_end = 216.0 },
 
-        .{ .name = "asp_min_depth", .value = 6, .min = 3, .max = 7, .c_end = 0.5 },
+        .{ .name = "asp_min_depth", .value = 6, .min = 3, .max = 7, .c_end = 0.25 },
         .{ .name = "asp_window", .value = 10, .min = 5, .max = 20, .c_end = 2.0 },
         .{ .name = "asp_window_mul", .value = 58, .min = 1, .max = 512, .c_end = 24.0 },
 
@@ -137,28 +137,28 @@ const tunables = blk: {
         .{ .name = "tt_lowerbound_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
         .{ .name = "tt_move_w", .value = 0, .min = 0, .max = 8192, .c_end = 256.0 },
 
-        .{ .name = "iir_min_depth", .value = 4, .min = 2, .max = 9, .c_end = 0.5 },
+        .{ .name = "iir_min_depth", .value = 4, .min = 2, .max = 9, .c_end = 0.25 },
 
         .{ .name = "rfp_min_margin", .value = 20 },
-        .{ .name = "rfp_max_depth", .value = 8, .min = 4, .max = 10, .c_end = 0.5 },
+        .{ .name = "rfp_max_depth", .value = 8, .min = 4, .max = 10, .c_end = 0.25 },
         .{ .name = "rfp_depth2", .value = 0, .min = 0, .max = 16384, .c_end = 512.0 },
         .{ .name = "rfp_depth1", .value = 79872, .min = 51200, .max = 102400, .c_end = 2048.0 },
         .{ .name = "rfp_depth0", .value = 0, .min = 0, .max = 131072, .c_end = 4096.0 },
         .{ .name = "rfp_ntm_worsening", .value = 14, .min = 5, .max = 100, .c_end = 8.0 },
         .{ .name = "rfp_fail_firm", .value = 1024, .min = 0, .max = 1024, .c_end = 16.0 },
 
-        .{ .name = "nmp_min_depth", .value = 3, .min = 2, .max = 5, .c_end = 0.5 },
+        .{ .name = "nmp_min_depth", .value = 3, .min = 2, .max = 5, .c_end = 0.25 },
         .{ .name = "nmp_eval_margin", .value = 0, .min = 0, .max = 100, .c_end = 10.0 },
         .{ .name = "nmp_base_reduction", .value = 768, .min = 512, .max = 2048, .c_end = 64.0 },
         .{ .name = "nmp_depth_mul", .value = 64, .min = 32, .max = 96, .c_end = 12.0 },
         .{ .name = "nmp_eval_diff_divisor", .value = 400, .min = 50, .max = 400, .c_end = 10.0 },
         .{ .name = "nmp_max_eval_reduction", .value = 3, .min = 2, .max = 5, .c_end = 1.0 },
-        .{ .name = "nmp_min_verif_depth", .value = 15, .min = 1, .max = 40, .c_end = 0.5 },
+        .{ .name = "nmp_min_verif_depth", .value = 15, .min = 1, .max = 40, .c_end = 0.25 },
 
-        .{ .name = "razoring_max_depth", .value = 7, .min = 1, .max = 10, .c_end = 0.5 },
+        .{ .name = "razoring_max_depth", .value = 7, .min = 1, .max = 10, .c_end = 0.25 },
         .{ .name = "razoring_depth_mul", .value = 460, .min = 250, .max = 650, .c_end = 10.0 },
 
-        .{ .name = "fp_max_depth", .value = 8, .min = 4, .max = 9, .c_end = 0.5 },
+        .{ .name = "fp_max_depth", .value = 8, .min = 4, .max = 9, .c_end = 0.25 },
         .{ .name = "fp_margin0", .value = 146, .min = 60, .max = 360, .c_end = 12.0 },
         .{ .name = "fp_margin1", .value = 128, .min = 10, .max = 180, .c_end = 12.0 },
         .{ .name = "fp_hist_divisor", .value = 393, .min = 256, .max = 512, .c_end = 16.0 },
@@ -176,7 +176,7 @@ const tunables = blk: {
         .{ .name = "pvs_see_max_capthist", .value = 103, .min = 50, .max = 200, .c_end = 6.0 },
         .{ .name = "pvs_see_capthist_div", .value = 30, .min = 16, .max = 96, .c_end = 2.0 },
 
-        .{ .name = "lmr_min_depth", .value = 3, .min = 2, .max = 5, .c_end = 0.5 },
+        .{ .name = "lmr_min_depth", .value = 3, .min = 2, .max = 5, .c_end = 0.25 },
         .{ .name = "lmr_non_improving", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
         .{ .name = "lmr_cutnode", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
         .{ .name = "lmr_noisy_ttm", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
