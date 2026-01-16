@@ -65,18 +65,20 @@ pub const Tunable = struct {
 
 const tunables = blk: {
     const zon = @import("spsa.zig.zon");
-    var tbl = [_]Tunable{
-        .{ .name = "see_ordering_pawn", .value = 256, .min = 0, .max = 2340 },
-        .{ .name = "see_ordering_knight", .value = 704, .min = 0, .max = 2340 },
-        .{ .name = "see_ordering_bishop", .value = 832, .min = 0, .max = 2340 },
-        .{ .name = "see_ordering_rook", .value = 1280, .min = 0, .max = 2340 },
-        .{ .name = "see_ordering_queen", .value = 2304, .min = 0, .max = 2340 },
+    const Zon = @TypeOf(zon);
 
-        .{ .name = "see_pruning_pawn", .value = 256, .min = 0, .max = 2340 },
-        .{ .name = "see_pruning_knight", .value = 704, .min = 0, .max = 2340 },
-        .{ .name = "see_pruning_bishop", .value = 832, .min = 0, .max = 2340 },
-        .{ .name = "see_pruning_rook", .value = 1280, .min = 0, .max = 2340 },
-        .{ .name = "see_pruning_queen", .value = 2304, .min = 0, .max = 2340 },
+    var tbl = [_]Tunable{
+        .{ .name = "see_ordering_pawn", .value = 256, .min = 0, .max = 2340, .c_end = 8.0 },
+        .{ .name = "see_ordering_knight", .value = 704, .min = 0, .max = 2340, .c_end = 24.0 },
+        .{ .name = "see_ordering_bishop", .value = 832, .min = 0, .max = 2340, .c_end = 24.0 },
+        .{ .name = "see_ordering_rook", .value = 1280, .min = 0, .max = 2340, .c_end = 40.0 },
+        .{ .name = "see_ordering_queen", .value = 2304, .min = 0, .max = 2340, .c_end = 72.0 },
+
+        .{ .name = "see_pruning_pawn", .value = 256, .min = 0, .max = 2340, .c_end = 8.0 },
+        .{ .name = "see_pruning_knight", .value = 704, .min = 0, .max = 2340, .c_end = 24.0 },
+        .{ .name = "see_pruning_bishop", .value = 832, .min = 0, .max = 2340, .c_end = 24.0 },
+        .{ .name = "see_pruning_rook", .value = 1280, .min = 0, .max = 2340, .c_end = 40.0 },
+        .{ .name = "see_pruning_queen", .value = 2304, .min = 0, .max = 2340, .c_end = 72.0 },
 
         .{ .name = "base_time_mul", .value = 5, .min = 2, .max = 13, .c_end = 1.0 },
         .{ .name = "base_incr_mul", .value = 50, .min = 25, .max = 100, .c_end = 5.0 },
@@ -91,13 +93,13 @@ const tunables = blk: {
         .{ .name = "hist_malus1", .value = 64, .min = 64, .max = 384, .c_end = 32.0 },
         .{ .name = "hist_malus0", .value = 0, .min = -768, .max = 384, .c_end = 64.0 },
 
-        .{ .name = "corr_pawn_w", .value = 986 },
-        .{ .name = "corr_minor_w", .value = 1006 },
-        .{ .name = "corr_major_w", .value = 1149 },
+        .{ .name = "corr_pawn_w", .value = 986, .c_end = 72.0 },
+        .{ .name = "corr_minor_w", .value = 1006, .c_end = 108.0 },
+        .{ .name = "corr_major_w", .value = 1149, .c_end = 108.0 },
 
-        .{ .name = "corr_pawn_update_w", .value = 2379 },
-        .{ .name = "corr_minor_update_w", .value = 2035 },
-        .{ .name = "corr_major_update_w", .value = 1921 },
+        .{ .name = "corr_pawn_update_w", .value = 2379, .c_end = 144.0 },
+        .{ .name = "corr_minor_update_w", .value = 2035, .c_end = 216.0 },
+        .{ .name = "corr_major_update_w", .value = 1921, .c_end = 216.0 },
 
         .{ .name = "asp_min_depth", .value = 6, .min = 3, .max = 7, .c_end = 1.0 },
         .{ .name = "asp_window", .value = 10, .min = 5, .max = 20, .c_end = 2.0 },
@@ -132,6 +134,14 @@ const tunables = blk: {
         .{ .name = "fp_margin1", .value = 128, .min = 10, .max = 180, .c_end = 12.0 },
         .{ .name = "fp_hist_divisor", .value = 393, .min = 256, .max = 512, .c_end = 16.0 },
 
+        .{ .name = "lmp_improving2", .value = 1024, .min = 0, .max = 4096, .c_end = 96.0 },
+        .{ .name = "lmp_improving1", .value = 0, .min = -1024, .max = 1024, .c_end = 48.0 },
+        .{ .name = "lmp_improving0", .value = 4096, .min = 0, .max = 10240, .c_end = 288.0 },
+
+        .{ .name = "lmp_nonimproving2", .value = 512, .min = 0, .max = 4096, .c_end = 48.0 },
+        .{ .name = "lmp_nonimproving1", .value = 0, .min = -1024, .max = 1024, .c_end = 48.0 },
+        .{ .name = "lmp_nonimproving0", .value = 2048, .min = 0, .max = 10240, .c_end = 288.0 },
+
         .{ .name = "pvs_see_quiet_mul", .value = -67, .min = -120, .max = -30, .c_end = 6.0 },
         .{ .name = "pvs_see_noisy_mul", .value = -96, .min = -120, .max = -30, .c_end = 6.0 },
         .{ .name = "pvs_see_max_capthist", .value = 103, .min = 50, .max = 200, .c_end = 6.0 },
@@ -147,16 +157,20 @@ const tunables = blk: {
         .{ .name = "lmr_was_pv", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
         .{ .name = "lmr_was_pv_non_fail_low", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
 
-        .{ .name = "deeper_margin0", .value = 0 },
-        .{ .name = "deeper_margin1", .value = 0 },
-        .{ .name = "shallower_margin", .value = 0 },
+        .{ .name = "deeper_margin1", .value = 0, .min = -65535, .max = 65535, .c_end = 128.0 },
+        .{ .name = "deeper_margin0", .value = 0, .min = -65535, .max = 65535, .c_end = 128.0 },
+
+        .{ .name = "shallower_margin1", .value = 0, .min = -65535, .max = 65535, .c_end = 128.0 },
+        .{ .name = "shallower_margin0", .value = 0, .min = -65535, .max = 65535, .c_end = 128.0 },
 
         .{ .name = "qs_fp_margin", .value = 64, .min = 0, .max = 250, .c_end = 16.0 },
     };
 
     for (tbl[0..]) |*tunable| {
         const name = tunable.name;
-        tunable.value = @field(zon, name);
+        if (@hasField(Zon, name)) {
+            tunable.value = @field(zon, name);
+        }
     }
 
     break :blk tbl;

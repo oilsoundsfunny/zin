@@ -891,11 +891,11 @@ fn ab(
         if (!is_root and best.score > evaluation.score.lose) {
             // futility pruning
             // 10.0+0.1: 34.28 +- 12.73
-            const lmr_d = @max(d - @divTrunc(base_lmr, 1024), 0);
-            const fp_margin = params.values.fp_margin0 +
-                params.values.fp_margin1 * lmr_d +
-                @divTrunc(sm.score, params.values.fp_hist_divisor);
-            if (lmr_d <= params.values.fp_max_depth and
+            const fp_d = @max(d - @divTrunc(base_lmr, 1024), 0);
+            const fp_margin = @divTrunc(sm.score, params.values.fp_hist_divisor) +
+                params.values.fp_margin1 * fp_d +
+                params.values.fp_margin0;
+            if (fp_d <= params.values.fp_max_depth and
                 is_quiet and
                 !is_checked and
                 a < evaluation.score.win and
@@ -906,10 +906,15 @@ fn ab(
 
             // late move pruning (lmp)
             // 10.0+0.1: 21.30 +- 9.80
-            var very_late: usize = @intCast(d * d);
-            very_late += 4;
-            very_late /= if (improving) 1 else 2;
-            if (searched > very_late) {
+            const very_late = if (improving)
+                params.values.lmp_improving2 * d * d +
+                params.values.lmp_improving1 * d +
+                params.values.lmp_improving0
+            else
+                params.values.lmp_nonimproving2 * d * d +
+                params.values.lmp_nonimproving1 * d +
+                params.values.lmp_nonimproving0;
+            if (searched > @abs(@divTrunc(very_late, 1024))) {
                 break :move_loop;
             }
 
@@ -975,14 +980,15 @@ fn ab(
                 var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
 
                 if (rs > a and rd < recur_d) {
-                    const deeper = rs >
-                        best.score +
-                            params.values.deeper_margin0 +
-                            @divTrunc(params.values.deeper_margin1 * recur_d, 256);
-                    const shallower = rs < best.score + params.values.shallower_margin;
+                    const deeper_margin =
+                        params.values.deeper_margin1 * recur_d +
+                        params.values.deeper_margin0;
+                    recur_d += @intFromBool(rs > best.score + @divTrunc(deeper_margin, 1024));
 
-                    recur_d += @intFromBool(deeper);
-                    recur_d -= @intFromBool(shallower);
+                    const shallower_margin =
+                        params.values.shallower_margin1 * recur_d +
+                        params.values.shallower_margin0;
+                    recur_d -= @intFromBool(rs < best.score + @divTrunc(shallower_margin, 1024));
 
                     rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
                 }
