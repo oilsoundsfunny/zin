@@ -77,6 +77,10 @@ pub const score = struct {
         return r;
     }
 
+    pub fn clamp(s: Int) Int {
+        return std.math.clamp(s, lose + 1, win - 1);
+    }
+
     pub fn normalize(s: Int, mat: Int) Int {
         const params = [_]f32{
             6.87155862, -39.65226391, 90.68460352, 170.66996364,
