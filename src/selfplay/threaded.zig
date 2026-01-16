@@ -49,36 +49,49 @@ fn playOut(thread: *engine.Thread, data: *viri.Data, line: *viri.Line) !void {
     data.* = viri.Data.fromBoard(board);
     try line.resize(0);
 
-    while (true) {
+    var result: viri.Result = .none;
+    while (result == .none) {
         try thread.search();
 
         const rms = root_moves.constSlice();
         const rmn = rms.len;
-        if (rmn == 0) {
-            const is_checked = board.top().isChecked();
-            const is_drawn = board.isDrawn();
-            const is_terminal = board.isTerminal();
+        result = if (rmn == 0) no_moves: {
             const stm = board.top().stm;
+            const is_drawn = board.top().isChecked() or
+                board.isDrawn() or
+                board.isTerminal();
 
-            data.result = if (!is_checked or is_drawn or is_terminal) .draw else switch (stm) {
+            break :no_moves if (is_drawn) .draw else switch (stm) {
                 .white => .black,
                 .black => .white,
             };
-            try line.append(.{});
-            break;
-        }
+        } else has_moves: {
+            const pv = &rms[0];
+            const pvm = pv.constSlice()[0];
 
-        const pv = &rms[0];
-        const pvm = pv.constSlice()[0];
+            const mat = board.top().material();
+            const pvs = engine.evaluation.score.normalize(@intCast(pv.score), mat);
 
-        const mat = board.top().material();
-        const pvs = engine.evaluation.score.normalize(@intCast(pv.score), mat);
+            const stm = board.top().stm;
+            board.doMove(pvm);
+            try line.append(.{
+                .move = viri.Move.fromMove(pvm),
+                .score = @intCast(pvs),
+            });
 
-        board.doMove(pvm);
-        try line.append(.{
-            .move = viri.Move.fromMove(pvm),
-            .score = @intCast(pvs),
-        });
+            const is_drawn = thread.request.datagen.draw_adj.ok(.draw, line);
+            const is_won = thread.request.datagen.win_adj.ok(.win, line);
+            break :has_moves if (!is_drawn and !is_won)
+                .none
+            else if (is_drawn)
+                .draw
+            else switch (stm) {
+                inline else => |e| @field(viri.Result, @tagName(e)),
+            };
+        };
+    } else {
+        data.result = result;
+        try line.append(.{});
     }
 }
 
@@ -129,8 +142,8 @@ pub fn datagen(thread: *engine.Thread) !void {
     };
 
     const lines = thread.pool.io.lineCount() catch std.debug.panic("unabled to count book", .{});
-    const games = if (rq) |g| g / n + @intFromBool(g % n != 0) else std.math.maxInt(usize);
-    const repeat = if (rq) |_| games / lines + @intFromBool(games % lines != 0) else 1;
+    const games = if (rq.games) |g| g / n + @intFromBool(g % n != 0) else std.math.maxInt(usize);
+    const repeat = if (rq.games) |_| games / lines + @intFromBool(games % lines != 0) else 1;
     var played: usize = 0;
 
     var buffer: [65536]u8 align(64) = undefined;

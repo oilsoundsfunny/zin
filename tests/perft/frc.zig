@@ -74,7 +74,7 @@ const suite = [_]root.Result{
     .{
         .fen = "bbrkrnqn/pppp1ppp/8/4p3/8/6P1/PPPPPPRP/BRKQNN1B b Bec - 1 2",
         .moves = &.{ "b7b6", "e1f3", "c7c5", "b2b4", "c5b4", "b1b4", "c8c4" },
-        .nodes = &.{ 32 },
+        .nodes = &.{32},
     },
 };
 

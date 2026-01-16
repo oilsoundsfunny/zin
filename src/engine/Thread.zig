@@ -18,7 +18,7 @@ const Node = transposition.Entry.Flag;
 const Request = union(Tag) {
     bench: void,
     clear_hash: void,
-    datagen: ?usize,
+    datagen: selfplay.Request,
     go: void,
     quit: void,
     sleep: void,
@@ -255,7 +255,7 @@ pub const Pool = struct {
         self.waitSleep();
     }
 
-    pub fn datagen(self: *Pool, rq: ?usize) void {
+    pub fn datagen(self: *Pool, rq: selfplay.Request) void {
         self.stopSearch();
         self.tt.doAge();
 
@@ -1326,7 +1326,7 @@ fn clearHash(self: *Thread) void {
 }
 
 fn datagen(self: *Thread) !void {
-    return selfplay.thread.datagen(self);
+    return selfplay.threaded.datagen(self);
 }
 
 pub fn search(self: *Thread) !void {
