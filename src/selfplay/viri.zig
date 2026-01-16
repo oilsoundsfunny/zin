@@ -94,7 +94,7 @@ pub const Result = enum(u8) {
     black,
     draw,
     white,
-    _,
+    none,
 };
 
 pub const Data = extern struct {

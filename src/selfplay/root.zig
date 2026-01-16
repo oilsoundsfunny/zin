@@ -5,18 +5,29 @@ const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
-pub const thread = @import("thread.zig");
+pub const Request = @import("Request.zig");
+pub const threaded = @import("threaded.zig");
 pub const viri = @import("viri.zig");
 
 const Options = struct {
     book: ?[]const u8 = null,
     data: ?[]const u8 = null,
     games: ?usize = null,
+
+    hash: ?usize = null,
+    threads: ?usize = null,
+
     depth: ?engine.Thread.Depth = null,
     soft_nodes: ?usize = null,
     hard_nodes: ?usize = null,
-    hash: ?usize = null,
-    threads: ?usize = null,
+
+    win_adj_min_ply: ?usize = null,
+    win_adj_ply_num: ?usize = null,
+    win_adj_score: ?engine.evaluation.score.Int = null,
+
+    draw_adj_min_ply: ?usize = null,
+    draw_adj_ply_num: ?usize = null,
+    draw_adj_score: ?engine.evaluation.score.Int = null,
 };
 
 pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
@@ -98,7 +109,19 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
     pool.limits.hard_nodes = options.hard_nodes orelse 100000;
     pool.limits.set(pool.opts.overhead, .white);
 
-    pool.datagen(options.games);
+    pool.datagen(.{
+        .games = options.games,
+        .win_adj = try .init(
+            options.win_adj_min_ply orelse 3,
+            options.win_adj_ply_num orelse 3,
+            options.win_adj_score orelse 400,
+        ),
+        .draw_adj = try .init(
+            options.draw_adj_min_ply orelse 40,
+            options.draw_adj_ply_num orelse 8,
+            options.draw_adj_score orelse 10,
+        ),
+    });
     pool.waitSleep();
     try pool.io.writer().flush();
 }
