@@ -837,7 +837,7 @@ fn ab(
                 s = b;
             }
 
-            const verified = d < 15 or verif_search: {
+            const verified = d < params.values.nmp_min_verif_depth or verif_search: {
                 self.nmp_verif = true;
                 defer self.nmp_verif = false;
 
@@ -886,12 +886,13 @@ fn ab(
         const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
         const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
 
-        const base_lmr = @as(@TypeOf(d), params.lmr.get(d, searched, is_quiet)) * 1024;
+        const base_lmr = params.lmr.get(d, searched, is_quiet);
+        const lmr_d = @max(d * 1024 - base_lmr, 0);
 
         if (!is_root and best.score > evaluation.score.lose) {
             // futility pruning
             // 10.0+0.1: 34.28 +- 12.73
-            const fp_d = @max(d - @divTrunc(base_lmr, 1024), 0);
+            const fp_d = @divTrunc(lmr_d, 1024);
             const fp_margin = @divTrunc(sm.score, params.values.fp_hist_divisor) +
                 params.values.fp_margin1 * fp_d +
                 params.values.fp_margin0;

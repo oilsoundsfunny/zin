@@ -4,6 +4,11 @@ const types = @import("types");
 
 pub const lmr = @import("lmr.zig");
 
+const TunableValue = if (!tuning) void else struct {
+    tunable: *const Tunable,
+    value: *Int,
+};
+
 const Values = blk: {
     var fields: [tunables.len]std.builtin.Type.StructField = undefined;
     for (tunables, 0..) |tunable, i| {
@@ -22,6 +27,18 @@ const Values = blk: {
         .decls = &.{},
         .is_tuple = false,
     } });
+};
+
+const map = if (!tuning) {} else blk: {
+    const KV = struct { []const u8, TunableValue };
+    var kvs: [tunables.len]KV = undefined;
+
+    for (tunables[0..], 0..) |*tunable, i| {
+        const name = tunable.name[0..];
+        kvs[i] = .{ name, .{ .tunable = tunable, .value = &@field(values, name) } };
+    }
+
+    break :blk std.StaticStringMap(TunableValue).initComptime(kvs);
 };
 
 pub const Int = engine.evaluation.score.Int;
@@ -68,6 +85,12 @@ const tunables = blk: {
     const Zon = @TypeOf(zon);
 
     var tbl = [_]Tunable{
+        .{ .name = "base_lmr_noisy1", .value = 306, .min = 0, .max = 2048, .c_end = 96.0 },
+        .{ .name = "base_lmr_noisy0", .value = 205, .min = 0, .max = 4096, .c_end = 192.0 },
+
+        .{ .name = "base_lmr_quiet1", .value = 372, .min = 0, .max = 2048, .c_end = 96.0 },
+        .{ .name = "base_lmr_quiet0", .value = 1382, .min = 0, .max = 8192, .c_end = 256.0 },
+
         .{ .name = "see_ordering_pawn", .value = 256, .min = 0, .max = 2340, .c_end = 8.0 },
         .{ .name = "see_ordering_knight", .value = 704, .min = 0, .max = 2340, .c_end = 24.0 },
         .{ .name = "see_ordering_bishop", .value = 832, .min = 0, .max = 2340, .c_end = 24.0 },
@@ -125,6 +148,7 @@ const tunables = blk: {
         .{ .name = "nmp_depth_mul", .value = 64, .min = 32, .max = 96, .c_end = 12.0 },
         .{ .name = "nmp_eval_diff_divisor", .value = 400, .min = 50, .max = 400, .c_end = 10.0 },
         .{ .name = "nmp_max_eval_reduction", .value = 3, .min = 2, .max = 5, .c_end = 1.0 },
+        .{ .name = "nmp_min_verif_depth", .value = 15, .min = 1, .max = 40, .c_end = 0.5 },
 
         .{ .name = "razoring_max_depth", .value = 7, .min = 1, .max = 10, .c_end = 1.0 },
         .{ .name = "razoring_depth_mul", .value = 460, .min = 250, .max = 650, .c_end = 10.0 },
@@ -191,15 +215,9 @@ pub fn parseTunable(
     aux: []const u8,
     tokens: *std.mem.TokenIterator(u8, .any),
 ) engine.uci.Error!void {
-    var opt_tunable: ?*const Tunable = null;
-    var opt_value: ?*Int = null;
-    inline for (tunables[0..]) |*tunable| {
-        if (std.mem.eql(u8, name, tunable.name)) {
-            opt_tunable = tunable;
-            opt_value = &@field(values, tunable.name);
-        }
-    }
-    const tunable = opt_tunable orelse return error.UnknownCommand;
+    const tv = map.get(name) orelse return error.UnknownCommand;
+    const tunable = tv.tunable;
+    const dst = tv.value;
 
     if (!std.mem.eql(u8, aux, "value")) {
         return error.UnknownCommand;
@@ -211,11 +229,16 @@ pub fn parseTunable(
     }
 
     const value = std.fmt.parseInt(Int, value_token, 10) catch return error.UnknownCommand;
-    if (value != std.math.clamp(value, tunable.getMin(), tunable.getMax())) {
+    const min = tunable.getMin();
+    const max = tunable.getMax();
+    if (value != std.math.clamp(value, min, max)) {
         return error.UnknownCommand;
     }
 
-    opt_value.?.* = value;
+    dst.* = value;
+    if (std.mem.indexOf(u8, name, "base_lmr")) |_| {
+        try lmr.init();
+    }
 }
 
 pub fn printOptions(writer: *std.Io.Writer) !void {
