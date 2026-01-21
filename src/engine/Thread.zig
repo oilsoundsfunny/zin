@@ -347,6 +347,7 @@ pub const hist = struct {
         pawn,
         minor,
         major,
+        nonpawn,
 
         pub const num: comptime_int = values.len;
         pub const size = 65536;
