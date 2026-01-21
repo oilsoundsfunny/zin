@@ -4,6 +4,11 @@ const types = @import("types");
 
 pub const lmr = @import("lmr.zig");
 
+const TunableValue = if (!tuning) void else struct {
+    tunable: *const Tunable,
+    value: *Int,
+};
+
 const Values = blk: {
     var fields: [tunables.len]std.builtin.Type.StructField = undefined;
     for (tunables, 0..) |tunable, i| {
@@ -22,6 +27,19 @@ const Values = blk: {
         .decls = &.{},
         .is_tuple = false,
     } });
+};
+
+const map = if (!tuning)
+{} else blk: {
+    const KV = struct { []const u8, TunableValue };
+    var kvs: [tunables.len]KV = undefined;
+
+    for (tunables[0..], 0..) |*tunable, i| {
+        const name = tunable.name[0..];
+        kvs[i] = .{ name, .{ .tunable = tunable, .value = &@field(values, name) } };
+    }
+
+    break :blk std.StaticStringMap(TunableValue).initComptime(kvs);
 };
 
 pub const Int = engine.evaluation.score.Int;
@@ -65,112 +83,118 @@ pub const Tunable = struct {
 
 const tunables = blk: {
     const zon = @import("spsa.zig.zon");
-    const Zon = @TypeOf(zon);
+    const fields = std.meta.fields(@TypeOf(zon));
+    var tbl: [fields.len]Tunable = .{
+        .{ .name = "base_lmr_noisy1", .value = 20 },
+        .{ .name = "base_lmr_noisy0", .value = 326 },
+        .{ .name = "base_lmr_quiet1", .value = 713 },
+        .{ .name = "base_lmr_quiet0", .value = 748 },
 
-    var tbl = [_]Tunable{
-        .{ .name = "see_ordering_pawn", .value = 256, .min = 0, .max = 2340, .c_end = 8.0 },
-        .{ .name = "see_ordering_knight", .value = 704, .min = 0, .max = 2340, .c_end = 24.0 },
-        .{ .name = "see_ordering_bishop", .value = 832, .min = 0, .max = 2340, .c_end = 24.0 },
-        .{ .name = "see_ordering_rook", .value = 1280, .min = 0, .max = 2340, .c_end = 40.0 },
-        .{ .name = "see_ordering_queen", .value = 2304, .min = 0, .max = 2340, .c_end = 72.0 },
+        .{ .name = "see_ordering_pawn", .value = 287 },
+        .{ .name = "see_ordering_knight", .value = 744 },
+        .{ .name = "see_ordering_bishop", .value = 865 },
+        .{ .name = "see_ordering_rook", .value = 1181 },
+        .{ .name = "see_ordering_queen", .value = 2333 },
 
-        .{ .name = "see_pruning_pawn", .value = 256, .min = 0, .max = 2340, .c_end = 8.0 },
-        .{ .name = "see_pruning_knight", .value = 704, .min = 0, .max = 2340, .c_end = 24.0 },
-        .{ .name = "see_pruning_bishop", .value = 832, .min = 0, .max = 2340, .c_end = 24.0 },
-        .{ .name = "see_pruning_rook", .value = 1280, .min = 0, .max = 2340, .c_end = 40.0 },
-        .{ .name = "see_pruning_queen", .value = 2304, .min = 0, .max = 2340, .c_end = 72.0 },
+        .{ .name = "see_pruning_pawn", .value = 246 },
+        .{ .name = "see_pruning_knight", .value = 674 },
+        .{ .name = "see_pruning_bishop", .value = 868 },
+        .{ .name = "see_pruning_rook", .value = 1292 },
+        .{ .name = "see_pruning_queen", .value = 2152 },
 
-        .{ .name = "base_time_mul", .value = 5, .min = 2, .max = 13, .c_end = 1.0 },
-        .{ .name = "base_incr_mul", .value = 50, .min = 25, .max = 100, .c_end = 5.0 },
+        .{ .name = "base_time_mul", .value = 6 },
+        .{ .name = "base_incr_mul", .value = 70 },
 
-        .{ .name = "max_hist_bonus", .value = 768, .min = 512, .max = 3072, .c_end = 256.0 },
-        .{ .name = "hist_bonus2", .value = 0, .min = 0, .max = 1536, .c_end = 64.0 },
-        .{ .name = "hist_bonus1", .value = 64, .min = 64, .max = 384, .c_end = 32.0 },
-        .{ .name = "hist_bonus0", .value = 0, .min = -768, .max = 384, .c_end = 64.0 },
+        .{ .name = "max_hist_bonus", .value = 1232 },
+        .{ .name = "hist_bonus2", .value = 37 },
+        .{ .name = "hist_bonus1", .value = 194 },
+        .{ .name = "hist_bonus0", .value = -83 },
 
-        .{ .name = "max_hist_malus", .value = 768, .min = 512, .max = 3072, .c_end = 256.0 },
-        .{ .name = "hist_malus2", .value = 0, .min = 0, .max = 1536, .c_end = 64.0 },
-        .{ .name = "hist_malus1", .value = 64, .min = 64, .max = 384, .c_end = 32.0 },
-        .{ .name = "hist_malus0", .value = 0, .min = -768, .max = 384, .c_end = 64.0 },
+        .{ .name = "max_hist_malus", .value = 2069 },
+        .{ .name = "hist_malus2", .value = 67 },
+        .{ .name = "hist_malus1", .value = 235 },
+        .{ .name = "hist_malus0", .value = 365 },
 
-        .{ .name = "corr_pawn_w", .value = 986, .c_end = 72.0 },
-        .{ .name = "corr_minor_w", .value = 1006, .c_end = 108.0 },
-        .{ .name = "corr_major_w", .value = 1149, .c_end = 108.0 },
+        .{ .name = "corr_pawn_w", .value = 812 },
+        .{ .name = "corr_minor_w", .value = 636 },
+        .{ .name = "corr_major_w", .value = 878 },
 
-        .{ .name = "corr_pawn_update_w", .value = 2379, .c_end = 144.0 },
-        .{ .name = "corr_minor_update_w", .value = 2035, .c_end = 216.0 },
-        .{ .name = "corr_major_update_w", .value = 1921, .c_end = 216.0 },
+        .{ .name = "corr_pawn_update_w", .value = 2499 },
+        .{ .name = "corr_minor_update_w", .value = 2107 },
+        .{ .name = "corr_major_update_w", .value = 2523 },
 
-        .{ .name = "asp_min_depth", .value = 6, .min = 3, .max = 7, .c_end = 1.0 },
-        .{ .name = "asp_window", .value = 10, .min = 5, .max = 20, .c_end = 2.0 },
-        .{ .name = "asp_window_mul", .value = 58, .min = 1, .max = 512, .c_end = 24.0 },
+        .{ .name = "asp_min_depth", .value = 7, .c_end = 0.25 },
+        .{ .name = "asp_window", .value = 16 },
+        .{ .name = "asp_window_mul", .value = 158 },
 
-        .{ .name = "tt_depth_w", .value = 1024, .min = 0, .max = 2048, .c_end = 128.0 },
-        .{ .name = "tt_age_w", .value = 2048, .min = 0, .max = 8192, .c_end = 256.0 },
-        .{ .name = "tt_pv_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
-        .{ .name = "tt_upperbound_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
-        .{ .name = "tt_exact_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
-        .{ .name = "tt_lowerbound_w", .value = 0, .min = 0, .max = 2048, .c_end = 128.0 },
-        .{ .name = "tt_move_w", .value = 0, .min = 0, .max = 8192, .c_end = 256.0 },
+        .{ .name = "tt_depth_w", .value = 1072 },
+        .{ .name = "tt_age_w", .value = 2714 },
+        .{ .name = "tt_pv_w", .value = 120 },
+        .{ .name = "tt_upperbound_w", .value = 124 },
+        .{ .name = "tt_exact_w", .value = 263 },
+        .{ .name = "tt_lowerbound_w", .value = 122 },
+        .{ .name = "tt_move_w", .value = 342 },
 
-        .{ .name = "iir_min_depth", .value = 4, .min = 2, .max = 9, .c_end = 1.0 },
+        .{ .name = "iir_min_depth", .value = 3, .c_end = 0.25 },
 
-        .{ .name = "rfp_max_depth", .value = 8, .min = 4, .max = 10, .c_end = 1.0 },
-        .{ .name = "rfp_depth_mul", .value = 78, .min = 50, .max = 100, .c_end = 8.0 },
-        .{ .name = "rfp_ntm_worsening", .value = 14, .min = 5, .max = 100, .c_end = 8.0 },
+        .{ .name = "rfp_min_margin", .value = 13 },
+        .{ .name = "rfp_max_depth", .value = 7, .c_end = 0.25 },
+        .{ .name = "rfp_depth2", .value = 1569 },
+        .{ .name = "rfp_depth1", .value = 83220 },
+        .{ .name = "rfp_depth0", .value = 9962 },
+        .{ .name = "rfp_ntm_worsening", .value = 26 },
+        .{ .name = "rfp_fail_firm", .value = 998 },
 
-        .{ .name = "nmp_min_depth", .value = 3, .min = 2, .max = 5, .c_end = 1.0 },
-        .{ .name = "nmp_eval_margin", .value = 0, .min = 0, .max = 100, .c_end = 10.0 },
-        .{ .name = "nmp_base_reduction", .value = 768, .min = 512, .max = 2048, .c_end = 64.0 },
-        .{ .name = "nmp_depth_mul", .value = 64, .min = 32, .max = 96, .c_end = 12.0 },
-        .{ .name = "nmp_eval_diff_divisor", .value = 400, .min = 50, .max = 400, .c_end = 10.0 },
-        .{ .name = "nmp_max_eval_reduction", .value = 3, .min = 2, .max = 5, .c_end = 1.0 },
+        .{ .name = "nmp_min_depth", .value = 2, .c_end = 0.25 },
+        .{ .name = "nmp_eval_margin", .value = 35 },
+        .{ .name = "nmp_base_reduction", .value = 846 },
+        .{ .name = "nmp_depth_mul", .value = 90 },
+        .{ .name = "nmp_eval_diff_divisor", .value = 378 },
+        .{ .name = "nmp_max_eval_reduction", .value = 5 },
+        .{ .name = "nmp_min_verif_depth", .value = 16, .c_end = 0.25 },
 
-        .{ .name = "razoring_max_depth", .value = 7, .min = 1, .max = 10, .c_end = 1.0 },
-        .{ .name = "razoring_depth_mul", .value = 460, .min = 250, .max = 650, .c_end = 10.0 },
+        .{ .name = "razoring_max_depth", .value = 7, .c_end = 0.25 },
+        .{ .name = "razoring_depth_mul", .value = 439 },
 
-        .{ .name = "fp_max_depth", .value = 8, .min = 4, .max = 9, .c_end = 1.0 },
-        .{ .name = "fp_margin0", .value = 146, .min = 60, .max = 360, .c_end = 12.0 },
-        .{ .name = "fp_margin1", .value = 128, .min = 10, .max = 180, .c_end = 12.0 },
-        .{ .name = "fp_hist_divisor", .value = 393, .min = 256, .max = 512, .c_end = 16.0 },
+        .{ .name = "fp_max_depth", .value = 8, .c_end = 0.25 },
+        .{ .name = "fp_margin0", .value = 340 },
+        .{ .name = "fp_margin1", .value = 136 },
+        .{ .name = "fp_hist_divisor", .value = 374 },
 
-        .{ .name = "lmp_improving2", .value = 1024, .min = 0, .max = 4096, .c_end = 96.0 },
-        .{ .name = "lmp_improving1", .value = 0, .min = -1024, .max = 1024, .c_end = 48.0 },
-        .{ .name = "lmp_improving0", .value = 4096, .min = 0, .max = 10240, .c_end = 288.0 },
+        .{ .name = "lmp_improving2", .value = 865 },
+        .{ .name = "lmp_improving1", .value = 27 },
+        .{ .name = "lmp_improving0", .value = 3335 },
 
-        .{ .name = "lmp_nonimproving2", .value = 512, .min = 0, .max = 4096, .c_end = 48.0 },
-        .{ .name = "lmp_nonimproving1", .value = 0, .min = -1024, .max = 1024, .c_end = 48.0 },
-        .{ .name = "lmp_nonimproving0", .value = 2048, .min = 0, .max = 10240, .c_end = 288.0 },
+        .{ .name = "lmp_nonimproving2", .value = 360 },
+        .{ .name = "lmp_nonimproving1", .value = -90 },
+        .{ .name = "lmp_nonimproving0", .value = 2209 },
 
-        .{ .name = "pvs_see_quiet_mul", .value = -67, .min = -120, .max = -30, .c_end = 6.0 },
-        .{ .name = "pvs_see_noisy_mul", .value = -96, .min = -120, .max = -30, .c_end = 6.0 },
-        .{ .name = "pvs_see_max_capthist", .value = 103, .min = 50, .max = 200, .c_end = 6.0 },
-        .{ .name = "pvs_see_capthist_div", .value = 30, .min = 16, .max = 96, .c_end = 2.0 },
+        .{ .name = "pvs_see_quiet_mul", .value = -78 },
+        .{ .name = "pvs_see_noisy_mul", .value = -118 },
+        .{ .name = "pvs_see_max_capthist", .value = 118 },
+        .{ .name = "pvs_see_capthist_div", .value = 32 },
 
-        .{ .name = "lmr_min_depth", .value = 3, .min = 2, .max = 5, .c_end = 1.0 },
-        .{ .name = "lmr_non_improving", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
-        .{ .name = "lmr_cutnode", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
-        .{ .name = "lmr_noisy_ttm", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
-        .{ .name = "lmr_gave_check", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
-        .{ .name = "lmr_is_checked", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
-        .{ .name = "lmr_is_pv", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
-        .{ .name = "lmr_was_pv", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
-        .{ .name = "lmr_was_pv_non_fail_low", .value = 1024, .min = 0, .max = 2048, .c_end = 256.0 },
+        .{ .name = "lmr_min_depth", .value = 3, .c_end = 0.25 },
+        .{ .name = "lmr_non_improving", .value = 737 },
+        .{ .name = "lmr_cutnode", .value = 1843 },
+        .{ .name = "lmr_noisy_ttm", .value = 1236 },
+        .{ .name = "lmr_gave_check", .value = 1511 },
+        .{ .name = "lmr_is_checked", .value = 75 },
+        .{ .name = "lmr_is_pv", .value = 788 },
+        .{ .name = "lmr_was_pv", .value = 1375 },
+        .{ .name = "lmr_was_pv_non_fail_low", .value = 1022 },
 
-        .{ .name = "deeper_margin1", .value = 0, .min = -65535, .max = 65535, .c_end = 128.0 },
-        .{ .name = "deeper_margin0", .value = 0, .min = -65535, .max = 65535, .c_end = 128.0 },
+        .{ .name = "deeper_margin1", .value = -412 },
+        .{ .name = "deeper_margin0", .value = 372 },
+        .{ .name = "shallower_margin1", .value = 350 },
+        .{ .name = "shallower_margin0", .value = 151 },
 
-        .{ .name = "shallower_margin1", .value = 0, .min = -65535, .max = 65535, .c_end = 128.0 },
-        .{ .name = "shallower_margin0", .value = 0, .min = -65535, .max = 65535, .c_end = 128.0 },
-
-        .{ .name = "qs_fp_margin", .value = 64, .min = 0, .max = 250, .c_end = 16.0 },
+        .{ .name = "qs_fp_margin", .value = 51 },
     };
 
     for (tbl[0..]) |*tunable| {
         const name = tunable.name;
-        if (@hasField(Zon, name)) {
-            tunable.value = @field(zon, name);
-        }
+        tunable.value = @field(zon, name);
     }
 
     break :blk tbl;
@@ -191,15 +215,9 @@ pub fn parseTunable(
     aux: []const u8,
     tokens: *std.mem.TokenIterator(u8, .any),
 ) engine.uci.Error!void {
-    var opt_tunable: ?*const Tunable = null;
-    var opt_value: ?*Int = null;
-    inline for (tunables[0..]) |*tunable| {
-        if (std.mem.eql(u8, name, tunable.name)) {
-            opt_tunable = tunable;
-            opt_value = &@field(values, tunable.name);
-        }
-    }
-    const tunable = opt_tunable orelse return error.UnknownCommand;
+    const tv = map.get(name) orelse return error.UnknownCommand;
+    const tunable = tv.tunable;
+    const dst = tv.value;
 
     if (!std.mem.eql(u8, aux, "value")) {
         return error.UnknownCommand;
@@ -211,11 +229,16 @@ pub fn parseTunable(
     }
 
     const value = std.fmt.parseInt(Int, value_token, 10) catch return error.UnknownCommand;
-    if (value != std.math.clamp(value, tunable.getMin(), tunable.getMax())) {
+    const min = tunable.getMin();
+    const max = tunable.getMax();
+    if (value != std.math.clamp(value, min, max)) {
         return error.UnknownCommand;
     }
 
-    opt_value.?.* = value;
+    dst.* = value;
+    if (std.mem.indexOf(u8, name, "base_lmr")) |_| {
+        try lmr.init();
+    }
 }
 
 pub fn printOptions(writer: *std.Io.Writer) !void {
