@@ -12,23 +12,28 @@ pub const Self = extern struct {
     hl0_w: [arch.inp_len][arch.hl0_len]arch.Int,
     hl0_b: [arch.hl0_len]arch.Int,
 
-    out_w: [arch.color_n][arch.hl0_len / 2]arch.Int,
-    out_b: arch.Int align(64),
+    out_w: [arch.out_len][arch.color_n][arch.hl0_len]arch.Int,
+    out_b: [arch.out_len]arch.Int align(64),
 
     pub fn infer(
         self: *const Self,
         accumulator: *const Accumulator,
-        stm: types.Color,
+        position: *const engine.Board.Position,
     ) engine.evaluation.score.Int {
+        const stm = position.stm;
         const vecs = std.EnumArray(types.Color, *const [arch.hl0_len]arch.Int).init(.{
             .white = accumulator.perspectives.getPtrConst(stm),
             .black = accumulator.perspectives.getPtrConst(stm.flip()),
         });
 
-        const half_len = arch.hl0_len / 2;
-        const wgts = std.EnumArray(types.Color, *const [half_len]arch.Int).init(.{
-            .white = self.out_w[types.Color.white.int()][0..half_len],
-            .black = self.out_w[types.Color.black.int()][0..half_len],
+        const bucket = blk: {
+            // output bucket scheme used in alexandria
+            const cnt: u32 = position.bothOcc().count();
+            break :blk @min((63 - cnt) * (32 - cnt) / 225, arch.out_len - 1);
+        };
+        const wgts = std.EnumArray(types.Color, *const [arch.hl0_len]arch.Int).init(.{
+            .white = self.out_w[bucket][types.Color.white.int()][0..],
+            .black = self.out_w[bucket][types.Color.black.int()][0..],
         });
 
         var out: Madd = @splat(engine.evaluation.score.draw);
@@ -36,30 +41,25 @@ pub const Self = extern struct {
             const v = vecs.get(c);
             const w = wgts.get(c);
 
-            const native_len = arch.native_len;
             var i: usize = 0;
+            while (i < arch.hl0_len) : (i += arch.native_len) {
+                const vec: *const arch.Native = @alignCast(v[i..][0..arch.native_len]);
+                const wgt: *const arch.Native = @alignCast(w[i..][0..arch.native_len]);
 
-            while (i < half_len) : (i += native_len) {
-                const v0: *const arch.Native = @alignCast(v[i + half_len * 0 ..][0..native_len]);
-                const v1: *const arch.Native = @alignCast(v[i + half_len * 1 ..][0..native_len]);
-
-                const clamped0 = crelu(v0.*);
-                const clamped1 = crelu(v1.*);
-
-                const wgt: *const arch.Native = @alignCast(w[i..][0..native_len]);
-                out +%= madd(clamped0, clamped1 *% wgt.*);
+                const clamped = crelu(vec.*);
+                out +%= madd(clamped, clamped *% wgt.*);
             }
         }
 
         var ev = @reduce(.Add, out);
-        ev = @divTrunc(ev, arch.qa) + self.out_b;
+        ev = @divTrunc(ev, arch.qa) + self.out_b[bucket];
         ev = @divTrunc(ev * arch.scale, arch.qa * arch.qb);
         return ev;
     }
 };
 
 pub const embed = init: {
-    var net: Self align(64) = undefined;
+    var net: Self align(std.atomic.cache_line) = undefined;
     const dst = std.mem.asBytes(&net);
     const src = @embedFile("embed.nn");
 
