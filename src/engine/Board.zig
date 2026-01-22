@@ -72,7 +72,10 @@ pub const Position = struct {
     rule50: u8 = 0,
 
     key: zobrist.Int = 0,
-    corr_keys: std.EnumArray(Thread.hist.Corr, zobrist.Int) = .initFill(0),
+    pawn_key: zobrist.Int = 0,
+    minor_key: zobrist.Int = 0,
+    major_key: zobrist.Int = 0,
+    nonpawn_keys: std.EnumArray(types.Color, zobrist.Int) = .initFill(0),
 
     corr_eval: evaluation.score.Int = evaluation.score.none,
     stat_eval: evaluation.score.Int = evaluation.score.none,
@@ -111,12 +114,19 @@ pub const Position = struct {
         const z = zobrist.psq(s, p);
         self.key ^= z;
         switch (t) {
-            .pawn => self.corr_keys.getPtr(.pawn).* ^= z,
-            .knight, .bishop => self.corr_keys.getPtr(.minor).* ^= z,
-            .rook, .queen => self.corr_keys.getPtr(.major).* ^= z,
+            .pawn => self.pawn_key ^= z,
+            .knight, .bishop => {
+                self.minor_key ^= z;
+                self.nonpawn_keys.getPtr(c).* ^= z;
+            },
+            .rook, .queen => {
+                self.major_key ^= z;
+                self.nonpawn_keys.getPtr(c).* ^= z;
+            },
             .king => {
-                self.corr_keys.getPtr(.minor).* ^= z;
-                self.corr_keys.getPtr(.major).* ^= z;
+                self.minor_key ^= z;
+                self.major_key ^= z;
+                self.nonpawn_keys.getPtr(c).* ^= z;
             },
         }
     }
@@ -135,12 +145,19 @@ pub const Position = struct {
         const z = zobrist.psq(s, p);
         self.key ^= z;
         switch (t) {
-            .pawn => self.corr_keys.getPtr(.pawn).* ^= z,
-            .knight, .bishop => self.corr_keys.getPtr(.minor).* ^= z,
-            .rook, .queen => self.corr_keys.getPtr(.major).* ^= z,
+            .pawn => self.pawn_key ^= z,
+            .knight, .bishop => {
+                self.minor_key ^= z;
+                self.nonpawn_keys.getPtr(c).* ^= z;
+            },
+            .rook, .queen => {
+                self.major_key ^= z;
+                self.nonpawn_keys.getPtr(c).* ^= z;
+            },
             .king => {
-                self.corr_keys.getPtr(.minor).* ^= z;
-                self.corr_keys.getPtr(.major).* ^= z;
+                self.minor_key ^= z;
+                self.major_key ^= z;
+                self.nonpawn_keys.getPtr(c).* ^= z;
             },
         }
     }
