@@ -118,10 +118,12 @@ const tunables = blk: {
         .{ .name = "corr_pawn_w", .value = 812 },
         .{ .name = "corr_minor_w", .value = 636 },
         .{ .name = "corr_major_w", .value = 878 },
+        .{ .name = "corr_nonpawn_w", .value = 1045 },
 
         .{ .name = "corr_pawn_update_w", .value = 2499 },
         .{ .name = "corr_minor_update_w", .value = 2107 },
         .{ .name = "corr_major_update_w", .value = 2523 },
+        .{ .name = "corr_nonpawn_update_w", .value = 1931 },
 
         .{ .name = "asp_min_depth", .value = 7, .c_end = 0.25 },
         .{ .name = "asp_window", .value = 16 },
