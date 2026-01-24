@@ -14,6 +14,6 @@ pub const hl0_len = 512;
 pub const out_len = 8;
 pub const native_len = std.simd.suggestVectorLength(Int) orelse @compileError("unsupported cpu");
 
-pub const scale = 432;
+pub const scale = 540;
 pub const qa = 255;
 pub const qb = 64;
