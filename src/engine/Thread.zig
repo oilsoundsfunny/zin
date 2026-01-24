@@ -990,6 +990,21 @@ fn ab(
             if (!pos.see(.pruning, m, see_margin)) {
                 continue :move_loop;
             }
+
+            const hist_pruning_max_d, const hist_pruning1, const hist_pruning0 = if (is_noisy) .{
+                params.values.noisy_hist_pruning_max_d,
+                params.values.noisy_hist_pruning1,
+                params.values.noisy_hist_pruning0,
+            } else .{
+                params.values.quiet_hist_pruning_max_d,
+                params.values.quiet_hist_pruning1,
+                params.values.quiet_hist_pruning0,
+            };
+            const hist_pruning_margin = hist_pruning1 * d + hist_pruning0;
+            if (lmr_d <= hist_pruning_max_d and sm.score < hist_pruning_margin) {
+                mp.skipQuiets();
+                continue :move_loop;
+            }
         }
 
         var recur_d = d - 1;
