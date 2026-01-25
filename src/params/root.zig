@@ -163,13 +163,13 @@ const tunables = blk: {
         .{ .name = "fp_margin1", .value = 136 },
         .{ .name = "fp_hist_divisor", .value = 374 },
 
-        .{ .name = "noisy_hist_pruning_max_d", .value = 3804 },
-        .{ .name = "noisy_hist_pruning1", .value = -2497 },
-        .{ .name = "noisy_hist_pruning0", .value = 966 },
+        .{ .name = "noisy_hist_pruning_max_d", .value = 3797 },
+        .{ .name = "noisy_hist_pruning1", .value = -2528 },
+        .{ .name = "noisy_hist_pruning0", .value = 960 },
 
-        .{ .name = "quiet_hist_pruning_max_d", .value = 4185 },
-        .{ .name = "quiet_hist_pruning1", .value = -2889 },
-        .{ .name = "quiet_hist_pruning0", .value = 801 },
+        .{ .name = "quiet_hist_pruning_max_d", .value = 4090 },
+        .{ .name = "quiet_hist_pruning1", .value = -2898 },
+        .{ .name = "quiet_hist_pruning0", .value = 771 },
 
         .{ .name = "lmp_improving2", .value = 865 },
         .{ .name = "lmp_improving1", .value = 27 },
