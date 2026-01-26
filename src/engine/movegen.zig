@@ -129,24 +129,17 @@ const ScoredMove = struct {
 };
 
 const ScoredMoveList = struct {
-    array: bounded_array.BoundedArray(ScoredMove, capacity) = .{
-        .buffer = .{@as(ScoredMove, .{})} ** capacity,
-        .len = 0,
-    },
+    buffer: [capacity]ScoredMove = @splat(.{}),
+    len: usize = 0,
     index: usize = 0,
 
     const capacity = 256 - @sizeOf(usize) * 2 / @sizeOf(ScoredMove);
-
-    fn push(self: *ScoredMoveList, sm: ScoredMove) void {
-        self.array.appendAssumeCapacity(sm);
-    }
 
     fn genCastle(
         self: *ScoredMoveList,
         pos: *const Board.Position,
         comptime flag: Move.Flag,
     ) usize {
-        const len = self.slice().len;
         const stm = pos.stm;
         const occ = pos.bothOcc();
 
@@ -159,10 +152,10 @@ const ScoredMoveList = struct {
             .white => if (is_q) .wq else .wk,
             .black => if (is_q) .bq else .bk,
         };
-        const castle = pos.castles.get(right) orelse return self.slice().len - len;
+        const castle = pos.castles.get(right) orelse return 0;
 
         if (pos.isChecked() or occ.bwa(castle.occ) != .none) {
-            return self.slice().len - len;
+            return 0;
         }
 
         var am = castle.atk;
@@ -170,7 +163,7 @@ const ScoredMoveList = struct {
             const atkers = pos.squareAtkers(s);
             const theirs = pos.colorOcc(stm.flip());
             if (atkers.bwa(theirs) != .none) {
-                return self.slice().len - len;
+                return 0;
             }
         }
 
@@ -180,11 +173,14 @@ const ScoredMoveList = struct {
             .move = .{ .flag = flag, .src = s, .dst = d },
             .score = evaluation.score.draw,
         });
-        return self.slice().len - len;
+        return 1;
     }
 
     fn genEnPas(self: *ScoredMoveList, pos: *const Board.Position) usize {
-        const len = self.slice().len;
+        var buffer: [2]ScoredMove align(std.atomic.cache_line) = @splat(.{});
+        var len: usize = 0;
+        defer self.appendBuffer(buffer[0..len]);
+
         const stm = pos.stm;
         const enp = pos.en_pas orelse return self.slice().len - len;
 
@@ -194,22 +190,24 @@ const ScoredMoveList = struct {
         const ea = bitboard.pAtkEast(src, stm).bwa(dst);
         if (ea.lowSquare()) |d| {
             const s = d.shift(stm.forward().add(.east).flip(), 1);
-            self.push(.{
+            buffer[len] = .{
                 .move = .{ .flag = .en_passant, .src = s, .dst = d },
                 .score = evaluation.score.draw,
-            });
+            };
+            len += 1;
         }
 
         const wa = bitboard.pAtkWest(src, stm).bwa(dst);
         if (wa.lowSquare()) |d| {
             const s = d.shift(stm.forward().add(.west).flip(), 1);
-            self.push(.{
+            buffer[len] = .{
                 .move = .{ .flag = .en_passant, .src = s, .dst = d },
                 .score = evaluation.score.draw,
-            });
+            };
+            len += 1;
         }
 
-        return self.slice().len - len;
+        return len;
     }
 
     fn genPawnMoves(
@@ -494,7 +492,6 @@ pub const Move = packed struct(u16) {
 };
 
 pub const Picker = struct {
-    list: Move.Scored.List = .{},
     board: *const Board,
     thread: *const Thread,
 
@@ -504,6 +501,7 @@ pub const Picker = struct {
     excluded: Move = .{},
     ttm: Move = .{},
 
+    list: Move.Scored.List = .{},
     first: usize = 0,
     last: usize = 0,
 
@@ -523,13 +521,6 @@ pub const Picker = struct {
         bad_quiet,
         end,
 
-        const Tag = std.meta.Tag(u8);
-
-        fn inc(self: *Stage) void {
-            const i = @intFromEnum(self.*);
-            self.* = @enumFromInt(i + 1);
-        }
-
         pub fn isNoisy(self: Stage) bool {
             return self == .good_noisy or self == .bad_noisy;
         }
@@ -548,10 +539,18 @@ pub const Picker = struct {
     };
 
     fn pick(self: *Picker) ?Move.Scored {
-        return loop: while (self.list.index < self.list.slice().len) {
-            const sm = self.list.slice()[self.list.index];
+        const list = switch (self.stage) {
+            .good_noisy => &self.noisy_list,
+            .good_quiet => &self.quiet_list,
+            .bad_noisy => &self.bad_noisy_list,
+            .bad_quiet => &self.bad_quiet_list,
+            else => return null,
+        };
+
+        return loop: while (list.idx < list.len) {
+            const sm = list.buf[list.idx];
             const m = sm.move;
-            self.list.index += 1;
+            list.idx += 1;
 
             if (!m.isNone() and m != self.ttm) {
                 break :loop sm;
@@ -605,7 +604,7 @@ pub const Picker = struct {
 
     pub fn next(self: *Picker) ?Move.Scored {
         if (self.stage == .ttm) {
-            self.stage.inc();
+            self.stage = .gen_noisy;
             if (!self.ttm.isNone()) {
                 return .{
                     .move = self.ttm,
@@ -615,21 +614,19 @@ pub const Picker = struct {
         }
 
         if (self.stage == .gen_noisy) {
-            self.stage.inc();
+            self.stage = .good_noisy;
+            self.noisy_list.genNoisy(self.board.top());
 
-            self.noisy_n = self.list.genNoisy(self.board.top());
-            const noisy_slice = self.list.slice()[self.list.index..][0..self.noisy_n];
-            for (noisy_slice) |*sm| {
+            const sl = self.noisy_list.buf[0..self.noisy_list.len];
+            for (sl) |*sm| {
                 sm.score = self.scoreNoisy(sm.move);
             }
-            Move.Scored.sortSlice(noisy_slice);
+            Move.Scored.sortSlice(sl);
         }
 
         good_noisy_loop: while (self.stage == .good_noisy) {
             const sm = self.pick() orelse {
-                self.stage.inc();
-                self.list.resize(self.bad_noisy_n);
-                self.list.index = self.bad_noisy_n;
+                self.stage = .gen_quiet;
                 break :good_noisy_loop;
             };
             if (sm.score < evaluation.score.draw) {
