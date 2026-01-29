@@ -12,7 +12,7 @@ pub const Self = extern struct {
     hl0_w: [arch.inp_len][arch.hl0_len]arch.Int,
     hl0_b: [arch.hl0_len]arch.Int,
 
-    out_w: [arch.out_len][arch.color_n][arch.hl0_len]arch.Int,
+    out_w: [arch.out_len][arch.color_n][arch.hl0_len / 2]arch.Int,
     out_b: [arch.out_len]arch.Int align(64),
 
     pub fn infer(
@@ -31,7 +31,7 @@ pub const Self = extern struct {
             const cnt: u32 = position.bothOcc().count();
             break :blk @min((63 - cnt) * (32 - cnt) / 225, arch.out_len - 1);
         };
-        const wgts = std.EnumArray(types.Color, *const [arch.hl0_len]arch.Int).init(.{
+        const wgts = std.EnumArray(types.Color, *const [arch.hl0_len / 2]arch.Int).init(.{
             .white = self.out_w[bucket][types.Color.white.int()][0..],
             .black = self.out_w[bucket][types.Color.black.int()][0..],
         });
@@ -42,12 +42,16 @@ pub const Self = extern struct {
             const w = wgts.get(c);
 
             var i: usize = 0;
-            while (i < arch.hl0_len) : (i += arch.native_len) {
-                const vec: *const arch.Native = @alignCast(v[i..][0..arch.native_len]);
+            while (i < arch.hl0_len / 2) : (i += arch.native_len) {
+                const v0: *const arch.Native =
+                    @alignCast(v[i + arch.hl0_len / 2 * 0 ..][0..arch.native_len]);
+                const v1: *const arch.Native =
+                    @alignCast(v[i + arch.hl0_len / 2 * 1 ..][0..arch.native_len]);
                 const wgt: *const arch.Native = @alignCast(w[i..][0..arch.native_len]);
 
-                const clamped = crelu(vec.*);
-                out +%= madd(clamped, clamped *% wgt.*);
+                const crelu0 = crelu(v0.*);
+                const crelu1 = crelu(v1.*);
+                out +%= madd(crelu0, crelu1 *% wgt.*);
             }
         }
 
