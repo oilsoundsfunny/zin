@@ -14,6 +14,11 @@ pub fn get(depth: engine.Thread.Depth, searched: usize, quiet: bool) engine.Thre
 pub fn init() !void {
     for (table[0..], 0..) |*by_depth, depth| {
         for (by_depth[0..], 0..) |*by_num, num| {
+            if (depth == 0 or num == 0) {
+                by_num.* = .{ 0, 0 };
+                continue;
+            }
+
             const d: f32 = @floatFromInt(depth);
             const n: f32 = @floatFromInt(num);
 
