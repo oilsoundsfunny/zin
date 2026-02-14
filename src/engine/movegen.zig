@@ -133,9 +133,8 @@ const ScoredMoveList = struct {
         .buffer = .{@as(ScoredMove, .{})} ** capacity,
         .len = 0,
     },
-    index: usize = 0,
 
-    const capacity = 256 - @sizeOf(usize) * 2 / @sizeOf(ScoredMove);
+    const capacity = 256 - @sizeOf(usize) / @sizeOf(ScoredMove);
 
     fn push(self: *ScoredMoveList, sm: ScoredMove) void {
         self.array.appendAssumeCapacity(sm);
@@ -494,7 +493,6 @@ pub const Move = packed struct(u16) {
 };
 
 pub const Picker = struct {
-    list: Move.Scored.List = .{},
     board: *const Board,
     thread: *const Thread,
 
@@ -504,31 +502,30 @@ pub const Picker = struct {
     excluded: Move = .{},
     ttm: Move = .{},
 
-    first: usize = 0,
-    last: usize = 0,
+    noisy_list: Move.Scored.List = .{},
+    quiet_list: Move.Scored.List = .{},
 
-    noisy_n: usize = 0,
-    quiet_n: usize = 0,
+    bad_noisy_list: Move.Scored.List = .{},
+    bad_quiet_list: Move.Scored.List = .{},
 
-    bad_noisy_n: usize = 0,
-    bad_quiet_n: usize = 0,
+    pub const Stage = union(Tag) {
+        ttm: void,
+        gen_noisy: void,
+        good_noisy: usize,
+        gen_quiet: void,
+        good_quiet: usize,
+        bad_noisy: usize,
+        bad_quiet: usize,
 
-    pub const Stage = enum(u8) {
-        ttm,
-        gen_noisy,
-        good_noisy,
-        gen_quiet,
-        good_quiet,
-        bad_noisy,
-        bad_quiet,
-        end,
-
-        const Tag = std.meta.Tag(u8);
-
-        fn inc(self: *Stage) void {
-            const i = @intFromEnum(self.*);
-            self.* = @enumFromInt(i + 1);
-        }
+        const Tag = enum {
+            ttm,
+            gen_noisy,
+            good_noisy,
+            gen_quiet,
+            good_quiet,
+            bad_noisy,
+            bad_quiet,
+        };
 
         pub fn isNoisy(self: Stage) bool {
             return self == .good_noisy or self == .bad_noisy;
@@ -548,19 +545,35 @@ pub const Picker = struct {
     };
 
     fn pick(self: *Picker) ?Move.Scored {
-        return loop: while (self.list.index < self.list.slice().len) {
-            const sm = self.list.slice()[self.list.index];
-            const m = sm.move;
-            self.list.index += 1;
+        const num, const slice = switch (self.stage) {
+            .good_noisy => |*n| .{ n, self.noisy_list.slice() },
+            .good_quiet => |*n| .{ n, self.quiet_list.slice() },
+            .bad_noisy => |*n| .{ n, self.bad_noisy_list.slice() },
+            .bad_quiet => |*n| .{ n, self.bad_quiet_list.slice() },
+            else => return null,
+        };
+        const first = if (num.* < slice.len) num.* else return null;
+        var best: ?*Move.Scored = null;
 
-            if (!m.isNone() and m != self.ttm) {
-                break :loop sm;
-            }
+        for (slice[first..]) |*sm| {
+            best = if (best == null or sm.score > best.?.score) sm else best;
+        }
+
+        return if (best) |found| blk: {
+            num.* += 1;
+            std.mem.swap(Move.Scored, &slice[first], found);
+
+            const sm = slice[first];
+            const m = sm.move;
+            break :blk if (!m.isNone() and m != self.ttm and m != self.excluded) sm else special: {
+                @branchHint(.unlikely);
+                break :special self.pick();
+            };
         } else null;
     }
 
     fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
-        return if (move == self.ttm or move == self.excluded) Thread.hist.min - 1 else captures: {
+        return if (move == self.ttm or move == self.excluded) evaluation.score.mate else blk: {
             const mvv = if (move.flag == .en_passant)
                 params.values.see_ordering_pawn
             else switch (self.board.top().getSquare(move.dst).ptype()) {
@@ -569,12 +582,12 @@ pub const Picker = struct {
             };
 
             const hist = self.thread.getNoisyHist(move);
-            break :captures @intCast(@divTrunc(mvv * 7 + hist, 2));
+            break :blk @intCast(@divTrunc(mvv * 7 + hist, 2));
         };
     }
 
     fn scoreQuiet(self: *const Picker, move: Move) Thread.hist.Int {
-        return if (move == self.ttm or move == self.excluded) Thread.hist.min - 1 else blk: {
+        return if (move == self.ttm or move == self.excluded) evaluation.score.mate else blk: {
             const score = @as(evaluation.score.Int, self.thread.getQuietHist(move)) +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2 +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 2)) +
@@ -605,7 +618,7 @@ pub const Picker = struct {
 
     pub fn next(self: *Picker) ?Move.Scored {
         if (self.stage == .ttm) {
-            self.stage.inc();
+            self.stage = .gen_noisy;
             if (!self.ttm.isNone()) {
                 return .{
                     .move = self.ttm,
@@ -615,80 +628,66 @@ pub const Picker = struct {
         }
 
         if (self.stage == .gen_noisy) {
-            self.stage.inc();
+            self.stage = .{ .good_noisy = 0 };
+            _ = self.noisy_list.genNoisy(self.board.top());
 
-            self.noisy_n = self.list.genNoisy(self.board.top());
-            const noisy_slice = self.list.slice()[self.list.index..][0..self.noisy_n];
-            for (noisy_slice) |*sm| {
+            const slice = self.noisy_list.slice();
+            for (slice) |*sm| {
                 sm.score = self.scoreNoisy(sm.move);
             }
-            Move.Scored.sortSlice(noisy_slice);
         }
 
         good_noisy_loop: while (self.stage == .good_noisy) {
             const sm = self.pick() orelse {
-                self.stage.inc();
-                self.list.resize(self.bad_noisy_n);
-                self.list.index = self.bad_noisy_n;
+                self.stage = .gen_quiet;
                 break :good_noisy_loop;
             };
             if (sm.score < evaluation.score.draw) {
-                self.list.slice()[self.bad_noisy_n] = sm;
-                self.bad_noisy_n += 1;
-            } else return sm;
+                self.bad_noisy_list.push(sm);
+                continue;
+            }
+
+            return sm;
         }
 
         if (self.stage == .gen_quiet) gen_quiet: {
-            self.stage.inc();
+            self.stage = .{ .good_quiet = 0 };
             if (self.skip_quiets) {
                 break :gen_quiet;
             }
 
-            self.quiet_n = self.list.genQuiet(self.board.top());
-            const quiet_slice = self.list.slice()[self.list.index..][0..self.quiet_n];
-            for (quiet_slice) |*sm| {
+            _ = self.quiet_list.genQuiet(self.board.top());
+            const slice = self.quiet_list.slice();
+            for (slice) |*sm| {
                 sm.score = self.scoreQuiet(sm.move);
             }
-            Move.Scored.sortSlice(quiet_slice);
         }
 
         good_quiet_loop: while (self.stage == .good_quiet) {
             const picked = self.pick();
             if (self.skip_quiets or picked == null) {
-                self.stage.inc();
-                self.list.resize(self.bad_noisy_n);
-                self.list.index = 0;
+                self.stage = .{ .bad_noisy = 0 };
                 break :good_quiet_loop;
             }
 
             const sm = picked.?;
             if (sm.score < evaluation.score.draw) {
-                self.list.slice()[self.bad_noisy_n + self.bad_quiet_n] = sm;
-                self.bad_quiet_n += 1;
-            } else return sm;
+                self.bad_quiet_list.push(sm);
+                continue;
+            }
+
+            return sm;
         }
 
         if (self.stage == .bad_noisy) bad_noisy: {
             const sm = self.pick() orelse {
-                self.stage.inc();
-                self.list.resize(self.bad_noisy_n + self.bad_quiet_n);
-                self.list.index = self.bad_noisy_n;
+                self.stage = .{ .bad_quiet = 0 };
                 break :bad_noisy;
             };
             return sm;
         }
 
-        if (self.stage == .bad_quiet) bad_quiet: {
-            const picked = self.pick();
-            if (self.skip_quiets or picked == null) {
-                self.stage.inc();
-                break :bad_quiet;
-            }
-
-            return picked.?;
-        }
-
-        return null;
+        return self.pick();
     }
 
     pub fn skipQuiets(self: *Picker) void {

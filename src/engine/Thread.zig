@@ -531,7 +531,7 @@ fn updateCorrHists(
             .nonpawn => .{
                 &self.pool.nonpawn_corrhist[i][stm.int()],
                 params.values.corr_nonpawn_update_w,
-             },
+            },
         };
 
         const bonus = diff * weight;
