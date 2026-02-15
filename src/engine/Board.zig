@@ -1,5 +1,4 @@
 const bitboard = @import("bitboard");
-const bounded_array = @import("bounded_array");
 const builtin = @import("builtin");
 const nnue = @import("nnue");
 const params = @import("params");
@@ -15,7 +14,6 @@ const zobrist = @import("zobrist.zig");
 const Board = @This();
 
 frc: bool = false,
-
 accumulators: Offseted(nnue.Accumulator) = offsetedDefault(nnue.Accumulator),
 positions: Offseted(Position) = offsetedDefault(Position),
 
@@ -381,12 +379,12 @@ pub const Position = struct {
 
         switch (move.flag) {
             .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
-                const add_p = types.Piece.init(f.promoted() orelse sp.ptype(), stm);
+                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
                 pos.popSq(s, sp);
                 pos.setSq(d, add_p);
             },
 
-            .q_castle, .k_castle => |f| {
+            .castle_q, .castle_k => |f| {
                 const right = f.castle(stm) orelse unreachable;
                 const castle = pos.castles.getAssertContains(right);
 
@@ -401,7 +399,7 @@ pub const Position = struct {
             },
 
             else => |f| {
-                const add_p = types.Piece.init(f.promoted() orelse sp.ptype(), stm);
+                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
                 const del_p, const del_s = if (f == .en_passant)
                     .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
                 else
@@ -422,11 +420,11 @@ pub const Position = struct {
         return if (atkers.bwa(them) == .none) pos else error.InvalidMove;
     }
 
-    pub fn down(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), Position, Position) {
+    pub fn down(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
         return @ptrCast(self[0..1].ptr - dist);
     }
 
-    pub fn up(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), Position, Position) {
+    pub fn up(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
         return @ptrCast(self[0..1].ptr + dist);
     }
 
@@ -522,7 +520,7 @@ pub const Position = struct {
 
             .torped => sp.ptype() == .pawn and push2.get(d),
 
-            .q_castle, .k_castle => |f| castle: {
+            .castle_q, .castle_k => |f| castle: {
                 const right = f.castle(stm) orelse unreachable;
                 const castle = self.castles.get(right) orelse break :castle false;
 
@@ -575,7 +573,7 @@ pub const capacity = 1024 - offset;
 pub const offset = 8;
 
 fn Offseted(comptime T: type) type {
-    return bounded_array.BoundedArray(T, capacity + offset);
+    return types.BoundedArray(T, null, capacity + offset);
 }
 
 fn offsetedDefault(comptime T: type) Offseted(T) {
@@ -597,8 +595,8 @@ fn updateAccumulators(self: *Board) void {
 }
 
 fn setupAccumulators(self: *Board) void {
-    const accumulator = &self.accumulators.slice()[offset + self.ply()];
-    const pos = self.top();
+    const accumulator = self.accumulators.top();
+    const pos = self.positions.top();
 
     accumulator.* = .{};
     for (types.Color.values) |c| {
@@ -618,17 +616,8 @@ fn setupAccumulators(self: *Board) void {
     }
 }
 
-pub fn bottom(self: anytype) types.SameMutPtr(@TypeOf(self), Board, Position) {
-    return &self.positions.slice()[offset];
-}
-
-pub fn top(self: anytype) types.SameMutPtr(@TypeOf(self), Board, Position) {
-    const sl = self.positions.slice();
-    return &sl[sl.len - 1];
-}
-
 pub fn ply(self: *const Board) usize {
-    return self.top() - self.bottom();
+    return self.positions.len - offset - 1;
 }
 
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
@@ -636,7 +625,7 @@ pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
     errdefer self.* = backup;
     self.* = .{};
 
-    try self.top().parseFen(fen);
+    try self.positions.top().parseFen(fen);
     self.setupAccumulators();
 }
 
@@ -645,40 +634,40 @@ pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) Fe
     errdefer self.* = backup;
     self.* = .{};
 
-    try self.top().parseFenTokens(tokens);
+    try self.positions.top().parseFenTokens(tokens);
     self.setupAccumulators();
 }
 
 pub fn doMove(self: *Board, move: movegen.Move) void {
-    const stm = self.top().stm;
+    const stm = self.positions.top().stm;
     const s = move.src;
     const d = move.dst;
-    const sp = self.top().getSquare(s);
-    const dp = self.top().getSquare(d);
+    const sp = self.positions.top().getSquare(s);
+    const dp = self.positions.top().getSquare(d);
 
-    self.top().move = move;
-    self.top().src_piece = sp;
-    self.top().dst_piece = dp;
+    self.positions.top().move = move;
+    self.positions.top().src_piece = sp;
+    self.positions.top().dst_piece = dp;
 
-    const pos = self.positions.addOneAssumeCapacity();
+    const pos = self.positions.addOneUnchecked();
     pos.* = pos.down(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
     pos.en_pas = null;
     pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
 
-    const accumulator = self.accumulators.addOneAssumeCapacity();
+    const accumulator = self.accumulators.addOneUnchecked();
     accumulator.clear();
     accumulator.mark();
 
     switch (move.flag) {
         .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
-            const add_p = types.Piece.init(f.promoted() orelse sp.ptype(), stm);
+            const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
             accumulator.queueSubAdd(
                 .{ .piece = sp, .square = s },
                 .{ .piece = add_p, .square = d },
             );
         },
 
-        .q_castle, .k_castle => |f| {
+        .castle_q, .castle_k => |f| {
             const right = f.castle(stm) orelse unreachable;
             const castle = pos.castles.getAssertContains(right);
 
@@ -694,7 +683,7 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
         },
 
         else => |f| {
-            const add_p = types.Piece.init(f.promoted() orelse sp.ptype(), stm);
+            const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
             const del_p, const del_s = if (f == .en_passant)
                 .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
             else
@@ -777,15 +766,15 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
 }
 
 pub fn doNull(self: *Board) void {
-    self.top().move = .{};
-    self.top().src_piece = .none;
-    self.top().dst_piece = .none;
+    self.positions.top().move = .{};
+    self.positions.top().src_piece = .none;
+    self.positions.top().dst_piece = .none;
 
-    const accumulator = self.accumulators.addOneAssumeCapacity();
+    const accumulator = self.accumulators.addOneUnchecked();
     accumulator.clear();
     accumulator.mark();
 
-    const pos = self.positions.addOneAssumeCapacity();
+    const pos = self.positions.addOneUnchecked();
     pos.* = pos.down(1).*;
     pos.en_pas = null;
     pos.rule50 = 0;
@@ -805,7 +794,7 @@ pub fn undoNull(self: *Board) void {
 }
 
 pub fn getRepeat(self: *const Board) usize {
-    const key = self.top().key;
+    const key = self.positions.top().key;
     var peat: usize = 0;
 
     for (self.positions.slice()[offset..]) |*p| {
@@ -820,7 +809,7 @@ pub fn is3peat(self: *const Board) bool {
 }
 
 pub fn isDrawn(self: *const Board) bool {
-    return self.top().rule50 >= 100 or self.is3peat() or self.isTerminal();
+    return self.positions.top().rule50 >= 100 or self.is3peat() or self.isTerminal();
 }
 
 pub fn isTerminal(self: *const Board) bool {

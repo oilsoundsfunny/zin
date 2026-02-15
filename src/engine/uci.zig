@@ -26,9 +26,11 @@ pub const Error = error{
 };
 
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
+    const pos = pool.threads.items[0].board.positions.top();
+    const stm = pos.stm;
+
     const limits = &pool.limits;
     const timer = &pool.timer;
-    const stm = pool.threads.items[0].board.top().stm;
 
     limits.* = .{};
     timer.reset();
@@ -154,6 +156,24 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
         }
 
         pool.setFRC(frc);
+    } else if (std.ascii.eqlIgnoreCase(name, "UCI_ShowWDL")) {
+        if (!std.mem.eql(u8, aux, "value")) {
+            return error.UnknownCommand;
+        }
+
+        const value = tokens.next() orelse return error.UnknownCommand;
+        const show_wdl = if (std.mem.eql(u8, value, "false"))
+            false
+        else if (std.mem.eql(u8, value, "true"))
+            true
+        else
+            return error.UnknownCommand;
+
+        if (tokens.peek()) |_| {
+            return error.UnknownCommand;
+        }
+
+        options.show_wdl = show_wdl;
     } else if (!params.tuning) {
         return error.UnknownCommand;
     } else params.parseTunable(name, aux, tokens) catch |err| return err;
@@ -191,17 +211,14 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !
         var n: usize = 0;
         var list: movegen.Move.Scored.List = .{};
 
-        n += list.genNoisy(board.top());
-        n += list.genQuiet(board.top());
+        const pos = board.positions.top();
+        n += list.genNoisy(pos);
+        n += list.genQuiet(pos);
         while (i < n) : (i += 1) {
             const m = list.constSlice()[i].move;
             const s = m.toString(&board);
             const l = m.toStringLen();
-            if (!std.mem.eql(u8, token, s[0..l])) {
-                continue;
-            }
-
-            if (!board.top().isMoveLegal(m)) {
+            if (!std.mem.eql(u8, token, s[0..l]) or !pos.isMoveLegal(m)) {
                 continue;
             }
 

@@ -354,6 +354,7 @@ pub const Limits = struct {
 
 pub const Options = struct {
     frc: bool = false,
+    show_wdl: bool = false,
     hash: usize = 64,
     threads: usize = 1,
     overhead: u64 = 10,
@@ -435,17 +436,17 @@ conthist: hist.Cont = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
 fn quietHistPtr(
     self: anytype,
     move: movegen.Move,
-) types.SameMutPtr(@TypeOf(self), Thread, hist.Int) {
-    const sp = self.board.top().getSquare(move.src);
+) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
+    const sp = self.board.positions.top().getSquare(move.src);
     return &self.quiethist[sp.color().int()][sp.ptype().int()][move.dst.int()];
 }
 
 fn noisyHistPtr(
     self: anytype,
     move: movegen.Move,
-) types.SameMutPtr(@TypeOf(self), Thread, hist.Int) {
-    const sp = self.board.top().getSquare(move.src);
-    const dp = switch (self.board.top().getSquare(move.dst)) {
+) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
+    const sp = self.board.positions.top().getSquare(move.src);
+    const dp = switch (self.board.positions.top().getSquare(move.dst)) {
         .none => types.Ptype.num,
         else => |p| p.ptype().int(),
     };
@@ -457,30 +458,31 @@ fn contHistPtr(
     self: anytype,
     move: movegen.Move,
     ply: usize,
-) types.SameMutPtr(@TypeOf(self), Thread, hist.Int) {
-    const last_spt = switch (self.board.top().down(ply).src_piece) {
+) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
+    const last_spt = switch (self.board.positions.topDown(ply).src_piece) {
         .none => types.Ptype.num,
         else => |p| p.ptype().int(),
     };
-    const last_dst = self.board.top().down(ply).move.dst.int();
+    const last_dst = self.board.positions.topDown(ply).move.dst.int();
 
-    const this_spt = self.board.top().getSquare(move.src).ptype().int();
+    const this_spt = self.board.positions.top().getSquare(move.src).ptype().int();
     const this_dst = move.dst.int();
 
-    const stm = self.board.top().stm.int();
+    const stm = self.board.positions.top().stm.int();
     return &self.conthist[ply / 2][stm][last_spt][last_dst][this_spt][this_dst];
 }
 
 fn correctedEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score.Int {
-    const stm = self.board.top().stm;
+    const pos = self.board.positions.top();
+    const stm = pos.stm;
 
     var corr: @TypeOf(eval) = 0;
     for (hist.Corr.values) |t| {
         const k = switch (t) {
-            .pawn => self.board.top().pawn_key,
-            .minor => self.board.top().minor_key,
-            .major => self.board.top().major_key,
-            .nonpawn => self.board.top().nonpawn_keys.getPtrConst(stm).*,
+            .pawn => pos.pawn_key,
+            .minor => pos.minor_key,
+            .major => pos.major_key,
+            .nonpawn => pos.nonpawn_keys.getPtrConst(stm).*,
         };
         const l = hist.Corr.size * self.pool.threads.items.len;
         const i = zobrist.index(k, l);
@@ -505,15 +507,16 @@ fn updateCorrHists(
     depth: Depth,
     diff: evaluation.score.Int,
 ) void {
-    const stm = self.board.top().stm;
+    const pos = self.board.positions.top();
+    const stm = pos.stm;
     const weight = @min(depth + 1, 16);
 
     for (hist.Corr.values) |t| {
         const k = switch (t) {
-            .pawn => self.board.top().pawn_key,
-            .minor => self.board.top().minor_key,
-            .major => self.board.top().major_key,
-            .nonpawn => self.board.top().nonpawn_keys.getPtrConst(stm).*,
+            .pawn => pos.pawn_key,
+            .minor => pos.minor_key,
+            .major => pos.major_key,
+            .nonpawn => pos.nonpawn_keys.getPtrConst(stm).*,
         };
         const l = hist.Corr.size * self.pool.threads.items.len;
         const i = zobrist.index(k, l);
@@ -602,20 +605,33 @@ fn printInfo(
     try writer.print(" time {d}", .{mtime});
     try writer.print(" nps {d}", .{nodes * std.time.ns_per_s / ntime});
 
+    const mat = self.board.positions.top().material();
     const pvs: evaluation.score.Int = @intCast(pv.score);
+
     try writer.print(" score", .{});
     if (evaluation.score.isMated(pvs)) {
         const ply = pvs - evaluation.score.mated;
         const moves = @divTrunc(ply + 1, 2);
-        try writer.print(" mate {d} wdl 0 0 1000", .{-moves});
+        try writer.print(" mate {d}", .{-moves});
     } else if (evaluation.score.isMate(pvs)) {
         const ply = evaluation.score.mate - pvs;
         const moves = @divTrunc(ply + 1, 2);
-        try writer.print(" mate {d} wdl 1000 0 0", .{moves});
+        try writer.print(" mate {d}", .{moves});
     } else {
-        const material = self.board.top().material();
-        try writer.print(" cp {d}", .{evaluation.score.normalize(pvs, material)});
-        try writer.print(" wdl {d} {d} {d}", evaluation.score.wdl(pvs, material));
+        try writer.print(" cp {d}", .{evaluation.score.normalize(pvs, mat)});
+    }
+
+    if (self.pool.opts.show_wdl) {
+        if (evaluation.score.isMated(pvs)) {
+            try writer.print(" wdl 0 0 1000", .{});
+        } else if (evaluation.score.isMate(pvs)) {
+            try writer.print(" wdl 1000 0 0", .{});
+        } else {
+            const w, _, const l = evaluation.score.wdl(pvs, mat);
+            const iw: evaluation.score.Int = @intFromFloat(1000 * w);
+            const il: evaluation.score.Int = @intFromFloat(1000 * l);
+            try writer.print(" wdl {d} {d} {d}", .{ iw, 1000 - iw - il, il });
+        }
     }
 
     try writer.print(" pv", .{});
@@ -717,7 +733,7 @@ fn ab(
     depth: Depth,
 ) evaluation.score.Int {
     self.nodes += 1;
-    self.board.top().pv.line.resize(0) catch unreachable;
+    self.board.positions.top().pv.line.resize(0) catch unreachable;
 
     const is_datagen = self.request == .datagen;
     if (is_datagen and self.datagenStop(.hard)) {
@@ -771,7 +787,7 @@ fn ab(
         return if (is_drawn) draw else board.evaluate();
     }
 
-    const pos = board.top();
+    const pos = board.positions.top();
     const key = pos.key;
     const is_checked = pos.isChecked();
 
@@ -997,7 +1013,7 @@ fn ab(
 
         const s = recur: {
             board.doMove(m);
-            tt.prefetch(board.top().key);
+            tt.prefetch(board.positions.top().key);
 
             defer board.undoMove();
             defer searched += 1;
@@ -1023,7 +1039,7 @@ fn ab(
                 r += @as(@TypeOf(d), @intFromBool(node == .lowerbound)) * params.values.lmr_cutnode;
                 r += @as(@TypeOf(d), @intFromBool(is_ttm_noisy)) * params.values.lmr_noisy_ttm;
 
-                r -= @as(@TypeOf(d), @intFromBool(board.top().isChecked())) *
+                r -= @as(@TypeOf(d), @intFromBool(board.positions.top().isChecked())) *
                     params.values.lmr_gave_check;
                 r -= @as(@TypeOf(d), @intFromBool(is_checked)) *
                     params.values.lmr_is_checked;
@@ -1075,7 +1091,7 @@ fn ab(
             var rmi: usize = 0;
             while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {}
 
-            const next_pv = &self.board.top().up(1).pv;
+            const next_pv = &self.board.positions.top().up(1).pv;
             const rm = &rms[rmi];
             if (searched == 1 or s > a) {
                 rm.update(s, m, next_pv.constSlice());
@@ -1088,8 +1104,8 @@ fn ab(
             best.score = @intCast(s);
 
             if (!is_root and is_pv and s > a) {
-                const next_pv = &self.board.top().up(1).pv;
-                const this_pv = &self.board.top().pv;
+                const next_pv = &pos[0..1].ptr[1].pv;
+                const this_pv = &pos.pv;
 
                 this_pv.update(s, m, next_pv.constSlice());
             }
@@ -1151,7 +1167,7 @@ fn qs(
     beta: evaluation.score.Int,
 ) evaluation.score.Int {
     self.nodes += 1;
-    self.board.top().pv.line.resize(0) catch unreachable;
+    self.board.positions.top().pv.line.resize(0) catch unreachable;
 
     const is_datagen = self.request == .datagen;
     if (is_datagen and self.datagenStop(.hard)) {
@@ -1182,7 +1198,7 @@ fn qs(
         return if (is_drawn) draw else board.evaluate();
     }
 
-    const pos = board.top();
+    const pos = board.positions.top();
     const key = pos.key;
     const is_checked = pos.isChecked();
 
@@ -1265,7 +1281,7 @@ fn qs(
                 continue :move_loop;
             }
             board.doMove(m);
-            tt.prefetch(board.top().key);
+            tt.prefetch(board.positions.top().key);
 
             defer board.undoMove();
             defer mp.skipQuiets();

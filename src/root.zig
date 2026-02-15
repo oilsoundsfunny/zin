@@ -4,7 +4,6 @@ pub const bitboard = @import("bitboard");
 pub const engine = @import("engine");
 pub const nnue = @import("nnue");
 pub const params = @import("params");
-pub const selfplay = @import("selfplay");
 pub const types = @import("types");
 
 pub const author = "oilsoundsfunny";
