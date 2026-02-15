@@ -10,11 +10,12 @@ const uci = @import("uci.zig");
 
 const RootMove = struct {
     line: types.BoundedArray(Move, null, capacity) = .{},
-    score: isize = evaluation.score.none,
+    score: evaluation.score.Int = evaluation.score.none,
+    nodes: u32 = 0,
 
     pub const List = RootMoveList;
 
-    pub const capacity = 256 - @sizeOf(usize) * 2 / @sizeOf(Move);
+    pub const capacity = 256 - (@sizeOf(usize) + @sizeOf(u32) * 2) / @sizeOf(Move);
 
     pub fn constSlice(self: *const RootMove) []const Move {
         return self.slice();
@@ -73,9 +74,7 @@ const RootMoveList = struct {
     }
 
     pub fn init(board: *Board) RootMoveList {
-        const is_drawn = board.isDrawn();
-        const is_terminal = board.isTerminal();
-        if (is_drawn or is_terminal) {
+        if (board.isDrawn()) {
             @branchHint(.cold);
             return .{};
         }

@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const engine = @import("engine");
+const selfplay = @import("selfplay");
 const std = @import("std");
 
 const bench = @import("bench.zig");
@@ -65,16 +66,16 @@ pub fn main() !void {
     defer args.deinit();
 
     _ = args.skip();
-    while (args.next()) |arg| {
+    if (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "bench")) {
             var depth: ?engine.Thread.Depth = null;
             if (args.next()) |aux| {
                 depth = try std.fmt.parseUnsigned(u8, aux, 10);
             }
+
             return bench.run(pool, depth);
         } else if (std.mem.eql(u8, arg, "datagen")) {
-            // TODO: complete datagen
-            // return selfplay.run(pool, &args);
+            return selfplay.run(pool, &args);
         } else if (std.mem.eql(u8, arg, "eval-stats")) {
             const epd = args.next() orelse std.process.fatal("expected arg after '{s}'", .{arg});
             return engine.evaluation.printStats(pool, epd);

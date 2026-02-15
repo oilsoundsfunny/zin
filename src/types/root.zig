@@ -10,13 +10,11 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
     pub const Int = std.meta.Tag(SquareSet);
 
     fn fromRank(r: Rank) SquareSet {
-        // TODO: make this fn order-agnostic
         const s = @as(Square.Int, r.int()) * File.num;
         return fromInt(std.math.shl(Int, 0x00000000000000ff, s));
     }
 
     fn fromFile(f: File) SquareSet {
-        // TODO: make this fn order-agnostic
         const s = @as(Square.Int, f.int());
         return fromInt(std.math.shl(Int, 0x0101010101010101, s));
     }
@@ -63,13 +61,11 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
     }
 
     pub fn flipRank(self: SquareSet) SquareSet {
-        // TODO: make this fn order-agnostic
         const i = self.int();
         return fromInt(@byteSwap(i));
     }
 
     pub fn flipFile(self: SquareSet) SquareSet {
-        // TODO: make this fn order-agnostic
         const k = [_]Int{
             0x5555555555555555,
             0x3333333333333333,

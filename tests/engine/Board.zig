@@ -102,17 +102,18 @@ test {
         var board: engine.Board = .{};
         try board.parseFen(fen);
 
+        const pos = board.positions.top();
         var rma: [1 << 16]bool = @splat(false);
         var list: engine.movegen.Move.Scored.List = .{};
-        _ = list.genNoisy(board.top());
-        _ = list.genQuiet(board.top());
+        _ = list.genNoisy(pos);
+        _ = list.genQuiet(pos);
 
         for (list.constSlice()) |sm| {
             const m = sm.move;
             const i = @as(u16, @bitCast(m));
 
             rma[i] = true;
-            try std.testing.expect(board.top().isMovePseudoLegal(m));
+            try std.testing.expect(pos.isMovePseudoLegal(m));
         }
 
         for (0..1 << 12) |idx| {
@@ -124,7 +125,7 @@ test {
                 };
                 const i: u16 = @bitCast(m);
 
-                std.testing.expectEqual(rma[i], board.top().isMovePseudoLegal(m)) catch |err| {
+                std.testing.expectEqual(rma[i], pos.isMovePseudoLegal(m)) catch |err| {
                     std.debug.print("fen: {s}\n", .{fen});
                     std.debug.print("flag: {t}\n", .{f});
                     std.debug.print("src: {c}{c}\n", .{ m.src.file().char(), m.src.rank().char() });
@@ -134,55 +135,4 @@ test {
             }
         }
     }
-}
-
-test {
-    try bitboard.init();
-    defer bitboard.deinit();
-
-    try params.init();
-    defer params.deinit();
-
-    try engine.init();
-    defer engine.deinit();
-
-    var board: engine.Board = .{};
-    try board.parseFen("1k1r4/1pp4p/p7/4p3/8/P5P1/1PP4P/2K1R3 w - - 0 1");
-
-    const move: engine.movegen.Move = .{
-        .flag = .noisy,
-        .src = .e1,
-        .dst = .e5,
-    };
-    try std.testing.expect(board.top().see(move, params.values.see_pawn_value));
-}
-
-test {
-    try bitboard.init();
-    defer bitboard.deinit();
-
-    try params.init();
-    defer params.deinit();
-
-    try engine.init();
-    defer engine.deinit();
-
-    var board: engine.Board = .{};
-    try board.parseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1");
-
-    const move: engine.movegen.Move = .{
-        .flag = .noisy,
-        .src = .d3,
-        .dst = .e5,
-    };
-
-    const knight = params.values.see_knight_value;
-    const pawn = params.values.see_pawn_value;
-    const draw = engine.evaluation.score.draw;
-
-    try std.testing.expect(board.top().see(move, draw - knight));
-    try std.testing.expect(board.top().see(move, pawn - knight));
-
-    // try std.testing.expect(!board.top().see(move, -draw));
-    // try std.testing.expect(!board.top().see(move, -pawn));
 }

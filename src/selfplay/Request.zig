@@ -4,6 +4,9 @@ const types = @import("types");
 
 const ViriFormat = @import("ViriFormat.zig");
 
+const Request = @This();
+
+rng: std.Random.Xoroshiro128 = .init(0x5555555555555555),
 games: ?usize,
 random_moves: usize,
 win_adj: Adj,
@@ -35,9 +38,9 @@ pub const Adj = struct {
 };
 
 pub fn adjudicate(
-    self: *const Adj,
+    self: *const Request,
     comptime mode: enum { draw, win },
-    line: *const ViriFormat.Move.Scored.Line,
+    data: *const ViriFormat,
 ) bool {
     const cond, const op: std.math.CompareOperator = switch (mode) {
         .draw => .{ &self.draw_adj, .lte },
@@ -45,7 +48,7 @@ pub fn adjudicate(
     };
 
     var i: usize = 0;
-    var iter = std.mem.reverseIterator(line.constSlice());
+    var iter = std.mem.reverseIterator(data.line.constSlice());
     return loop: while (iter.next()) |sm| {
         i += if (i < cond.ply_num) 1 else break :loop true;
 

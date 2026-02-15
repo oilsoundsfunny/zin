@@ -1439,7 +1439,7 @@ pub fn search(self: *Thread) !void {
     var last_seldepth: Depth = 0;
     var last_pv: movegen.Move.Root = .{};
 
-    const no_moves = self.root_moves.constSlice().len == 0;
+    const no_moves = self.root_moves.constSlice().len == 0 or self.board.isTerminal();
     last_pv = if (no_moves) {
         if (!should_print) {
             return;

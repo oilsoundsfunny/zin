@@ -8,25 +8,25 @@ line: Move.Scored.Line,
 
 const Piece = enum(u4) {
     w_pawn = 0,
-    w_knight = 1,
-    w_bishop = 2,
-    w_rook = 3,
-    w_queen = 4,
-    w_king = 5,
-    w_castle = 6,
+    w_knight,
+    w_bishop,
+    w_rook,
+    w_queen,
+    w_king,
+    w_castle,
 
     b_pawn = 8,
-    b_knight = 9,
-    b_bishop = 10,
-    b_rook = 11,
-    b_queen = 12,
-    b_king = 13,
-    b_castle = 14,
+    b_knight,
+    b_bishop,
+    b_rook,
+    b_queen,
+    b_king,
+    b_castle,
 
     pub const Int = std.meta.Tag(Piece);
     pub const int_info = @typeInfo(Int).int;
 
-    fn fromSquare(pos: *const engine.Board.Position, s: types.Square) Piece {
+    fn init(pos: *const engine.Board.Position, s: types.Square) Piece {
         var iter = @constCast(pos).castles.iterator();
 
         return switch (pos.getSquare(s)) {
@@ -81,15 +81,17 @@ pub const Head = extern struct {
 
     pub fn init(board: *engine.Board) Head {
         const pos = board.positions.top();
+        const mat = pos.material();
         const eval = board.evaluate();
+        const norm = engine.evaluation.score.normalize(eval, mat);
 
-        var occ = board.positions.top().bothOcc();
+        var occ = pos.bothOcc();
         var self: Head = .{
             .occ = occ,
             .ply = pos.rule50,
             .score = @intCast(switch (pos.stm) {
-                .white => eval,
-                .black => -eval,
+                .white => norm,
+                .black => -norm,
             }),
         };
 
@@ -98,7 +100,7 @@ pub const Head = extern struct {
             i += 1;
             occ.popLow();
         }) {
-            const t = Piece.fromSquare(pos, s).int();
+            const t = Piece.init(pos, s).int();
             self.pieces |= std.math.shl(u128, t, i * Piece.int_info.bits);
         }
 
@@ -114,10 +116,7 @@ pub const Head = extern struct {
 pub const Move = packed struct(u16) {
     src: types.Square,
     dst: types.Square,
-    promotion: u2,
-    flag: u2,
-
-    pub const Int = std.meta.Tag(Move);
+    flag: u4,
 
     pub const Scored = extern struct {
         move: Move = .init(.{}),
@@ -130,26 +129,14 @@ pub const Move = packed struct(u16) {
         return .{
             .src = m.src,
             .dst = m.dst,
-            .promotion = if (m.flag.promotion()) |pt| switch (pt) {
-                .knight => 0,
-                .bishop => 1,
-                .rook => 2,
-                .queen => 3,
-                else => std.debug.panic("invalid promotion", .{}),
-            } else 0,
             .flag = switch (m.flag) {
-                .en_passant => 1,
-                .castle_k, .castle_q => 2,
-                .promote_n,
-                .promote_b,
-                .promote_r,
-                .promote_q,
-                .noisy_promote_n,
-                .noisy_promote_b,
-                .noisy_promote_r,
-                .noisy_promote_q,
-                => 3,
-                else => 0,
+                .en_passant => 0b0100,
+                .castle_k, .castle_q => 0b1000,
+                .promote_n, .noisy_promote_n => 0b1100,
+                .promote_b, .noisy_promote_b => 0b1101,
+                .promote_r, .noisy_promote_r => 0b1110,
+                .promote_q, .noisy_promote_q => 0b1111,
+                else => 0b0000,
             },
         };
     }

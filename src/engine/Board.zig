@@ -849,7 +849,7 @@ pub fn is3peat(self: *const Board) bool {
 }
 
 pub fn isDrawn(self: *const Board) bool {
-    return self.positions.top().rule50 >= 100 or self.is3peat() or self.isTerminal();
+    return self.positions.top().rule50 >= 100 or self.is3peat();
 }
 
 pub fn isTerminal(self: *const Board) bool {
