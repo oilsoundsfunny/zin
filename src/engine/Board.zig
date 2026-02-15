@@ -572,7 +572,7 @@ pub const Position = struct {
 fn Offseted(comptime T: type, comptime max_len: comptime_int, comptime offset: comptime_int) type {
     return struct {
         array: Array = .{
-            .buffer = undefined,
+            .buffer = @splat(.{}),
             .len = offset + 1,
         },
 
