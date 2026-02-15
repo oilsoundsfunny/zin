@@ -614,14 +614,14 @@ fn Offseted(comptime T: type, comptime max_len: comptime_int, comptime offset: c
             self: anytype,
             ply: usize,
         ) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            return &self.slice()[offset + ply];
+            return &self.slice()[ply];
         }
 
         pub fn topDown(
             self: anytype,
             ply: usize,
         ) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            const sl = self.slice();
+            const sl = self.array.buffer[0..self.array.len];
             return &sl[sl.len - 1 - ply];
         }
     };

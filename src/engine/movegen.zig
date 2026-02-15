@@ -458,7 +458,7 @@ pub const Move = packed struct(u16) {
                 .white => if (self.flag == .castle_q) .wq else .wk,
                 .black => if (self.flag == .castle_q) .bq else .bk,
             };
-            const castle = board.positions.bottom().castles.getAssertContains(right);
+            const castle = board.positions.top().castles.getAssertContains(right);
 
             const s = if (frc) castle.rs else castle.kd;
             break :castle .{ s.file().char(), s.rank().char() };
