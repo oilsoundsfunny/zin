@@ -1,5 +1,4 @@
 const bitboard = @import("bitboard");
-const bounded_array = @import("bounded_array");
 const params = @import("params");
 const std = @import("std");
 const types = @import("types");
@@ -10,19 +9,12 @@ const Thread = @import("Thread.zig");
 const uci = @import("uci.zig");
 
 const RootMove = struct {
-    line: bounded_array.BoundedArray(Move, capacity) = .{
-        .buffer = .{@as(Move, .{})} ** capacity,
-        .len = 0,
-    },
+    line: types.BoundedArray(Move, null, capacity) = .{},
     score: isize = evaluation.score.none,
 
     pub const List = RootMoveList;
 
     pub const capacity = 256 - @sizeOf(usize) * 2 / @sizeOf(Move);
-
-    pub fn push(self: *RootMove, m: Move) void {
-        self.line.appendAssumeCapacity(m);
-    }
 
     pub fn constSlice(self: *const RootMove) []const Move {
         return self.slice();
@@ -52,13 +44,13 @@ const RootMove = struct {
     ) void {
         self.score = score;
         self.line.resize(0) catch unreachable;
-        self.line.appendAssumeCapacity(move);
-        self.line.appendSliceAssumeCapacity(line);
+        self.line.pushUnchecked(move);
+        self.line.pushSliceUnchecked(line);
     }
 };
 
 const RootMoveList = struct {
-    array: bounded_array.BoundedArray(RootMove, capacity) = .{
+    array: types.BoundedArray(RootMove, null, capacity) = .{
         .buffer = .{@as(RootMove, .{})} ** capacity,
         .len = 0,
     },
@@ -74,10 +66,6 @@ const RootMoveList = struct {
         else => |T| @compileError("unexpected type " ++ @typeName(T)),
     } {
         return self.array.slice();
-    }
-
-    pub fn push(self: *RootMoveList, rm: RootMove) void {
-        self.array.appendAssumeCapacity(rm);
     }
 
     pub fn resize(self: *RootMoveList, len: usize) !void {
@@ -104,9 +92,9 @@ const RootMoveList = struct {
             }
 
             var rm: RootMove = .{};
-            defer root_moves.push(rm);
+            defer root_moves.array.pushUnchecked(rm);
 
-            rm.push(sm.move);
+            rm.line.pushUnchecked(sm.move);
             rm.score = evaluation.score.draw;
         }
         return root_moves;
@@ -130,16 +118,12 @@ const ScoredMove = struct {
 };
 
 const ScoredMoveList = struct {
-    array: bounded_array.BoundedArray(ScoredMove, capacity) = .{
+    array: types.BoundedArray(ScoredMove, null, capacity) = .{
         .buffer = .{@as(ScoredMove, .{})} ** capacity,
         .len = 0,
     },
 
     const capacity = 256 - @sizeOf(usize) / @sizeOf(ScoredMove);
-
-    fn push(self: *ScoredMoveList, sm: ScoredMove) void {
-        self.array.appendAssumeCapacity(sm);
-    }
 
     fn genCastle(
         self: *ScoredMoveList,
@@ -176,7 +160,7 @@ const ScoredMoveList = struct {
 
         const s = castle.ks;
         const d = castle.rs;
-        self.push(.{
+        self.array.pushUnchecked(.{
             .move = .{ .flag = flag, .src = s, .dst = d },
             .score = evaluation.score.draw,
         });
@@ -194,7 +178,7 @@ const ScoredMoveList = struct {
         const ea = bitboard.pAtkEast(src, stm).bwa(dst);
         if (ea.lowSquare()) |d| {
             const s = d.shift(stm.forward().add(.east).flip(), 1);
-            self.push(.{
+            self.array.pushUnchecked(.{
                 .move = .{ .flag = .en_passant, .src = s, .dst = d },
                 .score = evaluation.score.draw,
             });
@@ -203,7 +187,7 @@ const ScoredMoveList = struct {
         const wa = bitboard.pAtkWest(src, stm).bwa(dst);
         if (wa.lowSquare()) |d| {
             const s = d.shift(stm.forward().add(.west).flip(), 1);
-            self.push(.{
+            self.array.pushUnchecked(.{
                 .move = .{ .flag = .en_passant, .src = s, .dst = d },
                 .score = evaluation.score.draw,
             });
@@ -244,7 +228,7 @@ const ScoredMoveList = struct {
             var ea = bitboard.pAtkEast(src, stm).bwa(dst);
             while (ea.lowSquare()) |d| : (ea.popLow()) {
                 const s = d.shift(stm.forward().add(.east).flip(), 1);
-                self.push(.{
+                self.array.pushUnchecked(.{
                     .move = .{ .flag = if (is_promote) flag else .noisy, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
@@ -253,7 +237,7 @@ const ScoredMoveList = struct {
             var wa = bitboard.pAtkWest(src, stm).bwa(dst);
             while (wa.lowSquare()) |d| : (wa.popLow()) {
                 const s = d.shift(stm.forward().add(.west).flip(), 1);
-                self.push(.{
+                self.array.pushUnchecked(.{
                     .move = .{ .flag = if (is_promote) flag else .noisy, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
@@ -262,7 +246,7 @@ const ScoredMoveList = struct {
             var push1 = bitboard.pPush1(src, occ, stm).bwa(dst);
             while (push1.lowSquare()) |d| : (push1.popLow()) {
                 const s = d.shift(stm.forward().flip(), 1);
-                self.push(.{
+                self.array.pushUnchecked(.{
                     .move = .{ .flag = if (is_promote) flag else .none, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
@@ -271,7 +255,7 @@ const ScoredMoveList = struct {
             var push2 = bitboard.pPush2(src, occ, stm).bwa(dst);
             while (push2.lowSquare()) |d| : (push2.popLow()) {
                 const s = d.shift(stm.forward().flip(), 2);
-                self.push(.{
+                self.array.pushUnchecked(.{
                     .move = .{ .flag = if (is_promote) flag else .torped, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
@@ -299,7 +283,7 @@ const ScoredMoveList = struct {
         while (src.lowSquare()) |s| : (src.popLow()) {
             var dst = bitboard.ptAtk(ptype, s, occ).bwa(target);
             while (dst.lowSquare()) |d| : (dst.popLow()) {
-                self.push(.{
+                self.array.pushUnchecked(.{
                     .move = .{ .flag = if (noisy) .noisy else .none, .src = s, .dst = d },
                     .score = evaluation.score.draw,
                 });
@@ -432,16 +416,12 @@ pub const Move = packed struct(u16) {
     };
 
     pub const List = struct {
-        array: bounded_array.BoundedArray(Move, capacity) = .{
+        array: types.BoundedArray(Move, null, capacity) = .{
             .buffer = .{@as(Move, .{})} ** capacity,
             .len = 0,
         },
 
         const capacity = 256 - @sizeOf(usize) / @sizeOf(Move);
-
-        pub fn push(self: *List, m: Move) void {
-            self.array.appendAssumeCapacity(m);
-        }
 
         pub fn constSlice(self: *const List) []const Move {
             return self.slice();
@@ -478,7 +458,7 @@ pub const Move = packed struct(u16) {
                 .white => if (self.flag == .castle_q) .wq else .wk,
                 .black => if (self.flag == .castle_q) .bq else .bk,
             };
-            const castle = board.positions.bottomUp(Board.offset).castles.getAssertContains(right);
+            const castle = board.positions.bottom().castles.getAssertContains(right);
 
             const s = if (frc) castle.rs else castle.kd;
             break :castle .{ s.file().char(), s.rank().char() };
@@ -648,7 +628,7 @@ pub const Picker = struct {
                 break :good_noisy_loop;
             };
             if (sm.score < evaluation.score.draw) {
-                self.bad_noisy_list.push(sm);
+                self.bad_noisy_list.array.pushUnchecked(sm);
                 continue;
             }
 
@@ -677,7 +657,7 @@ pub const Picker = struct {
 
             const sm = picked.?;
             if (sm.score < evaluation.score.draw) {
-                self.bad_quiet_list.push(sm);
+                self.bad_quiet_list.array.pushUnchecked(sm);
                 continue;
             }
 

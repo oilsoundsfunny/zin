@@ -798,6 +798,10 @@ pub fn BoundedArray(
             } else null;
         }
 
+        pub fn resize(self: *Self, new_len: usize) Error!void {
+            self.len = if (new_len > capacity) return error.OutOfMemory else new_len;
+        }
+
         pub fn addOneUnchecked(self: *Self) *align(alignment) T {
             std.debug.assert(self.len < capacity);
             self.len += 1;
@@ -808,34 +812,18 @@ pub fn BoundedArray(
             self.addOneUnchecked().* = item;
         }
 
+        pub fn pushSliceUnchecked(self: *Self, items: []const T) void {
+            for (items) |*item| {
+                self.pushUnchecked(item.*);
+            }
+        }
+
         pub fn constSlice(self: *const Self) []align(alignment) const T {
             return self.slice();
         }
 
         pub fn slice(self: anytype) SameMutPtr(@TypeOf(self), *Self, []align(alignment) T) {
             return self.buffer[0..self.len];
-        }
-
-        pub fn bottom(self: anytype) SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            return self.bottomUp(0);
-        }
-
-        pub fn top(self: anytype) SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            return self.topDown(0);
-        }
-
-        pub fn bottomUp(
-            self: anytype,
-            offset: usize,
-        ) SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            return &self.buffer[offset];
-        }
-
-        pub fn topDown(
-            self: anytype,
-            offset: usize,
-        ) SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            return &self.buffer[self.len - 1 - offset];
         }
     };
 }

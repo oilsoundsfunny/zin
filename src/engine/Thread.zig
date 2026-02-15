@@ -445,8 +445,9 @@ fn noisyHistPtr(
     self: anytype,
     move: movegen.Move,
 ) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
-    const sp = self.board.positions.top().getSquare(move.src);
-    const dp = switch (self.board.positions.top().getSquare(move.dst)) {
+    const pos = self.board.positions.top();
+    const sp = pos.getSquare(move.src);
+    const dp = switch (pos.getSquare(move.dst)) {
         .none => types.Ptype.num,
         else => |p| p.ptype().int(),
     };
@@ -459,16 +460,18 @@ fn contHistPtr(
     move: movegen.Move,
     ply: usize,
 ) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
-    const last_spt = switch (self.board.positions.topDown(ply).src_piece) {
+    const last_pos = self.board.positions.topDown(ply);
+    const last_spt = switch (last_pos.src_piece) {
         .none => types.Ptype.num,
         else => |p| p.ptype().int(),
     };
-    const last_dst = self.board.positions.topDown(ply).move.dst.int();
+    const last_dst = last_pos.move.dst.int();
 
-    const this_spt = self.board.positions.top().getSquare(move.src).ptype().int();
+    const pos = self.board.positions.top();
+    const this_spt = pos.getSquare(move.src).ptype().int();
     const this_dst = move.dst.int();
 
-    const stm = self.board.positions.top().stm.int();
+    const stm = pos.stm.int();
     return &self.conthist[ply / 2][stm][last_spt][last_dst][this_spt][this_dst];
 }
 
@@ -732,8 +735,11 @@ fn ab(
     beta: evaluation.score.Int,
     depth: Depth,
 ) evaluation.score.Int {
+    const board = &self.board;
+    const pos = board.positions.top();
+
     self.nodes += 1;
-    self.board.positions.top().pv.line.resize(0) catch unreachable;
+    pos.pv.line.resize(0) catch unreachable;
 
     const is_datagen = self.request == .datagen;
     if (is_datagen and self.datagenStop(.hard)) {
@@ -779,7 +785,6 @@ fn ab(
         self.seldepth = @max(self.seldepth, len);
     }
 
-    const board = &self.board;
     const is_drawn = self.board.isDrawn();
     const is_terminal = self.board.isTerminal();
     if (is_drawn or is_terminal) {
@@ -787,7 +792,6 @@ fn ab(
         return if (is_drawn) draw else board.evaluate();
     }
 
-    const pos = board.positions.top();
     const key = pos.key;
     const is_checked = pos.isChecked();
 
@@ -1122,11 +1126,8 @@ fn ab(
             }
         }
 
-        if (is_quiet) {
-            bad_quiet_moves.push(m);
-        } else {
-            bad_noisy_moves.push(m);
-        }
+        const bad_moves = if (is_quiet) &bad_quiet_moves else &bad_noisy_moves;
+        bad_moves.array.pushUnchecked(m);
     }
 
     if (searched == 0) {
@@ -1166,8 +1167,11 @@ fn qs(
     alpha: evaluation.score.Int,
     beta: evaluation.score.Int,
 ) evaluation.score.Int {
+    const board = &self.board;
+    const pos = board.positions.top();
+
     self.nodes += 1;
-    self.board.positions.top().pv.line.resize(0) catch unreachable;
+    pos.pv.line.resize(0) catch unreachable;
 
     const is_datagen = self.request == .datagen;
     if (is_datagen and self.datagenStop(.hard)) {
@@ -1190,7 +1194,6 @@ fn qs(
     const b = beta;
     var a = alpha;
 
-    const board = &self.board;
     const is_drawn = self.board.isDrawn();
     const is_terminal = self.board.isTerminal();
     if (is_drawn or is_terminal) {
@@ -1198,7 +1201,6 @@ fn qs(
         return if (is_drawn) draw else board.evaluate();
     }
 
-    const pos = board.positions.top();
     const key = pos.key;
     const is_checked = pos.isChecked();
 

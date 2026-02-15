@@ -14,8 +14,8 @@ const zobrist = @import("zobrist.zig");
 const Board = @This();
 
 frc: bool = false,
-accumulators: Offseted(nnue.Accumulator) = offsetedDefault(nnue.Accumulator),
-positions: Offseted(Position) = offsetedDefault(Position),
+accumulators: Offseted(nnue.Accumulator, 1024 - 8, 8) = .{},
+positions: Offseted(Position, 1024 - 8, 8) = .{},
 
 pub const FenError = error{
     InvalidPiece,
@@ -569,23 +569,67 @@ pub const Position = struct {
     }
 };
 
-pub const capacity = 1024 - offset;
-pub const offset = 8;
+fn Offseted(comptime T: type, comptime max_len: comptime_int, comptime offset: comptime_int) type {
+    return struct {
+        array: Array = .{
+            .buffer = undefined,
+            .len = offset + 1,
+        },
 
-fn Offseted(comptime T: type) type {
-    return types.BoundedArray(T, null, capacity + offset);
-}
+        const Self = @This();
 
-fn offsetedDefault(comptime T: type) Offseted(T) {
-    return .{
-        .buffer = .{@as(T, .{})} ** (capacity + offset),
-        .len = offset + 1,
+        pub const Array = types.BoundedArray(T, null, offset + max_len);
+        pub const alignment = Array.alignment;
+        pub const capacity = Array.capacity;
+
+        pub fn pop(self: *Self) ?T {
+            return if (self.array.len > offset) self.array.pop() else null;
+        }
+
+        pub fn addOneUnchecked(self: *Self) *align(alignment) T {
+            return self.array.addOneUnchecked();
+        }
+
+        pub fn pushUnchecked(self: *Self, item: T) void {
+            self.array.pushUnchecked(item);
+        }
+
+        pub fn constSlice(self: *const Self) []align(alignment) const T {
+            return self.slice();
+        }
+
+        pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *Self, []align(alignment) T) {
+            return self.array.slice()[offset..];
+        }
+
+        pub fn bottom(self: anytype) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
+            return self.bottomUp(0);
+        }
+
+        pub fn top(self: anytype) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
+            return self.topDown(0);
+        }
+
+        pub fn bottomUp(
+            self: anytype,
+            ply: usize,
+        ) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
+            return &self.slice()[offset + ply];
+        }
+
+        pub fn topDown(
+            self: anytype,
+            ply: usize,
+        ) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
+            const sl = self.slice();
+            return &sl[sl.len - 1 - ply];
+        }
     };
 }
 
 fn updateAccumulators(self: *Board) void {
-    const accumulators = self.accumulators.slice()[offset..];
-    const positions = self.positions.constSlice()[offset..];
+    const accumulators = self.accumulators.slice();
+    const positions = self.positions.constSlice();
 
     for (accumulators, positions) |*accumulator, *pos| {
         if (accumulator.dirty) {
@@ -614,10 +658,6 @@ fn setupAccumulators(self: *Board) void {
             }
         }
     }
-}
-
-pub fn ply(self: *const Board) usize {
-    return self.positions.len - offset - 1;
 }
 
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
@@ -797,7 +837,7 @@ pub fn getRepeat(self: *const Board) usize {
     const key = self.positions.top().key;
     var peat: usize = 0;
 
-    for (self.positions.slice()[offset..]) |*p| {
+    for (self.positions.slice()) |*p| {
         const key_matched = p.key == key;
         peat += @intFromBool(key_matched);
     }
@@ -813,14 +853,14 @@ pub fn isDrawn(self: *const Board) bool {
 }
 
 pub fn isTerminal(self: *const Board) bool {
-    return self.positions.len >= capacity + offset;
+    return self.positions.array.len >= self.positions.array.buffer.len;
 }
 
 pub fn evaluate(self: *Board) evaluation.score.Int {
     self.updateAccumulators();
 
-    const accumulator = &self.accumulators.constSlice()[offset + self.ply()];
-    const position = &self.positions.constSlice()[offset + self.ply()];
+    const accumulator = self.accumulators.top();
+    const position = self.positions.top();
 
     const inferred = nnue.net.embed.infer(accumulator, position.stm);
     const scaled = @divTrunc(inferred * (100 - position.rule50), 100);
