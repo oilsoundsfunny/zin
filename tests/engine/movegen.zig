@@ -30,8 +30,8 @@ test {
     var list: engine.movegen.Move.Scored.List = .{};
     var cnt: usize = 0;
 
-    cnt += list.genNoisy(board.top());
-    cnt += list.genQuiet(board.top());
+    cnt += list.genNoisy(board.positions.top());
+    cnt += list.genQuiet(board.positions.top());
     try std.testing.expectEqual(20, cnt);
 }
 

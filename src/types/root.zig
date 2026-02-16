@@ -10,13 +10,11 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
     pub const Int = std.meta.Tag(SquareSet);
 
     fn fromRank(r: Rank) SquareSet {
-        // TODO: make this fn order-agnostic
         const s = @as(Square.Int, r.int()) * File.num;
         return fromInt(std.math.shl(Int, 0x00000000000000ff, s));
     }
 
     fn fromFile(f: File) SquareSet {
-        // TODO: make this fn order-agnostic
         const s = @as(Square.Int, f.int());
         return fromInt(std.math.shl(Int, 0x0101010101010101, s));
     }
@@ -63,13 +61,11 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
     }
 
     pub fn flipRank(self: SquareSet) SquareSet {
-        // TODO: make this fn order-agnostic
         const i = self.int();
         return fromInt(@byteSwap(i));
     }
 
     pub fn flipFile(self: SquareSet) SquareSet {
-        // TODO: make this fn order-agnostic
         const k = [_]Int{
             0x5555555555555555,
             0x3333333333333333,
@@ -749,17 +745,81 @@ pub const Castle = enum(u2) {
     }
 };
 
-pub fn SameMutPtr(comptime SrcPtr: type, comptime Expected: type, comptime Dst: type) type {
-    const src_info = @typeInfo(SrcPtr).pointer;
-    if (src_info.child != Expected) {
-        const msg = std.fmt.comptimePrint(
-            "expected pointer to type {s}",
-            .{ @typeName(Expected), @typeName(src_info.child) },
-        );
-        @compileError(msg);
+pub fn SameMutPtr(comptime Mut: type, comptime Src: type, comptime Dst: type) type {
+    const mut_info = @typeInfo(Mut).pointer;
+    const src_info = @typeInfo(Src).pointer;
+    if (mut_info.child != src_info.child) {
+        const lhs = @typeName(mut_info.child);
+        const rhs = @typeName(src_info.child);
+        const msg = "expected pointer to type {}, found pointer to type {}";
+        @compileError(std.fmt.comptimePrint(msg, .{ lhs, rhs }));
     }
 
-    comptime var dst_info = @typeInfo(*Dst).pointer;
-    dst_info.is_const = src_info.is_const;
+    comptime var dst_info = @typeInfo(Dst).pointer;
+    dst_info.is_const = mut_info.is_const;
     return @Type(.{ .pointer = dst_info });
+}
+
+pub fn BoundedArray(
+    comptime T: type,
+    comptime opt_alignment: ?comptime_int,
+    comptime max_len: comptime_int,
+) type {
+    return struct {
+        buffer: [capacity]T align(alignment) = undefined,
+        len: usize = 0,
+
+        const Self = @This();
+
+        pub const Error = error{
+            OutOfMemory,
+        };
+
+        pub const alignment = opt_alignment orelse @alignOf(T);
+        pub const capacity = max_len;
+
+        pub fn addOne(self: *Self) Error!*align(alignment) T {
+            return if (self.len < capacity) self.addOneUnchecked() else error.OutOfMemory;
+        }
+
+        pub fn push(self: *Self, item: T) Error!void {
+            const new = try self.addOne();
+            new.* = item;
+        }
+
+        pub fn pop(self: *Self) ?T {
+            return if (self.len > 0) blk: {
+                self.len -= 1;
+                break :blk self.buffer[self.len];
+            } else null;
+        }
+
+        pub fn resize(self: *Self, new_len: usize) Error!void {
+            self.len = if (new_len > capacity) return error.OutOfMemory else new_len;
+        }
+
+        pub fn addOneUnchecked(self: *Self) *align(alignment) T {
+            std.debug.assert(self.len < capacity);
+            self.len += 1;
+            return &self.buffer[self.len - 1];
+        }
+
+        pub fn pushUnchecked(self: *Self, item: T) void {
+            self.addOneUnchecked().* = item;
+        }
+
+        pub fn pushSliceUnchecked(self: *Self, items: []const T) void {
+            for (items) |*item| {
+                self.pushUnchecked(item.*);
+            }
+        }
+
+        pub fn constSlice(self: *const Self) []align(alignment) const T {
+            return self.slice();
+        }
+
+        pub fn slice(self: anytype) SameMutPtr(@TypeOf(self), *Self, []align(alignment) T) {
+            return self.buffer[0..self.len];
+        }
+    };
 }

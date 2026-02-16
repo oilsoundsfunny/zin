@@ -102,8 +102,6 @@ pub fn build(bld: *std.Build) !void {
         .omit_frame_pointer = omit_frame_pointer,
     };
 
-    const bounded_array = bld.dependency("bounded_array", .{}).module("bounded_array");
-
     const steps = std.EnumArray(Steps, *std.Build.Step).init(.{
         .install = bld.getInstallStep(),
         .perft = bld.step("perft", ""),
@@ -142,11 +140,7 @@ pub fn build(bld: *std.Build) !void {
         }
 
         switch (m) {
-            .engine, .selfplay => module.addImport("bounded_array", bounded_array),
-            .nnue => {
-                module.addAnonymousImport("embed.nn", .{ .root_source_file = network });
-                module.addImport("bounded_array", bounded_array);
-            },
+            .nnue => module.addAnonymousImport("embed.nn", .{ .root_source_file = network }),
             else => {},
         }
     }

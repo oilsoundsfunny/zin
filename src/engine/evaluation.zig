@@ -21,22 +21,24 @@ pub const score = struct {
     pub const draw = 0;
     pub const lose = 0 - (max - 1 - movegen.Move.Root.capacity);
 
-    fn winrate(s: Int, mat: Int) Int {
-        const p_a = [_]f32{ 6.87155862, -39.65226391, 90.68460352, 170.66996364 };
-        const p_b = [_]f32{ -7.19890710, 56.13947185, -139.91091183, 182.81007427 };
+    fn winrate(s: Int, mat: Int) f32 {
+        // zig fmt: off
+        const p_a: [4]f32 = .{  6.87155862, -39.65226391,   90.68460352, 170.66996364 };
+        const p_b: [4]f32 = .{ -7.19890710,  56.13947185, -139.91091183, 182.81007427 };
+        // zig fmt: on
+
         const fm: f32 = @floatFromInt(std.math.clamp(mat, 17, 78));
         const fs: f32 = @floatFromInt(s);
 
         var a: f32 = 0.0;
         var b: f32 = 0.0;
-        for (p_a[0..], p_b[0..]) |param_a, param_b| {
-            a = @mulAdd(f32, a, fm / 58.0, param_a);
-            b = @mulAdd(f32, b, fm / 58.0, param_b);
+        for (p_a[0..], p_b[0..]) |pa, pb| {
+            a = @mulAdd(f32, a, fm / 58.0, pa);
+            b = @mulAdd(f32, b, fm / 58.0, pb);
         }
 
-        const num = 1000.0;
-        const den = 1.0 + @exp((a - fs) / b);
-        return @intFromFloat(num / den);
+        const d = 1.0 + @exp((a - fs) / b);
+        return 1.0 / d;
     }
 
     pub fn isMate(s: Int) bool {
@@ -95,10 +97,10 @@ pub const score = struct {
         return @intFromFloat(@round(100.0 * fs / x));
     }
 
-    pub fn wdl(s: Int, mat: Int) struct { Int, Int, Int } {
+    pub fn wdl(s: Int, mat: Int) struct { f32, f32, f32 } {
         const w = winrate(s, mat);
         const l = winrate(-s, mat);
-        return .{ w, 1000 - w - l, l };
+        return .{ w, 1.0 - w - l, l };
     }
 };
 
@@ -107,6 +109,8 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
     pool.io = try types.IO.init(pool.allocator, path, 65536, null, 65536);
 
     var board: Board = .{};
+    const pos = board.positions.top();
+
     var cnt: u32 = 0;
     var sum: i64 = 0;
     var abs_sum: u64 = 0;
@@ -116,7 +120,7 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
 
     while (pool.io.reader().takeDelimiterInclusive('\n')) |line| {
         board.parseFen(line) catch continue;
-        if (board.top().isChecked()) {
+        if (pos.isChecked()) {
             continue;
         }
 

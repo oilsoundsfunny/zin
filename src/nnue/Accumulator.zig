@@ -1,4 +1,3 @@
-const bounded_array = @import("bounded_array");
 const engine = @import("engine");
 const std = @import("std");
 const types = @import("types");
@@ -14,8 +13,8 @@ mirrored: std.EnumArray(types.Color, bool) = .initFill(false),
 
 dirty: bool = false,
 hm_q: ?types.Color = null,
-add_q: bounded_array.BoundedArray(Dirty, 2) = .{},
-sub_q: bounded_array.BoundedArray(Dirty, 2) = .{},
+add_q: types.BoundedArray(Dirty, null, 2) = .{},
+sub_q: types.BoundedArray(Dirty, null, 2) = .{},
 
 pub const Half = @Vector(arch.hl0_len / 2, arch.Int);
 pub const Vec = @Vector(arch.hl0_len, arch.Int);
@@ -127,11 +126,11 @@ fn fusedSubAddSubAdd(self: *Accumulator, c: types.Color) void {
 }
 
 fn queueAdd(self: *Accumulator, dirty: Dirty) void {
-    self.add_q.appendAssumeCapacity(dirty);
+    self.add_q.pushUnchecked(dirty);
 }
 
 fn queueSub(self: *Accumulator, dirty: Dirty) void {
-    self.sub_q.appendAssumeCapacity(dirty);
+    self.sub_q.pushUnchecked(dirty);
 }
 
 fn queuePanic() noreturn {
