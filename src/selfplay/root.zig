@@ -151,18 +151,18 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
 
     try pool.realloc(threads);
     pool.tt.deinit(pool.allocator);
-    pool.tt = try engine.transposition.Table.init(pool.allocator, hash);
+    pool.tt = try .init(pool.allocator, hash);
     pool.clearHash();
 
     const book = options.book orelse std.process.fatal("missing arg '--book'", .{});
     const data = options.data orelse std.process.fatal("missing arg '--data'", .{});
 
     pool.io.deinit(pool.allocator);
-    pool.io = try types.IO.init(pool.allocator, book, 65536, data, 65536 * 256);
+    pool.io = try .init(pool.allocator, book, 65536, data, 65536 * threads * 4);
 
     pool.limits.depth = options.depth;
     pool.limits.soft_nodes = options.soft_nodes orelse 5000;
-    pool.limits.hard_nodes = options.hard_nodes orelse 100000;
+    pool.limits.hard_nodes = options.hard_nodes orelse pool.limits.soft_nodes.? * 50;
     pool.limits.set(pool.opts.overhead, .white);
 
     pool.datagen(.{
@@ -176,7 +176,7 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
         .draw_adj = try .init(
             options.draw_adj_min_ply orelse 40,
             options.draw_adj_ply_num orelse 8,
-            options.draw_adj_score orelse 10,
+            options.draw_adj_score orelse 25,
         ),
     });
     pool.waitSleep();

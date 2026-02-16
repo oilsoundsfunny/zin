@@ -72,16 +72,16 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
     while (data.head.result == .none) {
         try thread.search();
 
-        data.head.result = if (root_moves.constSlice().len == 0) no_moves: {
+        const is_terminal = board.isTerminal();
+        data.head.result = if (is_terminal)
+            terminalResult(thread)
+        else if (root_moves.constSlice().len == 0) no_moves: {
             const stm = board.positions.top().stm;
             const is_checked = board.positions.top().isChecked();
             const is_drawn = board.isDrawn();
-            const is_terminal = board.isTerminal();
 
             break :no_moves if (is_drawn)
                 .draw
-            else if (is_terminal)
-                terminalResult(thread)
             else if (!is_checked)
                 .draw
             else switch (stm) {
@@ -140,7 +140,10 @@ fn flushData(
 ) !void {
     thread.pool.mtx.lock();
     defer thread.pool.mtx.unlock();
-    try writer.flush();
+
+    const sink = thread.pool.io.writer();
+    try sink.writeAll(writer.buffered());
+    _ = writer.consumeAll();
 }
 
 pub fn datagen(thread: *engine.Thread) !void {
@@ -156,11 +159,10 @@ pub fn datagen(thread: *engine.Thread) !void {
     const repeat = if (rq.games) |_| games / lines + @intFromBool(games % lines != 0) else 1;
     var played: usize = 0;
 
-    var buffer: [65536]u8 align(std.heap.pageSize()) = undefined;
-    var writer = thread.pool.io.out.file.writer(buffer[0..]);
-
-    const w = &writer.interface;
-    defer flushData(thread, w) catch std.debug.panic("failed to flush data", .{});
+    const page_size = std.heap.pageSize();
+    var buffer: [65536]u8 align(page_size) = undefined;
+    var writer = std.Io.Writer.fixed(buffer[0..]);
+    defer flushData(thread, &writer) catch std.debug.panic("failed to flush data", .{});
 
     loop: while (readOpening(thread)) |opening| {
         defer thread.pool.allocator.free(opening);
@@ -175,7 +177,7 @@ pub fn datagen(thread: *engine.Thread) !void {
         }) {
             playRandom(thread) catch continue :loop;
             playOut(thread, &data) catch continue :loop;
-            writeData(thread, &data, w) catch continue :loop;
+            writeData(thread, &data, &writer) catch continue :loop;
         }
 
         if (played >= games) {

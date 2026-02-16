@@ -116,7 +116,8 @@ pub const Head = extern struct {
 pub const Move = packed struct(u16) {
     src: types.Square,
     dst: types.Square,
-    flag: u4,
+    promotion: u2,
+    flag: u2,
 
     pub const Scored = extern struct {
         move: Move = .init(.{}),
@@ -129,14 +130,26 @@ pub const Move = packed struct(u16) {
         return .{
             .src = m.src,
             .dst = m.dst,
+            .promotion = if (m.flag.promotion()) |pt| switch(pt) {
+                .knight => 0,
+                .bishop => 1,
+                .rook => 2,
+                .queen => 3,
+                else => std.debug.panic("invalid promotion", .{}),
+            } else 0,
             .flag = switch (m.flag) {
-                .en_passant => 0b0100,
-                .castle_k, .castle_q => 0b1000,
-                .promote_n, .noisy_promote_n => 0b1100,
-                .promote_b, .noisy_promote_b => 0b1101,
-                .promote_r, .noisy_promote_r => 0b1110,
-                .promote_q, .noisy_promote_q => 0b1111,
-                else => 0b0000,
+                .en_passant => 1,
+                .castle_k, .castle_q => 2,
+                .promote_n,
+                .promote_b,
+                .promote_r,
+                .promote_q,
+                .noisy_promote_n,
+                .noisy_promote_b,
+                .noisy_promote_r,
+                .noisy_promote_q,
+                => 3,
+                else => 0,
             },
         };
     }
