@@ -150,7 +150,7 @@ const tunables = blk: {
 
         .{ .name = "quiet_hist_pruning_lim", .value = 3524, .min = 1024, .max = 8192, .c_end = 192.0 },
         .{ .name = "quiet_hist_pruning0", .value = 957, .min = -2048, .max = 1024, .c_end = 128.0 },
-        .{ .name = "quiet_hist_pruning1", .value = -2548, .min = 8192, .max = 0, .c_end = 294.0 },
+        .{ .name = "quiet_hist_pruning1", .value = -2548, .min = -8192, .max = 0, .c_end = 294.0 },
 
         .{ .name = "noisy_hist_pruning_lim", .value = 3578, .min = 1024, .max = 8192, .c_end = 192.0 },
         .{ .name = "noisy_hist_pruning0", .value = 897, .min = -2048, .max = 1024, .c_end = 128.0 },
