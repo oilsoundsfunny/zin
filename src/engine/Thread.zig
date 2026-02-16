@@ -1012,6 +1012,13 @@ fn ab(
             if (!pos.see(.pruning, m, see_margin)) {
                 continue :move_loop;
             }
+
+            if (is_quiet and
+                d <= params.values.hist_pruning_max_d and
+                sm.score < params.values.hist_pruning_mul * d)
+            {
+                break :move_loop;
+            }
         }
 
         var recur_d = d - 1;

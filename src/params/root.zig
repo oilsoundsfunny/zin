@@ -148,6 +148,9 @@ const tunables = blk: {
         .{ .name = "pvs_see_max_capthist", .value = 118, .min = 16, .max = 256, .c_end = 16.0 },
         .{ .name = "pvs_see_capthist_div", .value = 32, .min = 16, .max = 64, .c_end = 8.0 },
 
+        .{ .name = "hist_pruning_max_d", .value = 7, .min = 2, .max = 8, .c_end = 0.25 },
+        .{ .name = "hist_pruning_mul", .value = -1743, .min = -4096, .max = -512, .c_end = 128.0 },
+
         .{ .name = "lmr_min_depth", .value = 3, .min = 1, .max = 6, .c_end = 0.25 },
         .{ .name = "lmr_non_improving", .value = 737, .min = 0, .max = 4096, .c_end = 32.0 },
         .{ .name = "lmr_cutnode", .value = 1843, .min = 0, .max = 4096, .c_end = 32.0 },
