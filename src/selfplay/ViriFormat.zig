@@ -130,7 +130,7 @@ pub const Move = packed struct(u16) {
         return .{
             .src = m.src,
             .dst = m.dst,
-            .promotion = if (m.flag.promotion()) |pt| switch(pt) {
+            .promotion = if (m.flag.promotion()) |pt| switch (pt) {
                 .knight => 0,
                 .bishop => 1,
                 .rook => 2,
