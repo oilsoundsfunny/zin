@@ -126,7 +126,7 @@ pub fn build(bld: *std.Build) !void {
     const network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
-        bld.dependency("networks", .{}).path("hl320.nn");
+        bld.dependency("networks", .{}).path("320hl-091225.nnue");
 
     for (Modules.values) |m| {
         const deps = Modules.dependencies.get(m);
@@ -140,7 +140,7 @@ pub fn build(bld: *std.Build) !void {
         }
 
         switch (m) {
-            .nnue => module.addAnonymousImport("embed.nn", .{ .root_source_file = network }),
+            .nnue => module.addAnonymousImport("embed.nnue", .{ .root_source_file = network }),
             else => {},
         }
     }

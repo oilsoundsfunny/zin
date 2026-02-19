@@ -633,7 +633,8 @@ fn updateAccumulators(self: *Board) void {
 
     for (accumulators, positions) |*accumulator, *pos| {
         if (accumulator.dirty) {
-            accumulator.update(pos);
+            const last = &(accumulator[0..1].ptr - 1)[0];
+            accumulator.update(last, pos);
         }
     }
 }
@@ -862,7 +863,7 @@ pub fn evaluate(self: *Board) evaluation.score.Int {
     const accumulator = self.accumulators.top();
     const position = self.positions.top();
 
-    const inferred = nnue.net.embed.infer(accumulator, position.stm);
+    const inferred = nnue.Network.verbatim.infer(accumulator, position);
     const scaled = @divTrunc(inferred * (100 - position.rule50), 100);
     return std.math.clamp(scaled, evaluation.score.lose + 1, evaluation.score.win - 1);
 }
