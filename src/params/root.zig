@@ -148,13 +148,13 @@ const tunables = blk: {
         .{ .name = "pvs_see_max_capthist", .value = 118, .min = 16, .max = 256, .c_end = 16.0 },
         .{ .name = "pvs_see_capthist_div", .value = 32, .min = 16, .max = 64, .c_end = 8.0 },
 
-        .{ .name = "quiet_hist_pruning_lim", .value = 3524, .min = 1024, .max = 8192, .c_end = 192.0 },
-        .{ .name = "quiet_hist_pruning0", .value = 957, .min = -2048, .max = 1024, .c_end = 128.0 },
-        .{ .name = "quiet_hist_pruning1", .value = -2548, .min = -8192, .max = 0, .c_end = 294.0 },
+        .{ .name = "quiet_hist_pruning_lim", .value = 3467, .min = 1024, .max = 8192, .c_end = 192.0 },
+        .{ .name = "quiet_hist_pruning0", .value = 962, .min = -2048, .max = 1024, .c_end = 128.0 },
+        .{ .name = "quiet_hist_pruning1", .value = -2606, .min = -8192, .max = 0, .c_end = 294.0 },
 
-        .{ .name = "noisy_hist_pruning_lim", .value = 3578, .min = 1024, .max = 8192, .c_end = 192.0 },
-        .{ .name = "noisy_hist_pruning0", .value = 897, .min = -2048, .max = 1024, .c_end = 128.0 },
-        .{ .name = "noisy_hist_pruning1", .value = -2835, .min = -8192, .max = 0, .c_end = 294.0 },
+        .{ .name = "noisy_hist_pruning_lim", .value = 3560, .min = 1024, .max = 8192, .c_end = 192.0 },
+        .{ .name = "noisy_hist_pruning0", .value = 869, .min = -2048, .max = 1024, .c_end = 128.0 },
+        .{ .name = "noisy_hist_pruning1", .value = -2919, .min = -8192, .max = 0, .c_end = 294.0 },
 
         .{ .name = "lmr_min_depth", .value = 3, .min = 1, .max = 6, .c_end = 0.25 },
         .{ .name = "lmr_non_improving", .value = 737, .min = 0, .max = 4096, .c_end = 32.0 },
