@@ -840,12 +840,12 @@ fn ab(
     // improving heuristic(s)
     // 10.0+0.1: 21.29 +- 9.45
     const improving = !is_checked and blk: {
-        const fu2ev = pos.down(2).corr_eval;
+        const fu2ev = pos.before(2).corr_eval;
         if (fu2ev != evaluation.score.none) {
             break :blk fu2ev < corr_eval;
         }
 
-        const fu4ev = pos.down(4).corr_eval;
+        const fu4ev = pos.before(4).corr_eval;
         if (fu4ev != evaluation.score.none) {
             break :blk fu4ev < corr_eval;
         }
@@ -854,8 +854,8 @@ fn ab(
     };
     const ntm_worsening = !is_checked and
         !is_root and
-        pos.down(1).corr_eval != evaluation.score.none and
-        pos.down(1).corr_eval > 1 - corr_eval;
+        pos.before(1).corr_eval != evaluation.score.none and
+        pos.before(1).corr_eval > 1 - corr_eval;
 
     // internal iterative reduction (iir)
     // 10.0+0.1: 84.25 +- 20.51
@@ -1096,12 +1096,12 @@ fn ab(
         std.debug.assert(best.score <= a);
         std.debug.assert(a < b);
 
+        const next_pv = &pos.after(1).pv;
         if (is_root) {
             const rms = self.root_moves.slice();
             var rmi: usize = 0;
             while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {}
 
-            const next_pv = &self.board.positions.last().up(1).pv;
             const rm = &rms[rmi];
             if (searched == 1 or s > a) {
                 rm.update(s, m, next_pv.constSlice());
@@ -1114,10 +1114,7 @@ fn ab(
             best.score = @intCast(s);
 
             if (!is_root and is_pv and s > a) {
-                const next_pv = &pos[0..1].ptr[1].pv;
-                const this_pv = &pos.pv;
-
-                this_pv.update(s, m, next_pv.constSlice());
+                pos.pv.update(s, m, next_pv.constSlice());
             }
 
             if (s > a) {

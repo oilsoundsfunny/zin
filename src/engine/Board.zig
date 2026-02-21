@@ -423,12 +423,18 @@ pub const Position = struct {
         return if (atkers.bwa(them) == .none) pos else error.InvalidMove;
     }
 
-    pub fn down(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
-        return @ptrCast(self[0..1].ptr - dist);
+    pub fn before(
+        self: anytype,
+        dist: usize,
+    ) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
+        return &(self[0..1].ptr - dist)[0];
     }
 
-    pub fn up(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
-        return @ptrCast(self[0..1].ptr + dist);
+    pub fn after(
+        self: anytype,
+        dist: usize,
+    ) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
+        return &(self[0..1].ptr + dist)[0];
     }
 
     pub fn bothOcc(self: *const Position) types.Square.Set {
@@ -578,7 +584,7 @@ fn updateAccumulators(self: *Board) void {
 
     for (accumulators, positions) |*accumulator, *pos| {
         if (accumulator.dirty) {
-            const last = &(accumulator[0..1].ptr - 1)[0];
+            const last = accumulator.before(1);
             accumulator.update(last, pos);
         }
     }
@@ -636,7 +642,7 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
     self.positions.last().dst_piece = dp;
 
     const pos = self.positions.addOneUnchecked();
-    pos.* = pos.down(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
+    pos.* = pos.before(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
     pos.en_pas = null;
     pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
 
@@ -748,7 +754,7 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
 
     pos.stm = stm.flip();
     pos.checks = pos.genCheckMask();
-    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.down(1).en_pas) ^ zobrist.enp(pos.en_pas);
+    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
 }
 
 pub fn doNull(self: *Board) void {
@@ -761,13 +767,13 @@ pub fn doNull(self: *Board) void {
     accumulator.mark();
 
     const pos = self.positions.addOneUnchecked();
-    pos.* = pos.down(1).*;
+    pos.* = pos.before(1).*;
     pos.en_pas = null;
     pos.rule50 = 0;
 
     pos.stm = pos.stm.flip();
     pos.checks = .full;
-    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.down(1).en_pas) ^ zobrist.enp(pos.en_pas);
+    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
 }
 
 pub fn undoMove(self: *Board) void {
