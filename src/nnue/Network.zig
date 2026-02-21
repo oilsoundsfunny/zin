@@ -9,6 +9,14 @@ const Network = @This();
 const Madd = @Vector(native_len / 2, i32);
 const Native = @Vector(native_len, i16);
 
+const Extern = extern struct {
+    l0w: [inp][l0s]i16 align(64),
+    l0b: [l0s]i16 align(64),
+
+    l1w: [l0s]i16 align(64),
+    l1b: i16 align(64),
+};
+
 const native_len = std.simd.suggestVectorLength(i16) orelse @compileError(":wilted_rose:");
 const page_size = std.heap.pageSize();
 
@@ -30,21 +38,21 @@ l1w: [l0s]i16 align(page_size),
 l1b: i16 align(page_size),
 
 pub const verbatim = blk: {
-    const bin = @embedFile("embed.nnue");
+    const embedded = @embedFile("embed.nnue");
+    const aligned align(64) = embedded.*;
+    const ext: *align(64) const Extern = if (@sizeOf(Extern) != embedded.len) {
+        const msg = std.fmt.comptimePrint(
+            "expected {} bytes, found {}",
+            .{ @sizeOf(Extern), embedded.len },
+        );
+        @compileError(msg);
+    } else std.mem.bytesAsValue(Extern, aligned[0..]);
 
-    const fields = std.meta.fields(Network);
     var net: Network = undefined;
-    var next: usize = 0;
-
-    for (fields) |field| {
-        const dst = std.mem.asBytes(&@field(net, field.name));
-        defer {
-            next += dst.len;
-            next = if (next % 64 == 0) next else next + 64 - next % 64;
-        }
-
-        const src = bin[next..][0..dst.len];
-        @memcpy(dst, src);
+    for (std.meta.fields(Network)) |field| {
+        const dst = &@field(net, field.name);
+        const src = &@field(ext, field.name);
+        dst.* = src.*;
     }
     break :blk net;
 };
