@@ -109,7 +109,7 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
     pool.io = try types.IO.init(pool.allocator, path, 65536, null, 65536);
 
     var board: Board = .{};
-    const pos = board.positions.top();
+    const pos = board.positions.last();
 
     var cnt: u32 = 0;
     var sum: i64 = 0;

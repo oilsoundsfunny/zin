@@ -79,7 +79,7 @@ const RootMoveList = struct {
             return .{};
         }
 
-        const pos = board.positions.top();
+        const pos = board.positions.last();
         var root_moves: RootMoveList = .{};
         var gen_moves: Move.Scored.List = .{};
 
@@ -457,7 +457,7 @@ pub const Move = packed struct(u16) {
                 .white => if (self.flag == .castle_q) .wq else .wk,
                 .black => if (self.flag == .castle_q) .bq else .bk,
             };
-            const castle = board.positions.top().castles.getAssertContains(right);
+            const castle = board.positions.last().castles.getAssertContains(right);
 
             const s = if (frc) castle.rs else castle.kd;
             break :castle .{ s.file().char(), s.rank().char() };
@@ -556,7 +556,7 @@ pub const Picker = struct {
         return if (move == self.ttm or move == self.excluded) evaluation.score.mate else blk: {
             const mvv = if (move.flag == .en_passant)
                 params.values.see_ordering_pawn
-            else switch (self.board.positions.top().getSquare(move.dst).ptype()) {
+            else switch (self.board.positions.last().getSquare(move.dst).ptype()) {
                 .pawn => params.values.see_ordering_pawn,
                 .knight => params.values.see_ordering_knight,
                 .bishop => params.values.see_ordering_bishop,
@@ -591,7 +591,7 @@ pub const Picker = struct {
             .stage = .gen_noisy,
         };
 
-        const pos = mp.board.positions.top();
+        const pos = mp.board.positions.last();
         if (!ttm.isNone() and pos.isMovePseudoLegal(ttm)) {
             mp.ttm = ttm;
             mp.stage = .ttm;
@@ -613,7 +613,7 @@ pub const Picker = struct {
 
         if (self.stage == .gen_noisy) {
             self.stage = .{ .good_noisy = 0 };
-            _ = self.noisy_list.genNoisy(self.board.positions.top());
+            _ = self.noisy_list.genNoisy(self.board.positions.last());
 
             const slice = self.noisy_list.slice();
             for (slice) |*sm| {
@@ -640,7 +640,7 @@ pub const Picker = struct {
                 break :gen_quiet;
             }
 
-            _ = self.quiet_list.genQuiet(self.board.positions.top());
+            _ = self.quiet_list.genQuiet(self.board.positions.last());
             const slice = self.quiet_list.slice();
             for (slice) |*sm| {
                 sm.score = self.scoreQuiet(sm.move);

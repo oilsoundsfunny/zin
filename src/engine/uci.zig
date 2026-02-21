@@ -26,7 +26,7 @@ pub const Error = error{
 };
 
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
-    const pos = pool.threads.items[0].board.positions.top();
+    const pos = pool.threads.items[0].board.positions.last();
     const stm = pos.stm;
 
     const limits = &pool.limits;
@@ -211,7 +211,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !
         var n: usize = 0;
         var list: movegen.Move.Scored.List = .{};
 
-        const pos = board.positions.top();
+        const pos = board.positions.last();
         n += list.genNoisy(pos);
         n += list.genQuiet(pos);
         while (i < n) : (i += 1) {
