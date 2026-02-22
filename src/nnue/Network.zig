@@ -9,14 +9,6 @@ const Network = @This();
 const Madd = @Vector(native_len / 2, i32);
 const Native = @Vector(native_len, i16);
 
-const Extern = extern struct {
-    l0w: [inp][l0s]i16 align(64),
-    l0b: [l0s]i16 align(64),
-
-    l1w: [l0s]i16 align(64),
-    l1b: i16 align(64),
-};
-
 const native_len = std.simd.suggestVectorLength(i16) orelse @compileError(":wilted_rose:");
 const page_size = std.heap.pageSize();
 
@@ -29,7 +21,7 @@ pub const ibn = 1;
 pub const obn = 1;
 
 pub const inp = types.Ptype.num * types.Color.num * types.Square.num;
-pub const l0s = 320;
+pub const l0s = 384;
 
 l0w: [inp][l0s]i16 align(page_size),
 l0b: [l0s]i16 align(page_size),
@@ -38,15 +30,22 @@ l1w: [l0s]i16 align(page_size),
 l1b: i16 align(page_size),
 
 pub const verbatim = blk: {
-    const embedded = @embedFile("embed.nnue");
-    const aligned align(64) = embedded.*;
-    const ext: *align(64) const Extern = if (@sizeOf(Extern) != embedded.len) {
+    const Extern = extern struct {
+        l0w: [inp][l0s]i16 align(64),
+        l0b: [l0s]i16 align(64),
+
+        l1w: [l0s]i16 align(64),
+        l1b: i16 align(64),
+    };
+
+    const bin align(64) = @embedFile("embed.nnue").*;
+    const ext = if (@sizeOf(Extern) != bin.len) {
         const msg = std.fmt.comptimePrint(
             "expected {} bytes, found {}",
-            .{ @sizeOf(Extern), embedded.len },
+            .{ @sizeOf(Extern), bin.len },
         );
         @compileError(msg);
-    } else std.mem.bytesAsValue(Extern, aligned[0..]);
+    } else std.mem.bytesAsValue(Extern, bin[0..]);
 
     var net: Network = undefined;
     for (std.meta.fields(Network)) |field| {
