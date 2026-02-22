@@ -2,7 +2,7 @@ const engine = @import("engine");
 const std = @import("std");
 const types = @import("types");
 
-const Network = @import("Network.zig");
+const Network = @import("Network.zig").Network;
 
 const Accumulator = @This();
 
