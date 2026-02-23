@@ -3,11 +3,8 @@
 ## features
 - uci-compatible
 - evaluation:
-	- single layer 320hl neural net
-	- lazy updates
-	- fused updates
-	- horizontal mirroring
-	- pairwise multiplication
+	- (768hm->384pw)x2->1x8 neural net
+	- fused+lazy updates
 - search:
 	- iterative deepening
 	- aspiration windows
@@ -16,7 +13,7 @@
 	- reverse futility pruning
 	- null move pruning
 	- razoring
-	- quiet / qs futility pruning
+	- quiet / qsearch futility pruning
 	- late move pruning / reduction
 	- see pruning
 
@@ -25,10 +22,10 @@
 
 ## building
 ```
-$ git clone --depth 1 https://codeberg.org/oilsoundsfunny/zin
-$ cd zin/
+$ git clone --depth 1 https://codeberg.org/oilsoundsfunny/zin.git
+$ cd zin
 $ zig build --prefix PREFIX --release=fast
 ```
 
-the binary will be placed in $PREFIX/bin/
+the binary will be at $PREFIX/bin/zin
 
