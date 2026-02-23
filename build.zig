@@ -135,13 +135,11 @@ pub fn build(bld: *std.Build) !void {
         for (deps) |dep| {
             const dep_name = Modules.names.get(dep);
             const dep_module = modules.get(dep);
-
             module.addImport(dep_name, dep_module);
         }
 
-        switch (m) {
-            .nnue => module.addAnonymousImport("embed.nnue", .{ .root_source_file = network }),
-            else => {},
+        if (m == .nnue) {
+            module.addAnonymousImport("embed.nnue", .{ .root_source_file = network });
         }
     }
 
@@ -158,35 +156,30 @@ pub fn build(bld: *std.Build) !void {
         for (deps) |dep| {
             const dep_name = Modules.names.get(dep);
             const dep_module = modules.get(dep);
-
             module.addImport(dep_name, dep_module);
         }
 
-        const comp = switch (s) {
-            .install => add_exe: {
-                const exe = bld.addExecutable(.{
-                    .root_module = module,
-                    .name = exe_name,
-                    .version = version,
-                    .use_lld = use_llvm,
-                    .use_llvm = use_llvm,
-                });
-                exe.want_lto = lto;
-                break :add_exe exe;
-            },
-            else => bld.addTest(.{
+        const comp = if (s == .install) add_exe: {
+            const exe = bld.addExecutable(.{
                 .root_module = module,
-                .name = if (s == .perft) "perft" else "test",
+                .name = exe_name,
+                .version = version,
                 .use_lld = use_llvm,
                 .use_llvm = use_llvm,
-            }),
-        };
+            });
+            exe.want_lto = lto;
+            break :add_exe exe;
+        } else bld.addTest(.{
+            .root_module = module,
+            .name = if (s == .perft) "perft" else "test",
+            .use_lld = use_llvm,
+            .use_llvm = use_llvm,
+        });
 
-        const sub_step = switch (s) {
-            .install => &bld.addInstallArtifact(comp, .{}).step,
-            else => &bld.addRunArtifact(comp).step,
-        };
-
+        const sub_step = if (s == .install)
+            &bld.addInstallArtifact(comp, .{}).step
+        else
+            &bld.addRunArtifact(comp).step;
         steps.get(s).dependOn(sub_step);
     }
 }

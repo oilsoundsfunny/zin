@@ -821,5 +821,14 @@ pub fn BoundedArray(
         pub fn slice(self: anytype) SameMutPtr(@TypeOf(self), *Self, []align(alignment) T) {
             return self.buffer[0..self.len];
         }
+
+        pub fn first(self: anytype) SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
+            return &self.slice()[0];
+        }
+
+        pub fn last(self: anytype) SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
+            const sl = self.slice();
+            return &sl[sl.len - 1];
+        }
     };
 }

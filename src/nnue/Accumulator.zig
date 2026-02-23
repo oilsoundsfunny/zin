@@ -146,6 +146,20 @@ fn queuePanic() noreturn {
     @panic("invalid queue length");
 }
 
+pub fn before(
+    self: anytype,
+    dist: usize,
+) types.SameMutPtr(@TypeOf(self), *Accumulator, *Accumulator) {
+    return &(self[0..1].ptr - dist)[0];
+}
+
+pub fn after(
+    self: anytype,
+    dist: usize,
+) types.SameMutPtr(@TypeOf(self), *Accumulator, *Accumulator) {
+    return &(self[0..1].ptr + dist)[0];
+}
+
 pub fn queueSubAdd(self: *Accumulator, sub_m: Dirty, add_m: Dirty) void {
     self.queueSub(sub_m);
     self.queueAdd(add_m);

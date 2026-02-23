@@ -10,13 +10,13 @@ fn terminalResult(thread: *engine.Thread) ViriFormat.Result {
     const rq = &thread.request.datagen;
 
     const eval = board.evaluate();
-    const mat = board.positions.top().material();
+    const mat = board.positions.last().material();
     const w, const d, _ = engine.evaluation.score.wdl(eval, mat);
 
     const r = rq.rng.random().float(f32);
     const is_w = r <= w;
     const is_l = r > w + d;
-    return switch (board.positions.top().stm) {
+    return switch (board.positions.last().stm) {
         .white => if (is_w) .white else if (is_l) .black else .draw,
         .black => if (is_w) .black else if (is_l) .white else .draw,
     };
@@ -48,7 +48,7 @@ fn playRandom(thread: *engine.Thread) !void {
                 board.doMove(m);
             } else {
                 const eval = board.evaluate();
-                const mat = board.positions.top().material();
+                const mat = board.positions.last().material();
                 const cp = engine.evaluation.score.normalize(eval, mat);
                 if (cp != std.math.clamp(cp, -200, 200)) {
                     break;
@@ -76,8 +76,8 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
         data.head.result = if (is_terminal)
             terminalResult(thread)
         else if (root_moves.constSlice().len == 0) no_moves: {
-            const stm = board.positions.top().stm;
-            const is_checked = board.positions.top().isChecked();
+            const stm = board.positions.last().stm;
+            const is_checked = board.positions.last().isChecked();
             const is_drawn = board.isDrawn();
 
             break :no_moves if (is_drawn)
@@ -94,8 +94,8 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
             const pvs = pv.score;
 
             board.doMove(pvm);
-            const mat = board.positions.top().material();
-            const stm = board.positions.top().stm.flip();
+            const mat = board.positions.last().material();
+            const stm = board.positions.last().stm.flip();
 
             const norm: i16 = @intCast(engine.evaluation.score.normalize(pvs, mat));
             data.line.pushUnchecked(.{

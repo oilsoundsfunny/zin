@@ -14,8 +14,11 @@ const zobrist = @import("zobrist.zig");
 const Board = @This();
 
 frc: bool = false,
-accumulators: Offseted(nnue.Accumulator, 1024 - 8, 8) = .{},
-positions: Offseted(Position, 1024 - 8, 8) = .{},
+accumulators: types.BoundedArray(nnue.Accumulator, null, 1024) = .{
+    .buffer = @splat(.{}),
+    .len = 1,
+},
+positions: types.BoundedArray(Position, null, 1024) = .{ .buffer = @splat(.{}), .len = 1 },
 
 pub const FenError = error{
     InvalidPiece,
@@ -420,12 +423,18 @@ pub const Position = struct {
         return if (atkers.bwa(them) == .none) pos else error.InvalidMove;
     }
 
-    pub fn down(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
-        return @ptrCast(self[0..1].ptr - dist);
+    pub fn before(
+        self: anytype,
+        dist: usize,
+    ) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
+        return &(self[0..1].ptr - dist)[0];
     }
 
-    pub fn up(self: anytype, dist: usize) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
-        return @ptrCast(self[0..1].ptr + dist);
+    pub fn after(
+        self: anytype,
+        dist: usize,
+    ) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
+        return &(self[0..1].ptr + dist)[0];
     }
 
     pub fn bothOcc(self: *const Position) types.Square.Set {
@@ -569,79 +578,21 @@ pub const Position = struct {
     }
 };
 
-fn Offseted(comptime T: type, comptime max_len: comptime_int, comptime offset: comptime_int) type {
-    return struct {
-        array: Array = .{
-            .buffer = @splat(.{}),
-            .len = offset + 1,
-        },
-
-        const Self = @This();
-
-        pub const Array = types.BoundedArray(T, null, offset + max_len);
-        pub const alignment = Array.alignment;
-        pub const capacity = Array.capacity;
-
-        pub fn pop(self: *Self) ?T {
-            return if (self.array.len > offset) self.array.pop() else null;
-        }
-
-        pub fn addOneUnchecked(self: *Self) *align(alignment) T {
-            return self.array.addOneUnchecked();
-        }
-
-        pub fn pushUnchecked(self: *Self, item: T) void {
-            self.array.pushUnchecked(item);
-        }
-
-        pub fn constSlice(self: *const Self) []align(alignment) const T {
-            return self.slice();
-        }
-
-        pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *Self, []align(alignment) T) {
-            return self.array.slice()[offset..];
-        }
-
-        pub fn bottom(self: anytype) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            return self.bottomUp(0);
-        }
-
-        pub fn top(self: anytype) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            return self.topDown(0);
-        }
-
-        pub fn bottomUp(
-            self: anytype,
-            ply: usize,
-        ) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            return &self.slice()[ply];
-        }
-
-        pub fn topDown(
-            self: anytype,
-            ply: usize,
-        ) types.SameMutPtr(@TypeOf(self), *Self, *align(alignment) T) {
-            const sl = self.array.buffer[0..self.array.len];
-            return &sl[sl.len - 1 - ply];
-        }
-    };
-}
-
 fn updateAccumulators(self: *Board) void {
     const accumulators = self.accumulators.slice();
     const positions = self.positions.constSlice();
 
     for (accumulators, positions) |*accumulator, *pos| {
         if (accumulator.dirty) {
-            const last = &(accumulator[0..1].ptr - 1)[0];
+            const last = accumulator.before(1);
             accumulator.update(last, pos);
         }
     }
 }
 
 fn setupAccumulators(self: *Board) void {
-    const accumulator = self.accumulators.top();
-    const pos = self.positions.top();
+    const accumulator = self.accumulators.last();
+    const pos = self.positions.last();
 
     accumulator.* = .{};
     for (types.Color.values) |c| {
@@ -666,7 +617,7 @@ pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
     errdefer self.* = backup;
     self.* = .{};
 
-    try self.positions.top().parseFen(fen);
+    try self.positions.last().parseFen(fen);
     self.setupAccumulators();
 }
 
@@ -675,23 +626,23 @@ pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) Fe
     errdefer self.* = backup;
     self.* = .{};
 
-    try self.positions.top().parseFenTokens(tokens);
+    try self.positions.last().parseFenTokens(tokens);
     self.setupAccumulators();
 }
 
 pub fn doMove(self: *Board, move: movegen.Move) void {
-    const stm = self.positions.top().stm;
+    const stm = self.positions.last().stm;
     const s = move.src;
     const d = move.dst;
-    const sp = self.positions.top().getSquare(s);
-    const dp = self.positions.top().getSquare(d);
+    const sp = self.positions.last().getSquare(s);
+    const dp = self.positions.last().getSquare(d);
 
-    self.positions.top().move = move;
-    self.positions.top().src_piece = sp;
-    self.positions.top().dst_piece = dp;
+    self.positions.last().move = move;
+    self.positions.last().src_piece = sp;
+    self.positions.last().dst_piece = dp;
 
     const pos = self.positions.addOneUnchecked();
-    pos.* = pos.down(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
+    pos.* = pos.before(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
     pos.en_pas = null;
     pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
 
@@ -803,26 +754,26 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
 
     pos.stm = stm.flip();
     pos.checks = pos.genCheckMask();
-    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.down(1).en_pas) ^ zobrist.enp(pos.en_pas);
+    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
 }
 
 pub fn doNull(self: *Board) void {
-    self.positions.top().move = .{};
-    self.positions.top().src_piece = .none;
-    self.positions.top().dst_piece = .none;
+    self.positions.last().move = .{};
+    self.positions.last().src_piece = .none;
+    self.positions.last().dst_piece = .none;
 
     const accumulator = self.accumulators.addOneUnchecked();
     accumulator.clear();
     accumulator.mark();
 
     const pos = self.positions.addOneUnchecked();
-    pos.* = pos.down(1).*;
+    pos.* = pos.before(1).*;
     pos.en_pas = null;
     pos.rule50 = 0;
 
     pos.stm = pos.stm.flip();
     pos.checks = .full;
-    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.down(1).en_pas) ^ zobrist.enp(pos.en_pas);
+    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
 }
 
 pub fn undoMove(self: *Board) void {
@@ -835,7 +786,7 @@ pub fn undoNull(self: *Board) void {
 }
 
 pub fn getRepeat(self: *const Board) usize {
-    const key = self.positions.top().key;
+    const key = self.positions.last().key;
     var peat: usize = 0;
 
     for (self.positions.slice()) |*p| {
@@ -850,18 +801,18 @@ pub fn is3peat(self: *const Board) bool {
 }
 
 pub fn isDrawn(self: *const Board) bool {
-    return self.positions.top().rule50 >= 100 or self.is3peat();
+    return self.positions.last().rule50 >= 100 or self.is3peat();
 }
 
 pub fn isTerminal(self: *const Board) bool {
-    return self.positions.array.len >= self.positions.array.buffer.len;
+    return self.positions.len >= self.positions.buffer.len;
 }
 
 pub fn evaluate(self: *Board) evaluation.score.Int {
     self.updateAccumulators();
 
-    const accumulator = self.accumulators.top();
-    const position = self.positions.top();
+    const accumulator = self.accumulators.last();
+    const position = self.positions.last();
 
     const inferred = nnue.Network.verbatim.infer(accumulator, position);
     const scaled = @divTrunc(inferred * (100 - position.rule50), 100);

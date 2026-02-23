@@ -80,7 +80,7 @@ pub const Head = extern struct {
     pad: u8 = 0,
 
     pub fn init(board: *engine.Board) Head {
-        const pos = board.positions.top();
+        const pos = board.positions.last();
         const mat = pos.material();
         const eval = board.evaluate();
         const norm = engine.evaluation.score.normalize(eval, mat);
@@ -130,7 +130,7 @@ pub const Move = packed struct(u16) {
         return .{
             .src = m.src,
             .dst = m.dst,
-            .promotion = if (m.flag.promotion()) |pt| switch(pt) {
+            .promotion = if (m.flag.promotion()) |pt| switch (pt) {
                 .knight => 0,
                 .bishop => 1,
                 .rook => 2,
