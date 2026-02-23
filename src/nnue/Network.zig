@@ -14,14 +14,14 @@ pub const Network = extern struct {
     l0w: [inp][l0s]i16,
     l0b: [l0s]i16,
 
-    l1w: [l0s]i16,
-    l1b: i16 align(64),
+    l1w: [obn][l0s]i16,
+    l1b: [obn]i16 align(64),
 
     const embedded align(@alignOf(Network)) = @embedFile("embed.nnue").*;
 
-    // TODO: use these
+    // TODO: input buckets
     pub const ibn = 1;
-    pub const obn = 1;
+    pub const obn = 8;
 
     pub const inp = types.Ptype.num * types.Color.num * types.Square.num;
     pub const l0s = 384;
@@ -49,9 +49,14 @@ pub const Network = extern struct {
             .black = accumulator.perspectives.getPtrConst(stm.flip()),
         });
 
+        const ob = blk: {
+            const n = pos.bothOcc().count();
+            const m = std.math.mulWide(u8, 63 - n, 32 - n);
+            break :blk @min(m / 225, 7);
+        };
         const wgts: std.EnumArray(types.Color, *const [l0s / 2]i16) = .init(.{
-            .white = self.l1w[0 * l0s / 2 ..][0..l0s / 2],
-            .black = self.l1w[1 * l0s / 2 ..][0..l0s / 2],
+            .white = self.l1w[ob][0 * l0s / 2 ..][0..l0s / 2],
+            .black = self.l1w[ob][1 * l0s / 2 ..][0..l0s / 2],
         });
 
         var l1: Madd = @splat(0);
@@ -71,7 +76,7 @@ pub const Network = extern struct {
         }
 
         var o = @reduce(.Add, l1);
-        o = @divTrunc(o, qa) + self.l1b;
+        o = @divTrunc(o, qa) + self.l1b[ob];
         o = @divTrunc(o * scale, qa * qb);
         return o;
     }
