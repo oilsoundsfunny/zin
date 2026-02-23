@@ -86,8 +86,8 @@ pub fn infer(
     });
 
     const wgts: std.EnumArray(types.Color, *const [l0s / 2]i16) = .init(.{
-        .white = self.l1w[0 * l0s / 2 ..][0..l0s / 2],
-        .black = self.l1w[1 * l0s / 2 ..][0..l0s / 2],
+        .white = self.l1w[0 * l0s / 2 ..][0 .. l0s / 2],
+        .black = self.l1w[1 * l0s / 2 ..][0 .. l0s / 2],
     });
 
     var l1: Madd = @splat(0);

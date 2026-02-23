@@ -460,23 +460,19 @@ fn contHistPtr(
     move: movegen.Move,
     ply: usize,
 ) ?types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
-    if (self.board.positions.len <= ply) {
-        return null;
-    }
+    const pos: *const Board.Position = self.board.positions.last();
+    const this_p = pos.getSquare(move.src).ptype().int();
+    const this_d = move.dst.int();
 
-    const pos = self.board.positions.last();
-    const this_spt = pos.getSquare(move.src).ptype().int();
-    const this_dst = move.dst.int();
-
-    const last_pos = &(pos[0..1].ptr - ply)[0];
-    const last_spt = switch (last_pos.src_piece) {
+    const hist_pos = if (self.board.positions.len > ply) pos.before(ply) else return null;
+    const hist_p = switch (hist_pos.src_piece) {
         .none => types.Ptype.num,
         else => |p| p.ptype().int(),
     };
-    const last_dst = last_pos.move.dst.int();
+    const hist_d = hist_pos.move.dst.int();
 
     const stm = pos.stm.int();
-    return &self.conthist[ply / 2][stm][last_spt][last_dst][this_spt][this_dst];
+    return &self.conthist[ply / 2][stm][hist_p][hist_d][this_p][this_d];
 }
 
 fn correctedEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score.Int {
