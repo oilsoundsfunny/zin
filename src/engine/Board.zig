@@ -14,7 +14,8 @@ const zobrist = @import("zobrist.zig");
 const Board = @This();
 
 frc: bool = false,
-accumulators: types.BoundedArray(nnue.Accumulator, null, 1024) = .{
+finny_table: nnue.FinnyTable = .{},
+perspectives: types.BoundedArray(nnue.Accumulator.Perspective, null, 1024) = .{
     .buffer = @splat(.{}),
     .len = 1,
 },
@@ -464,6 +465,11 @@ pub const Position = struct {
         return self.by_square.getPtrConst(s).*;
     }
 
+    pub fn kingSquare(self: *const Position, c: types.Color) types.Square {
+        const k: types.Piece = .init(.king, c);
+        return self.pieceOcc(k).lowSquare() orelse std.debug.panic("king not found", .{});
+    }
+
     pub fn material(self: *const Position) u8 {
         return self.ptypeOcc(.pawn).count() +
             self.ptypeOcc(.knight).count() * 3 +
@@ -578,47 +584,14 @@ pub const Position = struct {
     }
 };
 
-fn updateAccumulators(self: *Board) void {
-    const accumulators = self.accumulators.slice();
-    const positions = self.positions.constSlice();
-
-    for (accumulators, positions) |*accumulator, *pos| {
-        if (accumulator.dirty) {
-            const last = accumulator.before(1);
-            accumulator.update(last, pos);
-        }
-    }
-}
-
-fn setupAccumulators(self: *Board) void {
-    const accumulator = self.accumulators.last();
-    const pos = self.positions.last();
-
-    accumulator.* = .{};
-    for (types.Color.values) |c| {
-        const ks = pos.pieceOcc(types.Piece.init(.king, c)).lowSquare() orelse
-            std.debug.panic("no king found", .{});
-        accumulator.mirrored.set(c, switch (ks.file()) {
-            .file_e, .file_f, .file_g, .file_h => true,
-            else => false,
-        });
-
-        for (types.Piece.w_pieces ++ types.Piece.b_pieces) |p| {
-            var pieces = pos.pieceOcc(p);
-            while (pieces.lowSquare()) |s| : (pieces.popLow()) {
-                accumulator.add(c, .{ .piece = p, .square = s });
-            }
-        }
-    }
-}
-
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
     const backup = self.*;
     errdefer self.* = backup;
     self.* = .{};
 
-    try self.positions.last().parseFen(fen);
-    self.setupAccumulators();
+    const position = self.positions.last();
+    try position.parseFen(fen);
+    self.finny_table = .init(position);
 }
 
 pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
@@ -626,8 +599,9 @@ pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) Fe
     errdefer self.* = backup;
     self.* = .{};
 
-    try self.positions.last().parseFenTokens(tokens);
-    self.setupAccumulators();
+    const position = self.positions.last();
+    try position.parseFenTokens(tokens);
+    self.finny_table = .init(position);
 }
 
 pub fn doMove(self: *Board, move: movegen.Move) void {
@@ -646,110 +620,59 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
     pos.en_pas = null;
     pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
 
-    const accumulator = self.accumulators.addOneUnchecked();
-    accumulator.clear();
-    accumulator.mark();
+    const perspective = self.perspectives.addOneUnchecked();
+    perspective.dirty = .initFill(true);
 
-    switch (move.flag) {
-        .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
-            const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-            accumulator.queueSubAdd(
-                .{ .piece = sp, .square = s },
-                .{ .piece = add_p, .square = d },
-            );
-        },
+    if (sp.ptype() == .pawn) {
+        // TODO: check en passant (pseudo-)legality
+        if (move.flag == .torped) {
+            pos.en_pas = d.shift(stm.forward().flip(), 1);
+        }
+    } else if (sp.ptype() == .rook) {
+        var iter = pos.castles.iterator();
+        while (iter.next()) |entry| {
+            const k = entry.key;
+            const v = entry.value;
+            if (s == v.rs) {
+                pos.popCastle(k);
+                break;
+            }
+        }
+    } else if (sp.ptype() == .king) {
+        defer {
+            pos.popCastle(if (stm == .white) .wk else .bk);
+            pos.popCastle(if (stm == .white) .wq else .bq);
+        }
 
-        .castle_q, .castle_k => |f| {
-            const right = f.castle(stm) orelse unreachable;
+        const ks, const kd = if (move.flag.isCastle()) castle: {
+            const right = move.flag.castle(stm) orelse unreachable;
             const castle = pos.castles.getAssertContains(right);
+            break :castle .{ castle.ks, castle.kd };
+        } else .{ s, d };
 
-            const rook = types.Piece.init(.rook, stm);
-            const king = types.Piece.init(.king, stm);
-
-            accumulator.queueSubAddSubAdd(
-                .{ .piece = king, .square = castle.ks },
-                .{ .piece = king, .square = castle.kd },
-                .{ .piece = rook, .square = castle.rs },
-                .{ .piece = rook, .square = castle.rd },
-            );
-        },
-
-        else => |f| {
-            const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-            const del_p, const del_s = if (f == .en_passant)
-                .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
-            else
-                .{ dp, d };
-
-            accumulator.queueSubAddSub(
-                .{ .piece = del_p, .square = del_s },
-                .{ .piece = add_p, .square = d },
-                .{ .piece = sp, .square = s },
-            );
-        },
+        const hms = switch (ks.file()) {
+            .file_a, .file_b, .file_c, .file_d => false,
+            else => true,
+        };
+        const hmd = switch (kd.file()) {
+            .file_a, .file_b, .file_c, .file_d => false,
+            else => true,
+        };
+        if (hms != hmd) {
+            self.finny_table.load(stm, perspective, pos);
+        }
     }
 
-    switch (sp) {
-        .w_pawn, .b_pawn => {
-            // TODO: check en passant (pseudo-)legality
-            if (move.flag == .torped) {
-                pos.en_pas = d.shift(stm.forward().flip(), 1);
+    if (dp != .none and dp.ptype() == .rook) {
+        var iter = pos.castles.iterator();
+        while (iter.next()) |entry| {
+            const k = entry.key;
+            const v = entry.value;
+            if (d == v.rs) {
+                pos.popCastle(k);
+                break;
             }
-        },
-
-        .w_rook, .b_rook => {
-            var iter = pos.castles.iterator();
-            while (iter.next()) |entry| {
-                const k = entry.key;
-                const v = entry.value;
-
-                if (s == v.rs) {
-                    pos.popCastle(k);
-                    break;
-                }
-            }
-        },
-
-        .w_king, .b_king => {
-            defer pos.popCastle(if (stm == .white) .wk else .bk);
-            defer pos.popCastle(if (stm == .white) .wq else .bq);
-
-            const ks, const kd = if (move.flag.isCastle()) castle: {
-                const right = move.flag.castle(stm) orelse unreachable;
-                const castle = pos.castles.getAssertContains(right);
-                break :castle .{ castle.ks, castle.kd };
-            } else .{ s, d };
-
-            const is_s_mirrored = switch (ks.file()) {
-                .file_e, .file_f, .file_g, .file_h => true,
-                else => false,
-            };
-            const is_d_mirrored = switch (kd.file()) {
-                .file_e, .file_f, .file_g, .file_h => true,
-                else => false,
-            };
-            if (is_s_mirrored != is_d_mirrored) {
-                accumulator.queueMirror(stm);
-            }
-        },
-
-        else => {},
-    }
-
-    switch (dp) {
-        .w_rook, .b_rook => {
-            var iter = pos.castles.iterator();
-            while (iter.next()) |entry| {
-                const k = entry.key;
-                const v = entry.value;
-
-                if (d == v.rs) {
-                    pos.popCastle(k);
-                    break;
-                }
-            }
-        },
-        else => {},
+        }
     }
 
     pos.stm = stm.flip();
@@ -762,9 +685,8 @@ pub fn doNull(self: *Board) void {
     self.positions.last().src_piece = .none;
     self.positions.last().dst_piece = .none;
 
-    const accumulator = self.accumulators.addOneUnchecked();
-    accumulator.clear();
-    accumulator.mark();
+    const perspective = self.perspectives.addOneUnchecked();
+    perspective.dirty = .initFill(true);
 
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).*;
@@ -777,7 +699,7 @@ pub fn doNull(self: *Board) void {
 }
 
 pub fn undoMove(self: *Board) void {
-    _ = self.accumulators.pop();
+    _ = self.perspectives.pop();
     _ = self.positions.pop();
 }
 
@@ -809,12 +731,18 @@ pub fn isTerminal(self: *const Board) bool {
 }
 
 pub fn evaluate(self: *Board) evaluation.score.Int {
-    self.updateAccumulators();
-
-    const accumulator = self.accumulators.last();
+    const perspective = self.perspectives.last();
     const position = self.positions.last();
 
-    const inferred = nnue.Network.verbatim.infer(accumulator, position);
+    for (types.Color.values) |c| {
+        if (perspective.dirty.get(c)) {
+            self.finny_table.load(c, perspective, position);
+        }
+    }
+
+    const inferred = nnue.network.verbatim.infer(perspective, position);
     const scaled = @divTrunc(inferred * (100 - position.rule50), 100);
-    return std.math.clamp(scaled, evaluation.score.lose + 1, evaluation.score.win - 1);
+    const min = evaluation.score.lose + 1;
+    const max = evaluation.score.win - 1;
+    return std.math.clamp(scaled, min, max);
 }

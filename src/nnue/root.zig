@@ -1,2 +1,3 @@
 pub const Accumulator = @import("Accumulator.zig");
-pub const Network = @import("Network.zig").Network;
+pub const FinnyTable = @import("FinnyTable.zig");
+pub const network = @import("network.zig");

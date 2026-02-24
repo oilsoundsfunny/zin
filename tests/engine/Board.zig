@@ -102,7 +102,7 @@ test {
         var board: engine.Board = .{};
         try board.parseFen(fen);
 
-        const pos = board.positions.top();
+        const pos = board.positions.last();
         var rma: [1 << 16]bool = @splat(false);
         var list: engine.movegen.Move.Scored.List = .{};
         _ = list.genNoisy(pos);

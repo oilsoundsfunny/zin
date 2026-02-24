@@ -23,7 +23,7 @@ test {
         .dst = .e5,
     };
     const pawn = params.values.see_pruning_pawn;
-    try std.testing.expect(board.positions.top().see(.pruning, move, pawn));
+    try std.testing.expect(board.positions.last().see(.pruning, move, pawn));
 }
 
 test {
@@ -49,9 +49,9 @@ test {
     const pawn = params.values.see_pruning_pawn;
     const knight = params.values.see_pruning_knight;
 
-    try std.testing.expect(board.positions.top().see(.pruning, move, draw - knight));
-    try std.testing.expect(board.positions.top().see(.pruning, move, pawn - knight));
+    try std.testing.expect(board.positions.last().see(.pruning, move, draw - knight));
+    try std.testing.expect(board.positions.last().see(.pruning, move, pawn - knight));
 
-    // try std.testing.expect(!board.positions.top().see(.pruning, move, -draw));
-    // try std.testing.expect(!board.positions.top().see(.pruning, move, -pawn));
+    // try std.testing.expect(!board.positions.last().see(.pruning, move, -draw));
+    // try std.testing.expect(!board.positions.last().see(.pruning, move, -pawn));
 }
