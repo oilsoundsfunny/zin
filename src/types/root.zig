@@ -77,7 +77,7 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
             const s = std.math.shl(usize, 1, i);
             const m = std.math.shl(usize, 1, s);
 
-            const lhs = (x >> s) & c;
+            const lhs = std.math.shr(Int, x, s) & c;
             const rhs = (x & c) *% m;
             x = lhs + rhs;
         }

@@ -2,271 +2,67 @@ const engine = @import("engine");
 const std = @import("std");
 const types = @import("types");
 
-const Network = @import("Network.zig").Network;
+const network = @import("network.zig");
 
 const Accumulator = @This();
 
-perspectives: std.EnumArray(types.Color, Vec) = .initFill(Network.verbatim.l0b),
-mirrored: std.EnumArray(types.Color, bool) = .initFill(false),
+vec: Vec = network.verbatim.l0b,
 
-dirty: bool = false,
-hm_q: ?types.Color = null,
-add_q: types.BoundedArray(Feature, null, 2) = .{},
-sub_q: types.BoundedArray(Feature, null, 2) = .{},
+const Native = @Vector(native_len, i16);
 
-pub const Half = @Vector(Network.l0s / 2, i16);
-pub const Vec = @Vector(Network.l0s, i16);
-pub const Native = @Vector(native_len, i16);
+const native_len = std.simd.suggestVectorLength(i16) orelse @compileError(":wilted_rose:");
+
+pub const Vec = @Vector(network.Default.l0s, i16);
 
 pub const Feature = struct {
     piece: types.Piece,
     square: types.Square,
 };
 
-pub const native_len = std.simd.suggestVectorLength(i16) orelse @compileError(":wilted_rose:");
+pub const Perspective = struct {
+    accs: std.EnumArray(types.Color, Accumulator) = .initFill(.{}),
+    dirty: std.EnumArray(types.Color, bool) = .initFill(false),
 
-fn indices(
-    self: *const Accumulator,
-    s: types.Square,
-    p: types.Piece,
-) std.EnumArray(types.Color, usize) {
-    var ret: std.EnumArray(types.Color, usize) = .initUndefined();
-    inline for (types.Color.values) |c| {
-        const mirrored = self.mirrored.get(c);
-        const kingsided = if (mirrored) s.flipFile() else s;
-        const pov = switch (c) {
-            .white => kingsided,
-            .black => kingsided.flipRank(),
-        };
-
-        const ci: usize = if (p.color() == c) 0 else types.Ptype.num;
-        const pi: usize = p.ptype().int();
-        const si: usize = pov.int();
-        ret.set(c, (ci + pi) * types.Square.num + si);
+    pub fn before(
+        self: anytype,
+        dist: usize,
+    ) types.SameMutPtr(@TypeOf(self), *Perspective, *Perspective) {
+        return &(self[0..1].ptr - dist)[0];
     }
-    return ret;
-}
 
-fn fusedSubAdd(self: *Accumulator, c: types.Color) void {
-    const sub_m = self.sub_q.constSlice()[0];
-    const add_m = self.add_q.constSlice()[0];
-
-    const sub_i = self.indices(sub_m.square, sub_m.piece).get(c);
-    const add_i = self.indices(add_m.square, add_m.piece).get(c);
-
-    const v: *align(64) [Network.l0s]i16 = @alignCast(self.perspectives.getPtr(c));
-    var i: usize = 0;
-    while (i < Network.l0s) : (i += native_len) {
-        const vec: *Native = @alignCast(v[i..][0..native_len]);
-        var load = vec.*;
-        defer vec.* = load;
-
-        const sub_w: *const Native = @alignCast(Network.verbatim.l0w[sub_i][i..][0..native_len]);
-        const add_w: *const Native = @alignCast(Network.verbatim.l0w[add_i][i..][0..native_len]);
-
-        load -%= sub_w.*;
-        load +%= add_w.*;
+    pub fn after(
+        self: anytype,
+        dist: usize,
+    ) types.SameMutPtr(@TypeOf(self), *Perspective, *Perspective) {
+        return &(self[0..1].ptr + dist)[0];
     }
-}
-
-fn fusedSubAddSub(self: *Accumulator, c: types.Color) void {
-    const sub0 = self.sub_q.constSlice()[0];
-    const add0 = self.add_q.constSlice()[0];
-    const sub1 = self.sub_q.constSlice()[1];
-
-    const sub0_i = self.indices(sub0.square, sub0.piece).get(c);
-    const add0_i = self.indices(add0.square, add0.piece).get(c);
-    const sub1_i = self.indices(sub1.square, sub1.piece).get(c);
-
-    const v: *align(64) [Network.l0s]i16 = @alignCast(self.perspectives.getPtr(c));
-    var i: usize = 0;
-    while (i < Network.l0s) : (i += native_len) {
-        const vec: *Native = @alignCast(v[i..][0..native_len]);
-        var load = vec.*;
-        defer vec.* = load;
-
-        const sub0_w: *const Native = @alignCast(Network.verbatim.l0w[sub0_i][i..][0..native_len]);
-        const add0_w: *const Native = @alignCast(Network.verbatim.l0w[add0_i][i..][0..native_len]);
-        const sub1_w: *const Native = @alignCast(Network.verbatim.l0w[sub1_i][i..][0..native_len]);
-
-        load -%= sub0_w.*;
-        load +%= add0_w.*;
-        load -%= sub1_w.*;
-    }
-}
-
-fn fusedSubAddSubAdd(self: *Accumulator, c: types.Color) void {
-    const sub0 = self.sub_q.constSlice()[0];
-    const add0 = self.add_q.constSlice()[0];
-    const sub1 = self.sub_q.constSlice()[1];
-    const add1 = self.add_q.constSlice()[1];
-
-    const sub0_i = self.indices(sub0.square, sub0.piece).get(c);
-    const add0_i = self.indices(add0.square, add0.piece).get(c);
-    const sub1_i = self.indices(sub1.square, sub1.piece).get(c);
-    const add1_i = self.indices(add1.square, add1.piece).get(c);
-
-    const v: *align(64) [Network.l0s]i16 = @alignCast(self.perspectives.getPtr(c));
-    var i: usize = 0;
-    while (i < Network.l0s) : (i += native_len) {
-        const vec: *Native = @alignCast(v[i..][0..native_len]);
-        var load = vec.*;
-        defer vec.* = load;
-
-        const sub0_w: *const Native = @alignCast(Network.verbatim.l0w[sub0_i][i..][0..native_len]);
-        const add0_w: *const Native = @alignCast(Network.verbatim.l0w[add0_i][i..][0..native_len]);
-        const sub1_w: *const Native = @alignCast(Network.verbatim.l0w[sub1_i][i..][0..native_len]);
-        const add1_w: *const Native = @alignCast(Network.verbatim.l0w[add1_i][i..][0..native_len]);
-
-        load -%= sub0_w.*;
-        load +%= add0_w.*;
-        load -%= sub1_w.*;
-        load +%= add1_w.*;
-    }
-}
-
-fn queueAdd(self: *Accumulator, ft: Feature) void {
-    self.add_q.pushUnchecked(ft);
-}
-
-fn queueSub(self: *Accumulator, ft: Feature) void {
-    self.sub_q.pushUnchecked(ft);
-}
-
-fn queuePanic() noreturn {
-    @branchHint(.cold);
-    @panic("invalid queue length");
-}
-
-pub fn before(
-    self: anytype,
-    dist: usize,
-) types.SameMutPtr(@TypeOf(self), *Accumulator, *Accumulator) {
-    return &(self[0..1].ptr - dist)[0];
-}
-
-pub fn after(
-    self: anytype,
-    dist: usize,
-) types.SameMutPtr(@TypeOf(self), *Accumulator, *Accumulator) {
-    return &(self[0..1].ptr + dist)[0];
-}
-
-pub fn queueSubAdd(self: *Accumulator, sub_m: Feature, add_m: Feature) void {
-    self.queueSub(sub_m);
-    self.queueAdd(add_m);
-}
-
-pub fn queueSubAddSub(self: *Accumulator, sub0: Feature, add0: Feature, sub1: Feature) void {
-    self.queueSub(sub0);
-    self.queueAdd(add0);
-    self.queueSub(sub1);
-}
-
-pub fn queueSubAddSubAdd(
-    self: *Accumulator,
-    sub0: Feature,
-    add0: Feature,
-    sub1: Feature,
-    add1: Feature,
-) void {
-    self.queueSub(sub0);
-    self.queueAdd(add0);
-    self.queueSub(sub1);
-    self.queueAdd(add1);
-}
-
-pub fn queueMirror(self: *Accumulator, c: types.Color) void {
-    self.hm_q = c;
-}
-
-pub fn clear(self: *Accumulator) void {
-    self.hm_q = null;
-    self.add_q.resize(0) catch unreachable;
-    self.sub_q.resize(0) catch unreachable;
-}
-
-pub fn mark(self: *Accumulator) void {
-    self.dirty = true;
-}
-
-pub fn unmark(self: *Accumulator) void {
-    self.dirty = false;
-}
+};
 
 pub fn update(
     self: *Accumulator,
-    last: *const Accumulator,
-    pos: *const engine.Board.Position,
+    wgts: *const [network.Default.inp][network.Default.l0s]i16,
+    opt_adds: ?*const types.BoundedArray(usize, null, 32),
+    opt_subs: ?*const types.BoundedArray(usize, null, 32),
 ) void {
-    defer self.clear();
-    defer self.unmark();
+    const a: *[network.Default.l0s]i16 = &self.vec;
+    var i: usize = 0;
+    while (i < network.Default.l0s) : (i += native_len) {
+        const vec: *Native = @alignCast(a[i..][0..native_len]);
+        var acc: Native = @splat(0);
+        defer vec.* +%= acc;
 
-    self.perspectives = last.perspectives;
-    self.mirrored = last.mirrored;
+        if (opt_adds) |adds| {
+            for (adds.constSlice()) |add_i| {
+                const v: *const Native = @alignCast(wgts[add_i][i..][0..native_len]);
+                acc +%= v.*;
+            }
+        }
 
-    const add_n = self.add_q.constSlice().len;
-    const sub_n = self.sub_q.constSlice().len;
-
-    const Fused = *const fn (*Accumulator, types.Color) void;
-    const fused: Fused = sw: switch (add_n) {
-        0 => return,
-        1 => switch (sub_n) {
-            1 => fusedSubAdd,
-            2 => fusedSubAddSub,
-            else => continue :sw 0,
-        },
-        2 => switch (sub_n) {
-            2 => fusedSubAddSubAdd,
-            else => continue :sw 0,
-        },
-        else => continue :sw 0,
-    };
-
-    if (self.hm_q) |c| {
-        self.mirror(c, pos);
-        fused(self, c.flip());
-    } else {
-        fused(self, .white);
-        fused(self, .black);
-    }
-}
-
-pub fn add(self: *Accumulator, c: types.Color, ft: Feature) void {
-    const i = self.indices(ft.square, ft.piece).get(c);
-    const w: *align(64) const [Network.l0s]i16 = Network.verbatim.l0w[i][0..];
-    const v: *align(64) [Network.l0s]i16 = @alignCast(self.perspectives.getPtr(c));
-
-    var k: usize = 0;
-    while (k < Network.l0s) : (k += native_len) {
-        const wgt: *const Native = @alignCast(w[k..][0..native_len]);
-        const vec: *Native = @alignCast(v[k..][0..native_len]);
-        vec.* +%= wgt.*;
-    }
-}
-
-pub fn sub(self: *Accumulator, c: types.Color, ft: Feature) void {
-    const i = self.indices(ft.square, ft.piece).get(c);
-    const w: *align(64) const [Network.l0s]i16 = Network.verbatim.l0w[i][0..];
-    const v: *align(64) [Network.l0s]i16 = @alignCast(self.perspectives.getPtr(c));
-
-    var k: usize = 0;
-    while (k < Network.l0s) : (k += native_len) {
-        const wgt: *const Native = @alignCast(w[k..][0..native_len]);
-        const vec: *Native = @alignCast(v[k..][0..native_len]);
-        vec.* -%= wgt.*;
-    }
-}
-
-pub fn mirror(self: *Accumulator, c: types.Color, pos: *const engine.Board.Position) void {
-    const mirrored = self.mirrored.getPtr(c);
-    mirrored.* = !mirrored.*;
-
-    self.perspectives.set(c, Network.verbatim.l0b);
-    for (types.Piece.w_pieces ++ types.Piece.b_pieces) |p| {
-        var pieces = pos.pieceOcc(p);
-        while (pieces.lowSquare()) |s| : (pieces.popLow()) {
-            self.add(c, .{ .piece = p, .square = s });
+        if (opt_subs) |subs| {
+            for (subs.constSlice()) |sub_i| {
+                const v: *const Native = @alignCast(wgts[sub_i][i..][0..native_len]);
+                acc -%= v.*;
+            }
         }
     }
 }
