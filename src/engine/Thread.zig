@@ -285,6 +285,7 @@ pub const Pool = struct {
     pub fn datagen(self: *Pool, rq: selfplay.Request) void {
         self.stopSearch();
         self.tt.doAge();
+        self.timer.reset();
 
         self.stopped = false;
         self.searching = true;

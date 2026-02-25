@@ -11,11 +11,11 @@ fn terminalResult(thread: *engine.Thread) ViriFormat.Result {
 
     const eval = board.evaluate();
     const mat = board.positions.last().material();
-    const w, const d, _ = engine.evaluation.score.wdl(eval, mat);
+    const w, _, const l = engine.evaluation.score.wdl(eval, mat);
 
     const r = rq.rng.random().float(f32);
-    const is_w = r <= w;
-    const is_l = r > w + d;
+    const is_w = r < w;
+    const is_l = r > 1.0 - l;
     return switch (board.positions.last().stm) {
         .white => if (is_w) .white else if (is_l) .black else .draw,
         .black => if (is_w) .black else if (is_l) .white else .draw,
@@ -30,31 +30,29 @@ fn playRandom(thread: *engine.Thread) !void {
     var ply: usize = 0;
     defer thread.board = board;
 
-    while (true) : ({
-        board = thread.board;
-        ply = 0;
-    }) {
+    find_line: while (true) : ({ board = thread.board; ply = 0; }) {
         while (ply <= random_moves) : (ply += 1) {
             const root_moves = engine.movegen.Move.Root.List.init(&board);
             const rms = root_moves.constSlice();
             const rmn = rms.len;
             if (rmn == 0) {
-                break;
+                continue :find_line;
             }
 
             if (ply < random_moves) {
                 const i = rq.rng.random().uintLessThan(usize, rmn);
                 const m = rms[i].constSlice()[0];
                 board.doMove(m);
-            } else {
-                const eval = board.evaluate();
-                const mat = board.positions.last().material();
-                const cp = engine.evaluation.score.normalize(eval, mat);
-                if (cp != std.math.clamp(cp, -200, 200)) {
-                    break;
-                }
+                continue;
             }
-        } else break;
+
+            const eval = board.evaluate();
+            const mat = board.positions.last().material();
+            const cp = engine.evaluation.score.normalize(eval, mat);
+            if (cp != std.math.clamp(cp, -200, 200)) {
+                continue :find_line;
+            }
+        } else break :find_line;
     }
 }
 
@@ -63,10 +61,7 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
     const root_moves = &thread.root_moves;
     const rq = &thread.request.datagen;
 
-    data.* = .{
-        .head = .init(board),
-        .line = .{},
-    };
+    data.* = .{ .head = .init(board), .line = .{} };
     defer data.line.pushUnchecked(.{});
 
     while (data.head.result == .none) {
@@ -121,23 +116,12 @@ fn readOpening(thread: *engine.Thread) ![]const u8 {
     return dupe;
 }
 
-fn writeData(
-    thread: *engine.Thread,
-    data: *const ViriFormat,
-    writer: *std.Io.Writer,
-) !void {
+fn writeData(writer: *std.Io.Writer, data: *const ViriFormat) !void {
     try writer.writeAll(std.mem.asBytes(&data.head));
     try writer.writeAll(std.mem.sliceAsBytes(data.line.constSlice()));
-
-    if (writer.buffer.len - writer.buffered().len < 4096) {
-        try flushData(thread, writer);
-    }
 }
 
-fn flushData(
-    thread: *engine.Thread,
-    writer: *std.Io.Writer,
-) !void {
+fn flushData(writer: *std.Io.Writer, thread: *engine.Thread) !void {
     thread.pool.mtx.lock();
     defer thread.pool.mtx.unlock();
 
@@ -147,6 +131,7 @@ fn flushData(
 }
 
 pub fn datagen(thread: *engine.Thread) !void {
+    const i = thread.idx;
     const n = thread.cnt;
     const rq = switch (thread.request) {
         .datagen => |rq| rq,
@@ -157,12 +142,14 @@ pub fn datagen(thread: *engine.Thread) !void {
     const lines = thread.pool.io.lineCount() catch std.debug.panic("unabled to count book", .{});
     const games = if (rq.games) |g| g / n + @intFromBool(g % n != 0) else std.math.maxInt(usize);
     const repeat = if (rq.games) |_| games / lines + @intFromBool(games % lines != 0) else 1;
+
     var played: usize = 0;
+    var positions: usize = 0;
 
     const page_size = std.heap.pageSize();
-    var buffer: [65536]u8 align(page_size) = undefined;
+    var buffer: [4096 * 16]u8 align(page_size) = undefined;
     var writer = std.Io.Writer.fixed(buffer[0..]);
-    defer flushData(thread, &writer) catch std.debug.panic("failed to flush data", .{});
+    defer flushData(&writer, thread) catch std.debug.panic("failed to flush data", .{});
 
     loop: while (readOpening(thread)) |opening| {
         defer thread.pool.allocator.free(opening);
@@ -171,13 +158,28 @@ pub fn datagen(thread: *engine.Thread) !void {
         const board = thread.board;
         const played_fen = played;
 
-        while (played - played_fen < repeat and played < games) : ({
-            played += 1;
-            thread.board = board;
-        }) {
+        while (played - played_fen < repeat and played < games) : (thread.board = board) {
             playRandom(thread) catch continue :loop;
             playOut(thread, &data) catch continue :loop;
-            writeData(thread, &data, &writer) catch continue :loop;
+            writeData(&writer, &data) catch continue :loop;
+
+            played += 1;
+            if (played % 16 == 0) {
+                const bytes = writer.buffered().len;
+                positions += (bytes - 16 * @sizeOf(ViriFormat.Head)) / 4;
+
+                const ntime = thread.pool.timer.read();
+                const pps =
+                    @as(f32, @floatFromInt(positions)) /
+                    @as(f32, @floatFromInt(ntime)) *
+                    std.time.ns_per_s;
+
+                flushData(&writer, thread) catch std.debug.panic("failed to flush data", .{});
+                std.log.info(
+                    "thread {} played {} games cont. {} positions @ {} pps",
+                    .{ i, played, positions, pps },
+                );
+            }
         }
 
         if (played >= games) {
