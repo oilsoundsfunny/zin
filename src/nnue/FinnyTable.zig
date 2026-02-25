@@ -14,8 +14,27 @@ const Occupancy = struct {
     by_ptype: std.EnumArray(types.Ptype, types.Square.Set) = .initFill(.none),
     by_color: std.EnumArray(types.Color, types.Square.Set) = .initFill(.none),
 
-    fn init(pos: *const engine.Board.Position) Occupancy {
-        return .{ .by_ptype = pos.by_ptype, .by_color = pos.by_color };
+    fn init(pos: *const engine.Board.Position, c: types.Color) Occupancy {
+        var occ: Occupancy = .{ .by_ptype = pos.by_ptype, .by_color = pos.by_color };
+        if (c == .black) {
+            std.mem.swap(
+                types.Square.Set,
+                occ.by_color.getPtr(.white),
+                occ.by_color.getPtr(.black),
+            );
+        }
+
+        const king: Accumulator.Feature = .init(.init(.king, c), pos.kingSquare(c));
+        for (types.Ptype.values) |pt| {
+            const p = occ.by_ptype.getPtr(pt);
+            p.* = king.transform(p.*);
+        }
+        for (types.Color.values) |pc| {
+            const p = occ.by_color.getPtr(pc);
+            p.* = king.transform(p.*);
+        }
+
+        return occ;
     }
 
     fn pieceOcc(self: *const Occupancy, p: types.Piece) types.Square.Set {
@@ -26,31 +45,34 @@ const Occupancy = struct {
 };
 
 pub fn init(pos: *const engine.Board.Position) FinnyTable {
-    const kings: std.EnumArray(types.Color, types.Square) = .init(.{
-        .white = pos.kingSquare(.white),
-        .black = pos.kingSquare(.black),
+    const kings: std.EnumArray(types.Color, Accumulator.Feature) = .init(.{
+        .white = .init(.w_king, pos.kingSquare(.white)),
+        .black = .init(.b_king, pos.kingSquare(.black)),
     });
-    const buckets = network.Default.buckets(kings);
+    const buckets: std.EnumArray(types.Color, usize) = .init(.{
+        .white = kings.get(.white).bucket(),
+        .black = kings.get(.black).bucket(),
+    });
 
-    var w_arr: types.BoundedArray(usize, null, 32) = .{};
-    var b_arr: types.BoundedArray(usize, null, 32) = .{};
+    var arrays: std.EnumArray(types.Color, types.BoundedArray(usize, null, 32)) = .initFill(.{});
     var finny_table: FinnyTable = .{};
 
-    for (types.Piece.values) |p| {
-        var b = pos.pieceOcc(p);
-        while (b.lowSquare()) |s| : (b.popLow()) {
-            const indices = network.Default.indices(kings, .{ .piece = p, .square = s });
-            w_arr.pushUnchecked(indices.get(.white));
-            b_arr.pushUnchecked(indices.get(.black));
+    for (types.Color.values) |c| {
+        const bucket = buckets.get(c);
+        const acc = &finny_table.accs.getPtr(c)[bucket];
+        const occ = &finny_table.occs.getPtr(c)[bucket];
+
+        occ.* = .init(pos, c);
+        for (types.Piece.values) |p| {
+            var b = occ.pieceOcc(p);
+            while (b.lowSquare()) |s| : (b.popLow()) {
+                const ft: Accumulator.Feature = .{ .piece = p, .square = s };
+                arrays.getPtr(c).pushUnchecked(ft.index());
+            }
         }
+        acc.update(&network.verbatim.l0w[bucket], arrays.getPtrConst(c), null);
     }
 
-    finny_table.accs.getPtr(.white)[buckets.get(.white)]
-        .update(&network.verbatim.l0w[buckets.get(.white)], &w_arr, null);
-    finny_table.accs.getPtr(.black)[buckets.get(.black)]
-        .update(&network.verbatim.l0w[buckets.get(.black)], &b_arr, null);
-    finny_table.occs.getPtr(.white)[buckets.get(.white)] = .init(pos);
-    finny_table.occs.getPtr(.black)[buckets.get(.black)] = .init(pos);
     return finny_table;
 }
 
@@ -60,51 +82,38 @@ pub fn load(
     perspective: *Accumulator.Perspective,
     position: *const engine.Board.Position,
 ) void {
-    const kings: std.EnumArray(types.Color, types.Square) = .init(.{
-        .white = position.kingSquare(.white),
-        .black = position.kingSquare(.black),
-    });
-    const bucket = network.Default.buckets(kings).get(c);
+    const onboard_king: Accumulator.Feature = .{
+        .piece = .init(.king, c),
+        .square = position.kingSquare(c),
+    };
+    const bucket = onboard_king.bucket();
 
     const wgts = &network.verbatim.l0w[bucket];
-    const occs = &self.occs.getPtrConst(c)[bucket];
-
-    const hm = blk: {
-        const cached_king = occs.pieceOcc(.init(.king, c)).lowSquare() orelse
-            std.debug.panic("king not found", .{});
-        const cached_hm = switch (cached_king.file()) {
-            .file_a, .file_b, .file_c, .file_d => false,
-            else => true,
-        };
-        const onboard_hm = switch (kings.get(c).file()) {
-            .file_a, .file_b, .file_c, .file_d => false,
-            else => true,
-        };
-        break :blk cached_hm != onboard_hm;
-    };
+    const occs = &self.occs.getPtr(c)[bucket];
+    const onboard_occs: Occupancy = .init(position, c);
 
     var add_array: types.BoundedArray(usize, null, 32) = .{};
     var sub_array: types.BoundedArray(usize, null, 32) = .{};
 
     for (types.Piece.values) |p| {
-        const cached = if (hm) occs.pieceOcc(p).flipFile() else occs.pieceOcc(p);
-        const onboard = position.pieceOcc(p);
+        const cached = occs.pieceOcc(p);
+        const onboard = onboard_occs.pieceOcc(p);
         const unique: types.Square.Set = .bwx(cached, onboard);
 
         var add_b = unique.bwa(onboard);
         while (add_b.lowSquare()) |s| : (add_b.popLow()) {
-            const i = network.Default.indices(kings, .{ .piece = p, .square = s }).get(c);
-            add_array.pushUnchecked(i);
+            const ft: Accumulator.Feature = .init(p, s);
+            add_array.pushUnchecked(ft.index());
         }
 
         var sub_b = unique.bwa(cached);
         while (sub_b.lowSquare()) |s| : (sub_b.popLow()) {
-            const i = network.Default.indices(kings, .{ .piece = p, .square = s }).get(c);
-            sub_array.pushUnchecked(i);
+            const ft: Accumulator.Feature = .init(p, s);
+            sub_array.pushUnchecked(ft.index());
         }
     }
 
-    self.occs.getPtr(c)[bucket] = .init(position);
+    self.occs.getPtr(c)[bucket] = onboard_occs;
     self.accs.getPtr(c)[bucket].update(wgts, &add_array, &sub_array);
 
     perspective.accs.set(c, self.accs.getPtrConst(c)[bucket]);
