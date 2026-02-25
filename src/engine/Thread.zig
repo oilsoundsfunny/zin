@@ -971,6 +971,21 @@ fn ab(
         const lmr_d = @max(d * 1024 - base_lmr, 0);
 
         if (!is_root and best.score > evaluation.score.lose) {
+            // history pruning
+            const hp_lim, const hp0, const hp1 = if (is_quiet) .{
+                params.values.quiet_hist_pruning_lim,
+                params.values.quiet_hist_pruning0,
+                params.values.quiet_hist_pruning1,
+            } else .{
+                params.values.noisy_hist_pruning_lim,
+                params.values.noisy_hist_pruning0,
+                params.values.noisy_hist_pruning1,
+            };
+            if (lmr_d <= hp_lim and sm.score < hp0 + hp1 * d) {
+                mp.skipQuiets();
+                continue :move_loop;
+            }
+
             // futility pruning
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
