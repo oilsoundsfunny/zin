@@ -47,8 +47,13 @@ pub fn adjudicate(
         .win => .{ &self.win_adj, .gte },
     };
 
+    const line = data.line.constSlice();
+    if (line.len < cond.min_ply) {
+        return false;
+    }
+
     var i: usize = 0;
-    var iter = std.mem.reverseIterator(data.line.constSlice());
+    var iter = std.mem.reverseIterator(line);
     return loop: while (iter.next()) |sm| {
         i += if (i < cond.ply_num) 1 else break :loop true;
 
