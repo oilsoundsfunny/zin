@@ -639,28 +639,8 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
             }
         }
     } else if (sp.ptype() == .king) {
-        defer {
-            pos.popCastle(if (stm == .white) .wk else .bk);
-            pos.popCastle(if (stm == .white) .wq else .bq);
-        }
-
-        const ks, const kd = if (move.flag.isCastle()) castle: {
-            const right = move.flag.castle(stm) orelse unreachable;
-            const castle = pos.castles.getAssertContains(right);
-            break :castle .{ castle.ks, castle.kd };
-        } else .{ s, d };
-
-        const hms = switch (ks.file()) {
-            .file_a, .file_b, .file_c, .file_d => false,
-            else => true,
-        };
-        const hmd = switch (kd.file()) {
-            .file_a, .file_b, .file_c, .file_d => false,
-            else => true,
-        };
-        if (hms != hmd) {
-            self.finny_table.load(stm, perspective, pos);
-        }
+        pos.popCastle(if (stm == .white) .wk else .bk);
+        pos.popCastle(if (stm == .white) .wq else .bq);
     }
 
     if (dp != .none and dp.ptype() == .rook) {
