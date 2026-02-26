@@ -899,13 +899,14 @@ fn ab(
 
         const base_r = params.values.nmp_base_reduction;
         const depth_r = params.values.nmp_depth_mul * d;
-
-        const eval_diff = corr_eval - b;
-        const diff_scaled = @divTrunc(eval_diff, params.values.nmp_eval_diff_divisor);
-
-        const r: @TypeOf(d) = @divTrunc(base_r + depth_r, 256) +
-            @min(diff_scaled, params.values.nmp_max_eval_reduction) +
-            @intFromBool(improving);
+        const improving_r = params.values.nmp_improving_r * @intFromBool(improving);
+        const deval_r = blk: {
+            const diff = corr_eval - b;
+            const max_r = params.values.nmp_deval_max_r;
+            const mul = params.values.nmp_deval_mul;
+            break :blk @min(@divTrunc(diff * mul, 1024), max_r);
+        };
+        const r = @divTrunc(base_r + depth_r + deval_r + improving_r, 256);
 
         var s = null_search: {
             board.doNull();
@@ -990,7 +991,7 @@ fn ab(
             // futility pruning
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
-            const fp_margin = @divTrunc(sm.score, params.values.fp_hist_divisor) +
+            const fp_margin = @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
                 params.values.fp_margin1 * fp_d +
                 params.values.fp_margin0;
             if (fp_d <= params.values.fp_max_depth and
@@ -1021,9 +1022,9 @@ fn ab(
                 d * params.values.pvs_see_quiet_mul
             else noisy: {
                 const base = params.values.pvs_see_noisy_mul * d;
-                const div = params.values.pvs_see_capthist_div;
+                const mul = params.values.pvs_see_capthist_mul;
                 const max = params.values.pvs_see_max_capthist * d;
-                break :noisy base - std.math.clamp(@divTrunc(sm.score, div), -max, max);
+                break :noisy base - std.math.clamp(@divTrunc(sm.score * mul, 1024), -max, max);
             };
             if (!pos.see(.pruning, m, see_margin)) {
                 continue :move_loop;
