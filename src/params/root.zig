@@ -123,8 +123,9 @@ const tunables = blk: {
         .{ .name = "nmp_eval_margin", .value = 35, .min = 4, .max = 64, .c_end = 8.0 },
         .{ .name = "nmp_base_reduction", .value = 846, .min = 256, .max = 4096, .c_end = 128.0 },
         .{ .name = "nmp_depth_mul", .value = 90, .min = 32, .max = 512, .c_end = 16.0 },
-        .{ .name = "nmp_eval_diff_divisor", .value = 378, .min = 128, .max = 512, .c_end = 64.0 },
-        .{ .name = "nmp_max_eval_reduction", .value = 5, .min = 2, .max = 10, .c_end = 0.25 },
+        .{ .name = "nmp_improving_r", .value = 256, .min = 128, .max = 512, .c_end = 32.0 },
+        .{ .name = "nmp_deval_mul", .value = 694, .min = 512, .max = 2048, .c_end = 64.0 },
+        .{ .name = "nmp_deval_max_r", .value = 1280, .min = 512, .max = 2048, .c_end = 64.0 },
         .{ .name = "nmp_min_verif_depth", .value = 16, .min = 8, .max = 32, .c_end = 0.25 },
 
         .{ .name = "razoring_max_depth", .value = 7, .min = 3, .max = 14, .c_end = 0.25 },
@@ -133,7 +134,7 @@ const tunables = blk: {
         .{ .name = "fp_max_depth", .value = 8, .min = 4, .max = 16, .c_end = 0.25 },
         .{ .name = "fp_margin0", .value = 340, .min = 128, .max = 512, .c_end = 32.0 },
         .{ .name = "fp_margin1", .value = 136, .min = 128, .max = 512, .c_end = 32.0 },
-        .{ .name = "fp_hist_divisor", .value = 374, .min = 128, .max = 512, .c_end = 32.0 },
+        .{ .name = "fp_hist_mul", .value = 44, .min = 32, .max = 128, .c_end = 8.0 },
 
         .{ .name = "lmp_improving2", .value = 865, .min = 16, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmp_improving1", .value = 27, .min = -1024, .max = 1024, .c_end = 32.0 },
@@ -146,7 +147,7 @@ const tunables = blk: {
         .{ .name = "pvs_see_quiet_mul", .value = -78, .min = -128, .max = 128, .c_end = 16.0 },
         .{ .name = "pvs_see_noisy_mul", .value = -118, .min = -128, .max = 128, .c_end = 16.0 },
         .{ .name = "pvs_see_max_capthist", .value = 118, .min = 16, .max = 256, .c_end = 16.0 },
-        .{ .name = "pvs_see_capthist_div", .value = 32, .min = 16, .max = 64, .c_end = 8.0 },
+        .{ .name = "pvs_see_capthist_mul", .value = 32, .min = 16, .max = 64, .c_end = 8.0 },
 
         .{ .name = "quiet_hist_pruning_lim", .value = 3467, .min = 1024, .max = 8192, .c_end = 192.0 },
         .{ .name = "quiet_hist_pruning0", .value = 962, .min = -2048, .max = 1024, .c_end = 128.0 },
