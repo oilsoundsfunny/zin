@@ -116,18 +116,17 @@ fn readOpening(thread: *engine.Thread) ![]const u8 {
     return dupe;
 }
 
-fn writeData(writer: *std.Io.Writer, data: *const ViriFormat) !void {
-    try writer.writeAll(std.mem.asBytes(&data.head));
-    try writer.writeAll(std.mem.sliceAsBytes(data.line.constSlice()));
-}
-
-fn flushData(writer: *std.Io.Writer, thread: *engine.Thread) !void {
+fn writeData(thread: *engine.Thread, data: *const ViriFormat) !void {
     thread.pool.mtx.lock();
     defer thread.pool.mtx.unlock();
 
-    const sink = thread.pool.io.writer();
-    try sink.writeAll(writer.buffered());
-    _ = writer.consumeAll();
+    const writer = thread.pool.io.writer();
+    try writer.writeAll(std.mem.asBytes(&data.head));
+    try writer.writeAll(std.mem.sliceAsBytes(data.line.constSlice()));
+
+    if (writer.buffer.len - writer.buffered().len < 4096) {
+        try writer.flush();
+    }
 }
 
 pub fn datagen(thread: *engine.Thread) !void {
@@ -146,11 +145,6 @@ pub fn datagen(thread: *engine.Thread) !void {
     var played: usize = 0;
     var positions: usize = 0;
 
-    const page_size = std.heap.pageSize();
-    var buffer: [4096 * 16]u8 align(page_size) = undefined;
-    var writer = std.Io.Writer.fixed(buffer[0..]);
-    defer flushData(&writer, thread) catch std.debug.panic("failed to flush data", .{});
-
     loop: while (readOpening(thread)) |opening| {
         defer thread.pool.allocator.free(opening);
         thread.board.parseFen(opening) catch continue :loop;
@@ -161,28 +155,24 @@ pub fn datagen(thread: *engine.Thread) !void {
         while (played - played_fen < repeat and played < games) : (thread.board = board) {
             playRandom(thread) catch continue :loop;
             playOut(thread, &data) catch continue :loop;
-            writeData(&writer, &data) catch continue :loop;
+            writeData(thread, &data) catch continue :loop;
 
             played += 1;
-            if (played % 16 == 0) {
-                const bytes = writer.buffered().len;
-                positions += (bytes - 16 * @sizeOf(ViriFormat.Head)) / 4;
+            positions += data.line.constSlice().len -| 1;
 
+            if (played % 256 == 0 or played >= games) {
                 const ntime = thread.pool.timer.read();
                 const pps =
                     @as(f32, @floatFromInt(positions)) /
                     @as(f32, @floatFromInt(ntime)) *
                     std.time.ns_per_s;
 
-                flushData(&writer, thread) catch std.debug.panic("failed to flush data", .{});
                 std.log.info(
                     "thread {} played {} games cont. {} positions @ {} pps",
                     .{ i, played, positions, pps },
                 );
             }
-        }
-
-        if (played >= games) {
+        } else if (played >= games) {
             break :loop;
         }
     } else |err| switch (err) {
