@@ -591,7 +591,6 @@ pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
 
     const position = self.positions.last();
     try position.parseFen(fen);
-    self.finny_table = .init(position);
 }
 
 pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
@@ -601,7 +600,6 @@ pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) Fe
 
     const position = self.positions.last();
     try position.parseFenTokens(tokens);
-    self.finny_table = .init(position);
 }
 
 pub fn doMove(self: *Board, move: movegen.Move) void {

@@ -182,7 +182,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
 }
 
 fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
-    var board: Board = .{};
+    var board: Board = .{ .finny_table = pool.threads.items[0].board.finny_table };
     const frc = pool.threads.items[0].board.frc;
 
     defer pool.setBoard(&board, frc);

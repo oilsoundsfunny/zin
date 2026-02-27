@@ -30,7 +30,10 @@ fn playRandom(thread: *engine.Thread) !void {
     var ply: usize = 0;
     defer thread.board = board;
 
-    find_line: while (true) : ({ board = thread.board; ply = 0; }) {
+    find_line: while (true) : ({
+        board = thread.board;
+        ply = 0;
+    }) {
         while (ply <= random_moves) : (ply += 1) {
             const root_moves = engine.movegen.Move.Root.List.init(&board);
             const rms = root_moves.constSlice();

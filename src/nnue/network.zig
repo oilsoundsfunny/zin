@@ -13,18 +13,18 @@ const native_len = std.simd.suggestVectorLength(i16) orelse @compileError(":wilt
 const page_size = std.heap.pageSize();
 
 pub const Default = Network(.{
-    .input_buckets = .init(.{
+    .input_buckets = .{
         // zig fmt: off
-        .a8 = 3, .b8 = 3, .c8 = 3, .d8 = 3, .e8 = 3, .f8 = 3, .g8 = 3, .h8 = 3,
-        .a7 = 3, .b7 = 3, .c7 = 3, .d7 = 3, .e7 = 3, .f7 = 3, .g7 = 3, .h7 = 3,
-        .a6 = 3, .b6 = 3, .c6 = 3, .d6 = 3, .e6 = 3, .f6 = 3, .g6 = 3, .h6 = 3,
-        .a5 = 3, .b5 = 3, .c5 = 3, .d5 = 3, .e5 = 3, .f5 = 3, .g5 = 3, .h5 = 3,
-        .a4 = 2, .b4 = 2, .c4 = 2, .d4 = 2, .e4 = 2, .f4 = 2, .g4 = 2, .h4 = 2,
-        .a3 = 2, .b3 = 2, .c3 = 2, .d3 = 2, .e3 = 2, .f3 = 2, .g3 = 2, .h3 = 2,
-        .a2 = 0, .b2 = 0, .c2 = 1, .d2 = 1, .e2 = 1, .f2 = 1, .g2 = 0, .h2 = 0,
-        .a1 = 0, .b1 = 0, .c1 = 1, .d1 = 1, .e1 = 1, .f1 = 1, .g1 = 0, .h1 = 0,
+        0, 0, 1, 1,
+        2, 2, 2, 2,
+        3, 3, 3, 3,
+        3, 3, 3, 3,
+        4, 4, 5, 5,
+        4, 4, 5, 5,
+        4, 4, 5, 5,
+        4, 4, 5, 5,
         // zig fmt: on
-    }),
+    },
     .hl_size = 512,
     .output_buckets = 8,
     .qa = 255,
@@ -33,7 +33,7 @@ pub const Default = Network(.{
 });
 
 pub const Options = struct {
-    input_buckets: std.EnumArray(types.Square, usize),
+    input_buckets: [types.Square.num / 2]u8,
     hl_size: usize,
     output_buckets: usize,
     qa: i16,
@@ -76,9 +76,29 @@ pub fn Network(comptime opts: Options) type {
 
         const Self = @This();
 
-        pub const buckets = opts.input_buckets;
+        pub const buckets = blk: {
+            const seq: [types.Square.num / 2]types.Square = .{
+                // zig fmt: off
+                .a1, .b1, .c1, .d1,
+                .a2, .b2, .c2, .d2,
+                .a3, .b3, .c3, .d3,
+                .a4, .b4, .c4, .d4,
+                .a5, .b5, .c5, .d5,
+                .a6, .b6, .c6, .d6,
+                .a7, .b7, .c7, .d7,
+                .a8, .b8, .c8, .d8,
+                // zig fmt: on
+            };
+            var a: std.EnumArray(types.Square, u8) = .initFill(ibn);
+            for (seq, opts.input_buckets) |s, b| {
+                a.set(s, b);
+                a.set(s.flipFile(), b);
+            }
+            break :blk a;
+        };
+
         pub const inp = types.Piece.num * types.Square.num;
-        pub const ibn = std.mem.max(usize, buckets.values[0..]) + 1;
+        pub const ibn = std.mem.max(u8, opts.input_buckets[0..]) + 1;
         pub const l0s = if (opts.hl_size % 32 == 0)
             opts.hl_size
         else
@@ -88,9 +108,9 @@ pub fn Network(comptime opts: Options) type {
             else => @compileError("unsupported output_buckets"),
         };
 
-        pub const qa = 255;
-        pub const qb = 64;
-        pub const scale = 360;
+        pub const qa = opts.qa;
+        pub const qb = opts.qb;
+        pub const scale = opts.scale;
 
         pub fn infer(
             self: *const Self,

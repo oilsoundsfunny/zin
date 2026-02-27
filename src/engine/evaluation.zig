@@ -107,6 +107,7 @@ pub const score = struct {
 pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
     pool.io.deinit(pool.allocator);
     pool.io = try types.IO.init(pool.allocator, path, 65536, null, 65536);
+    pool.timer.reset();
 
     var board: Board = .{};
     const pos = board.positions.last();
@@ -133,7 +134,18 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
         min = @min(min, eval);
 
         if (cnt % 1024 == 0) {
-            try pool.io.writer().print("processed {d} positions\n", .{cnt});
+            const fcnt: f64 = @floatFromInt(cnt);
+            const fabs: f64 = @floatFromInt(abs_sum);
+            const time: f64 = @floatFromInt(pool.timer.read());
+
+            const pps = fcnt / time * std.time.ns_per_s;
+            const avg = fabs / fcnt;
+            const scale = 847.5234212875366 / avg * nnue.network.Default.scale;
+
+            try pool.io.writer().print(
+                "processed {} positions @ {} pps, abs mean {}, scale {}\n",
+                .{ cnt, pps, avg, scale },
+            );
             try pool.io.writer().flush();
         }
     } else |err| switch (err) {
@@ -153,13 +165,13 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
     const variance = fsq_sum / fcnt - mean * mean;
     const stddev = @sqrt(variance);
 
-    try pool.io.writer().print("    mean: {d}\n", .{mean});
+    try pool.io.writer().print("mean:     {d}\n", .{mean});
     try pool.io.writer().print("abs mean: {d}\n", .{abs_mean});
-    try pool.io.writer().print("  stddev: {d}\n", .{stddev});
-    try pool.io.writer().print("     max: {d}\n", .{fmax});
-    try pool.io.writer().print("     min: {d}\n", .{fmin});
+    try pool.io.writer().print("stddev:   {d}\n", .{stddev});
+    try pool.io.writer().print("max:      {d}\n", .{fmax});
+    try pool.io.writer().print("min:      {d}\n", .{fmin});
 
-    const scale = 1087.1360293824707 / abs_mean * 400;
-    try pool.io.writer().print("   scale: {d}\n", .{scale});
+    const scale = 847.5234212875366 / abs_mean * nnue.network.Default.scale;
+    try pool.io.writer().print("scale:    {d}\n", .{scale});
     try pool.io.writer().flush();
 }
