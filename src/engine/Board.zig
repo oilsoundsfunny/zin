@@ -208,18 +208,6 @@ pub const Position = struct {
         return if (ka != .none) ka else .full;
     }
 
-    fn parseFen(self: *Position, fen: []const u8) FenError!void {
-        var tokens = std.mem.tokenizeAny(u8, fen, &std.ascii.whitespace);
-        for (0..6) |_| {
-            if (tokens.next() == null) {
-                return error.InvalidFen;
-            }
-        }
-
-        tokens.reset();
-        return self.parseFenTokens(&tokens);
-    }
-
     fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
         const backup = self.*;
         self.* = .{};
@@ -585,12 +573,8 @@ pub const Position = struct {
 };
 
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
-    const backup = self.*;
-    errdefer self.* = backup;
-    self.* = .{};
-
-    const position = self.positions.last();
-    try position.parseFen(fen);
+    var tokens = std.mem.tokenizeAny(u8, fen, &std.ascii.whitespace);
+    return self.parseFenTokens(&tokens);
 }
 
 pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
@@ -598,8 +582,10 @@ pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) Fe
     errdefer self.* = backup;
     self.* = .{};
 
+    const perspective = self.perspectives.last();
     const position = self.positions.last();
     try position.parseFenTokens(tokens);
+    perspective.dirty = .initFill(true);
 }
 
 pub fn doMove(self: *Board, move: movegen.Move) void {

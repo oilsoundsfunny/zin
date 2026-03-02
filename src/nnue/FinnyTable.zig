@@ -16,13 +16,6 @@ const Occupancy = struct {
 
     fn init(pos: *const engine.Board.Position, c: types.Color) Occupancy {
         var occ: Occupancy = .{ .by_ptype = pos.by_ptype, .by_color = pos.by_color };
-        if (c == .black) {
-            std.mem.swap(
-                types.Square.Set,
-                occ.by_color.getPtr(.white),
-                occ.by_color.getPtr(.black),
-            );
-        }
 
         const king: Accumulator.Feature = .init(.init(.king, c), pos.kingSquare(c));
         for (types.Ptype.values) |pt| {
@@ -34,6 +27,11 @@ const Occupancy = struct {
             p.* = king.transform(p.*);
         }
 
+        if (c == .black) {
+            const wo = occ.by_color.getPtr(.white);
+            const bo = occ.by_color.getPtr(.black);
+            std.mem.swap(types.Square.Set, wo, bo);
+        }
         return occ;
     }
 
@@ -43,38 +41,6 @@ const Occupancy = struct {
         return .bwa(t, c);
     }
 };
-
-pub fn init(pos: *const engine.Board.Position) FinnyTable {
-    const kings: std.EnumArray(types.Color, Accumulator.Feature) = .init(.{
-        .white = .init(.w_king, pos.kingSquare(.white)),
-        .black = .init(.b_king, pos.kingSquare(.black)),
-    });
-    const buckets: std.EnumArray(types.Color, usize) = .init(.{
-        .white = kings.get(.white).bucket(),
-        .black = kings.get(.black).bucket(),
-    });
-
-    var arrays: std.EnumArray(types.Color, types.BoundedArray(usize, null, 32)) = .initFill(.{});
-    var finny_table: FinnyTable = .{};
-
-    for (types.Color.values) |c| {
-        const bucket = buckets.get(c);
-        const acc = &finny_table.accs.getPtr(c)[bucket];
-        const occ = &finny_table.occs.getPtr(c)[bucket];
-
-        occ.* = .init(pos, c);
-        for (types.Piece.values) |p| {
-            var b = occ.pieceOcc(p);
-            while (b.lowSquare()) |s| : (b.popLow()) {
-                const ft: Accumulator.Feature = .{ .piece = p, .square = s };
-                arrays.getPtr(c).pushUnchecked(ft.index());
-            }
-        }
-        acc.update(&network.verbatim.l0w[bucket], arrays.getPtrConst(c), null);
-    }
-
-    return finny_table;
-}
 
 pub fn load(
     self: *FinnyTable,

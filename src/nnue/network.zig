@@ -29,7 +29,7 @@ pub const Default = Network(.{
     .output_buckets = 8,
     .qa = 255,
     .qb = 64,
-    .scale = 360,
+    .scale = 395,
 });
 
 pub const Options = struct {
@@ -99,10 +99,10 @@ pub fn Network(comptime opts: Options) type {
 
         pub const inp = types.Piece.num * types.Square.num;
         pub const ibn = std.mem.max(u8, opts.input_buckets[0..]) + 1;
-        pub const l0s = if (opts.hl_size % 32 == 0)
-            opts.hl_size
-        else
-            @compileError("unsupported hl_size");
+        pub const l0s = switch (opts.hl_size % 32) {
+            0 => opts.hl_size,
+            else => @compileError("unsupported hl_size"),
+        };
         pub const obn = switch (opts.output_buckets) {
             1, 8 => |n| n,
             else => @compileError("unsupported output_buckets"),

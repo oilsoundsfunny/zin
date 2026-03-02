@@ -138,12 +138,12 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
             const fabs: f64 = @floatFromInt(abs_sum);
             const time: f64 = @floatFromInt(pool.timer.read());
 
-            const pps = fcnt / time * std.time.ns_per_s;
             const avg = fabs / fcnt;
-            const scale = 847.5234212875366 / avg * nnue.network.Default.scale;
+            const pps = fcnt / time * std.time.ns_per_s;
+            const scale = 771.0069284439087 / avg * nnue.network.Default.scale;
 
             try pool.io.writer().print(
-                "processed {} positions @ {} pps, abs mean {}, scale {}\n",
+                "processed {} positions @ {:.2} pps, abs mean {:.2}, scale {:.2}\n",
                 .{ cnt, pps, avg, scale },
             );
             try pool.io.writer().flush();
@@ -165,13 +165,13 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
     const variance = fsq_sum / fcnt - mean * mean;
     const stddev = @sqrt(variance);
 
-    try pool.io.writer().print("mean:     {d}\n", .{mean});
-    try pool.io.writer().print("abs mean: {d}\n", .{abs_mean});
-    try pool.io.writer().print("stddev:   {d}\n", .{stddev});
-    try pool.io.writer().print("max:      {d}\n", .{fmax});
-    try pool.io.writer().print("min:      {d}\n", .{fmin});
+    try pool.io.writer().print("mean:     {}\n", .{mean});
+    try pool.io.writer().print("abs mean: {}\n", .{abs_mean});
+    try pool.io.writer().print("stddev:   {}\n", .{stddev});
+    try pool.io.writer().print("max:      {}\n", .{fmax});
+    try pool.io.writer().print("min:      {}\n", .{fmin});
 
-    const scale = 847.5234212875366 / abs_mean * nnue.network.Default.scale;
-    try pool.io.writer().print("scale:    {d}\n", .{scale});
+    const scale = 771.0069284439087 / abs_mean * nnue.network.Default.scale;
+    try pool.io.writer().print("scale:    {}\n", .{scale});
     try pool.io.writer().flush();
 }
