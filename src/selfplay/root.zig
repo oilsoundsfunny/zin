@@ -158,7 +158,7 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
     const data = options.data orelse std.process.fatal("missing arg '--data'", .{});
 
     pool.io.deinit(pool.allocator);
-    pool.io = try .init(pool.allocator, book, 65536, data, 65536 * threads * 4);
+    pool.io = try .init(pool.allocator, book, 65536, data, 65536);
 
     pool.limits.depth = options.depth;
     pool.limits.soft_nodes = options.soft_nodes orelse 5000;

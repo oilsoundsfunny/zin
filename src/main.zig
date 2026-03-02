@@ -19,7 +19,8 @@ const help =
     \\            --book [path]               epd opening book to read from. must be specified.
     \\            --data [path]               data file to write to. must be specified.
     \\            --games [num]               number of games to be played.
-    \\            --random-moves [num]        number of random moves to play at the start of each game.
+    \\            --random-moves [num]        number of random moves to play
+    \\                                        at the start of each game.
     \\                                        defaults to 8.
     \\            --depth [num]               max depth to search.
     \\            --soft-nodes [num]          number of soft nodes to search. defaults to 5000.
@@ -31,16 +32,18 @@ const help =
     \\                                        defaults to 3.
     \\            --win-adj-ply-num [num]     number of ply to consider when adjudicating.
     \\                                        defaults to 3.
-    \\                                        must not be greater than the number specified by --win-adj-min-ply.
-    \\            --win-adj-score [num]       threshold used in adjudication. defaults to 400.
+    \\                                        must not be greater than
+    \\                                        the number specified by --win-adj-min-ply.
+    \\            --win-adj-score [num]       win threshold used in adjudication. defaults to 400.
     \\            --draw-adj-min-ply [num]    number of ply to play before trying to adjudicate.
     \\                                        defaults to 40.
     \\            --draw-adj-ply-num [num]    number of ply to consider when adjudicating.
     \\                                        defaults to 8.
-    \\                                        must not be greater than the number specified by --draw-adj-min-ply.
-    \\            --draw-adj-score [num]      threshold used in adjudication. defaults to 25.
+    \\                                        must not be greater than
+    \\                                        the number specified by --draw-adj-min-ply.
+    \\            --draw-adj-score [num]      draw threshold used in adjudication. defaults to 25.
     \\    eval-stats [path]:
-    \\        print evaluation stats on positions listed in $path. must be an epd file.
+    \\        print evaluation stats on positions listed in $path.
     \\
     \\    help:
     \\        print this message and exit.
