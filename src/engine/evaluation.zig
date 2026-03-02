@@ -140,7 +140,7 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
 
             const avg = fabs / fcnt;
             const pps = fcnt / time * std.time.ns_per_s;
-            const scale = 771.0069284439087 / avg * nnue.network.Default.scale;
+            const scale = 846.1856107711792 / avg * 360.0;
 
             try pool.io.writer().print(
                 "processed {} positions @ {:.2} pps, abs mean {:.2}, scale {:.2}\n",
@@ -171,7 +171,7 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
     try pool.io.writer().print("max:      {}\n", .{fmax});
     try pool.io.writer().print("min:      {}\n", .{fmin});
 
-    const scale = 771.0069284439087 / abs_mean * nnue.network.Default.scale;
+    const scale = 846.1856107711792 / abs_mean * 360.0;
     try pool.io.writer().print("scale:    {}\n", .{scale});
     try pool.io.writer().flush();
 }

@@ -29,7 +29,7 @@ pub const Default = Network(.{
     .output_buckets = 8,
     .qa = 255,
     .qb = 64,
-    .scale = 395,
+    .scale = 256,
 });
 
 pub const Options = struct {
