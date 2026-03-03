@@ -3,7 +3,7 @@
 ## features
 - uci-compatible
 - evaluation:
-	- (768hm->384pw)x2->1x8 neural net
+	- (768hmx6->512pw)x2->1x8 neural net
 	- fused+lazy updates
 - search:
 	- iterative deepening
@@ -13,6 +13,7 @@
 	- reverse futility pruning
 	- null move pruning
 	- razoring
+	- quiet / noisy history pruning
 	- quiet / qsearch futility pruning
 	- late move pruning / reduction
 	- see pruning
@@ -27,5 +28,5 @@ $ cd zin
 $ zig build --prefix PREFIX --release=fast
 ```
 
-the binary will be at $PREFIX/bin/zin
+the program is output as $PREFIX/bin/zin
 

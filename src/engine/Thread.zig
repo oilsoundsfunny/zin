@@ -974,6 +974,8 @@ fn ab(
 
         if (!is_root and best.score > evaluation.score.lose) {
             // history pruning
+            // 10.0+0.1: 16.91 +- 8.41
+            // 40.0+0.4: 3.77 +- 8.30
             const hp_lim, const hp0, const hp1 = if (is_quiet) .{
                 params.values.quiet_hist_pruning_lim,
                 params.values.quiet_hist_pruning0,
