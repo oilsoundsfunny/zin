@@ -341,7 +341,7 @@ pub const Limits = struct {
             const im: f32 = @floatFromInt(params.values.base_incr_mul);
             const tm: f32 = @floatFromInt(params.values.base_time_mul);
 
-            const mt: u64 = @intFromFloat(time * tm * 0.01 + incr * im * 0.01);
+            const mt: u64 = @intFromFloat(time * tm * 0.001 + incr * im * 0.001);
             break :blk mt -| overhead;
         };
         const min_time = @min(from_movetime, from_clock);
