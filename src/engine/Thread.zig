@@ -703,7 +703,7 @@ fn asp(self: *Thread) void {
     const d = self.depth;
     var a: @TypeOf(pvs) = evaluation.score.mated;
     var b: @TypeOf(pvs) = evaluation.score.mate;
-    if (d >= params.values.asp_min_depth) {
+    if (d >= 7) {
         a = std.math.clamp(pvs - w, evaluation.score.mated, evaluation.score.mate);
         b = std.math.clamp(pvs + w, evaluation.score.mated, evaluation.score.mate);
     }
@@ -797,42 +797,41 @@ fn ab(
 
     const key = pos.key;
     const is_checked = pos.isChecked();
+    const is_singular = !pos.excluded.isNone();
 
-    var tte: transposition.Entry = .{};
     const tt = self.pool.tt;
-    const tth = tt.read(key, &tte);
+    const tte, const tth = if (!is_singular) blk: {
+        var entry: transposition.Entry = .{};
+        const hit = tt.read(key, &entry);
+        break :blk .{ entry, hit };
+    } else .{ @as(transposition.Entry, .{}), false };
 
     const was_pv = tth and tte.was_pv;
     const ttscore = evaluation.score.fromTT(tte.score, ply);
 
-    if (!is_pv and tth and tte.shouldTrust(a, b, d)) {
+    if (!is_pv and !is_singular and tth and tte.shouldTrust(a, b, d)) {
         return ttscore;
     }
 
-    const has_tteval = tth and
-        tte.eval > evaluation.score.lose and
-        tte.eval < evaluation.score.win;
-    const stat_eval = if (is_checked)
-        evaluation.score.none
-    else if (has_tteval)
-        tte.eval
-    else
-        board.evaluate();
+    if (!is_checked and !is_singular) {
+        const has_tteval = tth and
+            tte.eval > evaluation.score.lose and
+            tte.eval < evaluation.score.win;
+        const stat_eval = if (has_tteval) tte.eval else board.evaluate();
 
-    const use_ttscore = tth and
-        ttscore > evaluation.score.lose and
-        ttscore < evaluation.score.win and
-        !(tte.flag == .upperbound and ttscore > stat_eval) and
-        !(tte.flag == .lowerbound and ttscore <= stat_eval);
-    const corr_eval = if (use_ttscore)
-        ttscore
-    else if (is_checked)
-        evaluation.score.none
-    else
-        self.correctedEval(stat_eval);
+        const is_ttscore_correct = tth and
+            ttscore > evaluation.score.lose and
+            ttscore < evaluation.score.win and
+            !(tte.flag == .upperbound and ttscore > stat_eval) and
+            !(tte.flag == .lowerbound and ttscore <= stat_eval);
+        const corr_eval = if (is_ttscore_correct) ttscore else self.correctedEval(stat_eval);
 
-    pos.stat_eval = stat_eval;
-    pos.corr_eval = corr_eval;
+        pos.stat_eval = stat_eval;
+        pos.corr_eval = corr_eval;
+    }
+
+    const stat_eval = pos.stat_eval;
+    const corr_eval = pos.corr_eval;
 
     // improving heuristic(s)
     // 10.0+0.1: 21.29 +- 9.45
@@ -857,14 +856,15 @@ fn ab(
     // internal iterative reduction (iir)
     // 10.0+0.1: 84.25 +- 20.51
     const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
-    if (node.hasLower() and depth >= params.values.iir_min_depth and !has_ttm) {
+    if (node.hasLower() and depth >= 3 and !has_ttm) {
         d -= 1;
     }
 
     // reverse futility pruning (rfp)
     if (!is_pv and
+        !is_singular and
         !is_checked and
-        d <= params.values.rfp_max_depth and
+        d <= 7 and
         corr_eval >= b + params.values.rfp_min_margin)
     rfp: {
         var margin = params.values.rfp_depth2 * d * d +
@@ -884,10 +884,11 @@ fn ab(
 
     // null move pruning
     if (!is_pv and
+        !is_singular and
         !is_checked and
-        d >= params.values.nmp_min_depth and
+        d >= 2 and
         b > evaluation.score.lose and
-        corr_eval >= b + params.values.nmp_eval_margin and
+        b <= corr_eval - params.values.nmp_eval_margin and
         !self.nmp_verif)
     nmp: {
         const occ = pos.bothOcc();
@@ -920,7 +921,7 @@ fn ab(
                 s = b;
             }
 
-            const verified = d < params.values.nmp_min_verif_depth or verif_search: {
+            const verified = d < 16 or verif_search: {
                 self.nmp_verif = true;
                 defer self.nmp_verif = false;
 
@@ -935,9 +936,10 @@ fn ab(
 
     // razoring
     if (!is_pv and
+        !is_singular and
         !is_checked and
-        d <= params.values.razoring_max_depth and
-        corr_eval + params.values.razoring_depth_mul * d <= a)
+        d <= 7 and
+        d * params.values.razoring_mul + corr_eval <= a)
     {
         const rs = self.qs(ply + 1, a, b);
         if (rs <= a) {
@@ -954,14 +956,14 @@ fn ab(
     var searched: usize = 0;
     var bad_noisy_moves: movegen.Move.List = .{};
     var bad_quiet_moves: movegen.Move.List = .{};
-    var mp = movegen.Picker.init(self, tte.move);
+    var mp = movegen.Picker.init(self, if (is_singular) pos.excluded else tte.move);
 
     const is_ttm_noisy = !mp.ttm.isNone() and mp.ttm.flag.isNoisy();
     const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
 
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
-        if (!pos.isMoveLegal(m)) {
+        if (m != mp.ttm and !pos.isMoveLegal(m)) {
             continue :move_loop;
         }
 
@@ -996,7 +998,7 @@ fn ab(
             const fp_margin = @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
                 params.values.fp_margin1 * fp_d +
                 params.values.fp_margin0;
-            if (fp_d <= params.values.fp_max_depth and
+            if (fp_d <= 8 and
                 is_quiet and
                 !is_checked and
                 a < evaluation.score.win and
@@ -1033,8 +1035,44 @@ fn ab(
             }
         }
 
-        var recur_d = d - 1;
+        var e: Depth = 0;
         var r: Depth = 0;
+
+        if (!is_root and
+            m == mp.ttm and
+            d >= 6 and
+            d <= tte.depth + 3 and
+            tte.flag != .upperbound)
+        {
+            pos.stat_eval = corr_eval;
+            pos.excluded = m;
+            defer {
+                pos.stat_eval = stat_eval;
+                pos.excluded = .{};
+            }
+
+            const bmul = params.values.se_bmul -
+                params.values.se_bmul_pv * @intFromBool(is_pv) +
+                params.values.se_bmul_was_pv * @intFromBool(was_pv);
+            const raw_sb = @divTrunc(ttscore * 1024 - d * bmul, 1024);
+            const raw_sd = params.values.se_d1 * d + params.values.se_d0;
+
+            const sb = @max(raw_sb, evaluation.score.lose + 1);
+            const sd = @divTrunc(raw_sd, 1024);
+            const se_score = self.ab(node, ply, sb - 1, sb, sd);
+
+            if (se_score < sb) {
+                e += 1;
+            } else if (sb >= b) {
+                const min = evaluation.score.lose + 1;
+                const max = evaluation.score.win - 1;
+                return std.math.clamp(sb, min, max);
+            } else if (node == .lowerbound) {
+                e -= 3;
+            } else if (ttscore >= b) {
+                e -= 2;
+            }
+        }
 
         const s = recur: {
             board.doMove(m);
@@ -1043,19 +1081,23 @@ fn ab(
             defer board.undoMove();
             defer searched += 1;
 
+            var recur_d = d + e - 1;
             var score: @TypeOf(a, b) = evaluation.score.none;
+
             if (is_pv and searched == 0) {
                 score = -self.ab(.exact, ply + 1, -b, -a, recur_d);
                 break :recur score;
             }
 
-            const is_late = searched >
-                @as(usize, @intFromBool(is_pv)) +
-                    @as(usize, @intFromBool(is_root)) +
-                    @as(usize, @intFromBool(is_noisy)) +
-                    @as(usize, @intFromBool(mp.ttm.isNone()));
+            const is_late = blk: {
+                var rhs: usize = @intFromBool(is_pv);
+                rhs += @intFromBool(is_root);
+                rhs += @intFromBool(is_noisy);
+                rhs += @intFromBool(mp.ttm.isNone());
+                break :blk searched > 1 and searched > rhs;
+            };
 
-            score = if (searched > 1 and is_late and d >= params.values.lmr_min_depth) reduced: {
+            score = if (is_late and d >= 3) reduced: {
                 // late move reduction (lmr)
                 // 10.0+0.1: 48.29 +- 15.89
                 r += base_lmr;
@@ -1150,13 +1192,15 @@ fn ab(
 
     if (searched == 0) {
         return if (is_checked) lose else draw;
+    } else if (is_singular) {
+        return best.score;
     }
 
     if (flag == .lowerbound) {
         self.updateHist(d, best.move, bad_noisy_moves.constSlice(), bad_quiet_moves.constSlice());
     }
 
-    tte = .{
+    tt.write(key, .{
         .was_pv = was_pv or flag == .exact,
         .flag = flag,
         .age = @truncate(tt.age),
@@ -1165,8 +1209,7 @@ fn ab(
         .eval = @intCast(stat_eval),
         .score = @intCast(evaluation.score.toTT(best.score, ply)),
         .move = best.move,
-    };
-    tt.write(key, tte);
+    });
 
     if (!is_checked and
         !best.move.flag.isNoisy() and

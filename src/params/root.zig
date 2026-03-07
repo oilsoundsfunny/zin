@@ -85,8 +85,8 @@ const tunables = blk: {
     const zon = @import("spsa.zig.zon");
     const Zon = @TypeOf(zon);
 
-    const fields = std.meta.fields(Zon);
-    var tbl: [fields.len]Tunable = .{
+    // zig fmt: off
+    var tbl = [_]Tunable {
         .{ .name = "base_lmr_noisy1", .value = 20 },
         .{ .name = "base_lmr_noisy0", .value = 326 },
         .{ .name = "base_lmr_quiet1", .value = 713 },
@@ -127,7 +127,6 @@ const tunables = blk: {
         .{ .name = "corr_major_update_w", .value = 2523 },
         .{ .name = "corr_nonpawn_update_w", .value = 1931 },
 
-        .{ .name = "asp_min_depth", .value = 7, .min = 3, .max = 14, .c_end = 0.25 },
         .{ .name = "asp_window", .value = 16 },
         .{ .name = "asp_window_mul", .value = 158 },
 
@@ -139,29 +138,22 @@ const tunables = blk: {
         .{ .name = "tt_lowerbound_w", .value = 122 },
         .{ .name = "tt_move_w", .value = 342 },
 
-        .{ .name = "iir_min_depth", .value = 3, .min = 1, .max = 6, .c_end = 0.25 },
-
         .{ .name = "rfp_min_margin", .value = 13 },
-        .{ .name = "rfp_max_depth", .value = 7, .min = 3, .max = 14, .c_end = 0.25 },
         .{ .name = "rfp_depth2", .value = 1569 },
         .{ .name = "rfp_depth1", .value = 83220 },
         .{ .name = "rfp_depth0", .value = 9962 },
         .{ .name = "rfp_ntm_worsening", .value = 26 },
         .{ .name = "rfp_fail_firm", .value = 998 },
 
-        .{ .name = "nmp_min_depth", .value = 2, .min = 1, .max = 4, .c_end = 0.25 },
         .{ .name = "nmp_eval_margin", .value = 35 },
         .{ .name = "nmp_base_reduction", .value = 846 },
         .{ .name = "nmp_depth_mul", .value = 90 },
         .{ .name = "nmp_improving_r", .value = 256 },
         .{ .name = "nmp_deval_mul", .value = 694 },
         .{ .name = "nmp_deval_max_r", .value = 1280 },
-        .{ .name = "nmp_min_verif_depth", .value = 16, .min = 8, .max = 32, .c_end = 0.25 },
 
-        .{ .name = "razoring_max_depth", .value = 7, .min = 3, .max = 14, .c_end = 0.25 },
-        .{ .name = "razoring_depth_mul", .value = 439 },
+        .{ .name = "razoring_mul", .value = 439 },
 
-        .{ .name = "fp_max_depth", .value = 8, .min = 4, .max = 16, .c_end = 0.25 },
         .{ .name = "fp_margin0", .value = 340 },
         .{ .name = "fp_margin1", .value = 136 },
         .{ .name = "fp_hist_mul", .value = 44 },
@@ -187,7 +179,12 @@ const tunables = blk: {
         .{ .name = "noisy_hist_pruning0", .value = 869 },
         .{ .name = "noisy_hist_pruning1", .value = -2919 },
 
-        .{ .name = "lmr_min_depth", .value = 3, .min = 1, .max = 6, .c_end = 0.25 },
+        .{ .name = "se_bmul", .value = 491 },
+        .{ .name = "se_bmul_pv", .value = 529 },
+        .{ .name = "se_bmul_was_pv", .value = 465 },
+        .{ .name = "se_d1", .value = 537 },
+        .{ .name = "se_d0", .value = 924 },
+
         .{ .name = "lmr_non_improving", .value = 737 },
         .{ .name = "lmr_cutnode", .value = 1843 },
         .{ .name = "lmr_noisy_ttm", .value = 1236 },
@@ -204,10 +201,13 @@ const tunables = blk: {
 
         .{ .name = "qs_fp_margin", .value = 51 },
     };
+    // zig fmt: on
 
     for (tbl[0..]) |*tunable| {
         const name = tunable.name;
-        tunable.value = @field(zon, name);
+        if (@hasField(Zon, name)) {
+            tunable.value = @field(zon, name);
+        }
     }
 
     break :blk tbl;

@@ -82,6 +82,7 @@ pub const Position = struct {
     corr_eval: evaluation.score.Int = evaluation.score.none,
     stat_eval: evaluation.score.Int = evaluation.score.none,
     pv: movegen.Move.Root = .{},
+    excluded: movegen.Move = .{},
 
     pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
@@ -642,6 +643,7 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
     pos.stm = stm.flip();
     pos.checks = pos.genCheckMask();
     pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
+    pos.excluded = .{};
 }
 
 pub fn doNull(self: *Board) void {
@@ -660,6 +662,7 @@ pub fn doNull(self: *Board) void {
     pos.stm = pos.stm.flip();
     pos.checks = .full;
     pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
+    pos.excluded = .{};
 }
 
 pub fn undoMove(self: *Board) void {
