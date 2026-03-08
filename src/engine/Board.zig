@@ -603,6 +603,7 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
     pos.en_pas = null;
+    pos.excluded = .{};
     pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
 
     const perspective = self.perspectives.addOneUnchecked();
@@ -657,12 +658,12 @@ pub fn doNull(self: *Board) void {
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).*;
     pos.en_pas = null;
+    pos.excluded = .{};
     pos.rule50 = 0;
 
     pos.stm = pos.stm.flip();
     pos.checks = .full;
     pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
-    pos.excluded = .{};
 }
 
 pub fn undoMove(self: *Board) void {

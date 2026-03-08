@@ -956,18 +956,18 @@ fn ab(
     var searched: usize = 0;
     var bad_noisy_moves: movegen.Move.List = .{};
     var bad_quiet_moves: movegen.Move.List = .{};
-    var mp = movegen.Picker.init(self, tte.move);
+    var mp = movegen.Picker.init(self, if (is_singular) pos.excluded else tte.move);
 
     const is_ttm_noisy = !mp.ttm.isNone() and mp.ttm.flag.isNoisy();
     const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
 
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
-        if (m != mp.ttm and !pos.isMoveLegal(m)) {
+        const is_ttm = m == mp.ttm;
+        if (!is_ttm and !pos.isMoveLegal(m)) {
             continue :move_loop;
         }
 
-        const is_ttm = m == mp.ttm;
         const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
         const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
 
@@ -1044,12 +1044,8 @@ fn ab(
             d <= tte.depth + 3 and
             tte.flag != .upperbound)
         {
-            pos.stat_eval = corr_eval;
             pos.excluded = m;
-            defer {
-                pos.stat_eval = stat_eval;
-                pos.excluded = .{};
-            }
+            defer pos.excluded = .{};
 
             const bmul = params.values.se_bmul -
                 params.values.se_bmul_pv * @intFromBool(is_pv) +
@@ -1190,28 +1186,29 @@ fn ab(
         bad_moves.array.pushUnchecked(m);
     }
 
-    if (searched == 0) {
+    if (!is_singular and searched == 0) {
         return if (is_checked) lose else draw;
-    } else if (is_singular) {
-        return best.score;
     }
 
     if (flag == .lowerbound) {
         self.updateHist(d, best.move, bad_noisy_moves.constSlice(), bad_quiet_moves.constSlice());
     }
 
-    tt.write(key, .{
-        .was_pv = was_pv or flag == .exact,
-        .flag = flag,
-        .age = @truncate(tt.age),
-        .depth = @intCast(depth),
-        .key = @truncate(key),
-        .eval = @intCast(stat_eval),
-        .score = @intCast(evaluation.score.toTT(best.score, ply)),
-        .move = best.move,
-    });
+    if (!is_singular) {
+        tt.write(key, .{
+            .was_pv = was_pv or flag == .exact,
+            .flag = flag,
+            .age = @truncate(tt.age),
+            .depth = @intCast(depth),
+            .key = @truncate(key),
+            .eval = @intCast(stat_eval),
+            .score = @intCast(evaluation.score.toTT(best.score, ply)),
+            .move = best.move,
+        });
+    }
 
     if (!is_checked and
+        !is_singular and
         !best.move.flag.isNoisy() and
         !(flag == .upperbound and best.score > corr_eval) and
         !(flag == .lowerbound and best.score < corr_eval))

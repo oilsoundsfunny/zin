@@ -595,9 +595,11 @@ pub const Picker = struct {
             .stage = .gen_noisy,
         };
 
-        if (!ttm.isNone() and pos.isMovePseudoLegal(ttm)) {
+        const is_excluded = !ttm.isNone() and ttm == mp.excluded;
+        const is_legal = !ttm.isNone() and pos.isMovePseudoLegal(ttm) and pos.isMoveLegal(ttm);
+        if (is_excluded or is_legal) {
             mp.ttm = ttm;
-            mp.stage = if (mp.excluded.isNone()) .ttm else .gen_noisy;
+            mp.stage = if (!is_excluded) .ttm else .gen_noisy;
         }
 
         return mp;
@@ -607,6 +609,7 @@ pub const Picker = struct {
         if (self.stage == .ttm) {
             self.stage = .gen_noisy;
             if (!self.ttm.isNone()) {
+                std.debug.assert(self.ttm != self.excluded);
                 return .{
                     .move = self.ttm,
                     .score = self.scoreQuiet(self.ttm),
