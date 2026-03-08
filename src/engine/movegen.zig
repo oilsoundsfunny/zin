@@ -476,6 +476,7 @@ pub const Picker = struct {
     board: *const Board,
     thread: *const Thread,
 
+    excluded: Move,
     ttm: Move = .{},
     stage: Stage,
     skip_quiets: bool,
@@ -522,6 +523,10 @@ pub const Picker = struct {
         }
     };
 
+    fn shouldSkip(self: *const Picker, m: Move) bool {
+        return m == self.ttm or m == self.excluded;
+    }
+
     fn pick(self: *Picker) ?Move.Scored {
         const num, const slice = switch (self.stage) {
             .good_noisy => |*n| .{ n, self.noisy_list.slice() },
@@ -542,8 +547,7 @@ pub const Picker = struct {
             std.mem.swap(Move.Scored, &slice[first], found);
 
             const sm = slice[first];
-            const m = sm.move;
-            break :blk if (!m.isNone() and m != self.ttm) sm else special: {
+            break :blk if (!self.shouldSkip(sm.move)) sm else special: {
                 @branchHint(.unlikely);
                 break :special self.pick();
             };
@@ -551,7 +555,7 @@ pub const Picker = struct {
     }
 
     fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
-        return if (move == self.ttm) evaluation.score.mate else blk: {
+        return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
             const mvv = if (move.flag == .en_passant)
                 params.values.see_ordering_pawn
             else switch (self.board.positions.last().getSquare(move.dst).ptype()) {
@@ -569,7 +573,7 @@ pub const Picker = struct {
     }
 
     fn scoreQuiet(self: *const Picker, move: Move) Thread.hist.Int {
-        return if (move == self.ttm) evaluation.score.mate else blk: {
+        return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
             const score = @as(evaluation.score.Int, self.thread.getQuietHist(move)) +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2 +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 2)) +
@@ -586,13 +590,14 @@ pub const Picker = struct {
             .board = &thread.board,
             .thread = thread,
 
+            .excluded = pos.excluded,
             .skip_quiets = false,
             .stage = .gen_noisy,
         };
 
         if (!ttm.isNone() and pos.isMovePseudoLegal(ttm)) {
             mp.ttm = ttm;
-            mp.stage = .ttm;
+            mp.stage = if (mp.excluded.isNone()) .ttm else .gen_noisy;
         }
 
         return mp;

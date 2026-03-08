@@ -956,7 +956,7 @@ fn ab(
     var searched: usize = 0;
     var bad_noisy_moves: movegen.Move.List = .{};
     var bad_quiet_moves: movegen.Move.List = .{};
-    var mp = movegen.Picker.init(self, if (is_singular) pos.excluded else tte.move);
+    var mp = movegen.Picker.init(self, tte.move);
 
     const is_ttm_noisy = !mp.ttm.isNone() and mp.ttm.flag.isNoisy();
     const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
