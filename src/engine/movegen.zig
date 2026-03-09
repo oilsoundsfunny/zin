@@ -476,11 +476,10 @@ pub const Picker = struct {
     board: *const Board,
     thread: *const Thread,
 
-    skip_quiets: bool,
-    stage: Stage,
-
-    excluded: Move = .{},
+    excluded: Move,
     ttm: Move = .{},
+    stage: Stage,
+    skip_quiets: bool,
 
     noisy_list: Move.Scored.List = .{},
     quiet_list: Move.Scored.List = .{},
@@ -524,6 +523,10 @@ pub const Picker = struct {
         }
     };
 
+    fn shouldSkip(self: *const Picker, m: Move) bool {
+        return m == self.ttm or m == self.excluded;
+    }
+
     fn pick(self: *Picker) ?Move.Scored {
         const num, const slice = switch (self.stage) {
             .good_noisy => |*n| .{ n, self.noisy_list.slice() },
@@ -544,8 +547,7 @@ pub const Picker = struct {
             std.mem.swap(Move.Scored, &slice[first], found);
 
             const sm = slice[first];
-            const m = sm.move;
-            break :blk if (!m.isNone() and m != self.ttm and m != self.excluded) sm else special: {
+            break :blk if (!self.shouldSkip(sm.move)) sm else special: {
                 @branchHint(.unlikely);
                 break :special self.pick();
             };
@@ -553,7 +555,7 @@ pub const Picker = struct {
     }
 
     fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
-        return if (move == self.ttm or move == self.excluded) evaluation.score.mate else blk: {
+        return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
             const mvv = if (move.flag == .en_passant)
                 params.values.see_ordering_pawn
             else switch (self.board.positions.last().getSquare(move.dst).ptype()) {
@@ -571,7 +573,7 @@ pub const Picker = struct {
     }
 
     fn scoreQuiet(self: *const Picker, move: Move) Thread.hist.Int {
-        return if (move == self.ttm or move == self.excluded) evaluation.score.mate else blk: {
+        return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
             const score = @as(evaluation.score.Int, self.thread.getQuietHist(move)) +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2 +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 2)) +
@@ -583,18 +585,21 @@ pub const Picker = struct {
     }
 
     pub fn init(thread: *const Thread, ttm: Move) Picker {
+        const pos = thread.board.positions.last();
         var mp: Picker = .{
             .board = &thread.board,
             .thread = thread,
 
+            .excluded = pos.excluded,
             .skip_quiets = false,
             .stage = .gen_noisy,
         };
 
-        const pos = mp.board.positions.last();
-        if (!ttm.isNone() and pos.isMovePseudoLegal(ttm)) {
+        const is_excluded = !ttm.isNone() and ttm == mp.excluded;
+        const is_legal = !ttm.isNone() and pos.isMovePseudoLegal(ttm) and pos.isMoveLegal(ttm);
+        if (is_excluded or is_legal) {
             mp.ttm = ttm;
-            mp.stage = .ttm;
+            mp.stage = if (!is_excluded) .ttm else .gen_noisy;
         }
 
         return mp;
@@ -604,6 +609,7 @@ pub const Picker = struct {
         if (self.stage == .ttm) {
             self.stage = .gen_noisy;
             if (!self.ttm.isNone()) {
+                std.debug.assert(self.ttm != self.excluded);
                 return .{
                     .move = self.ttm,
                     .score = self.scoreQuiet(self.ttm),
