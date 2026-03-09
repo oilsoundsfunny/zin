@@ -189,6 +189,10 @@ const tunables = blk: {
         .{ .name = "dext_noisy", .value = 15 },
         .{ .name = "dext_pv", .value = 23 },
 
+        .{ .name = "text_quiet", .value = 74 },
+        .{ .name = "text_noisy", .value = 81 },
+        .{ .name = "text_pv", .value = 508 },
+
         .{ .name = "lmr_non_improving", .value = 737 },
         .{ .name = "lmr_cutnode", .value = 1843 },
         .{ .name = "lmr_noisy_ttm", .value = 1236 },
