@@ -1059,6 +1059,19 @@ fn ab(
 
             if (se_score < sb) {
                 e += 1;
+
+                const dext_margin = blk: {
+                    const base = if (is_noisy)
+                        params.values.dext_noisy
+                    else
+                        params.values.dext_quiet;
+                    const pv = params.values.dext_pv * @intFromBool(is_pv);
+                    break :blk base + pv;
+                };
+
+                if (se_score < sb - dext_margin) {
+                    e += 1;
+                }
             } else if (sb >= b) {
                 const min = evaluation.score.lose + 1;
                 const max = evaluation.score.win - 1;

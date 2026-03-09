@@ -85,8 +85,8 @@ const tunables = blk: {
     const zon = @import("spsa.zig.zon");
     const Zon = @TypeOf(zon);
 
-    // zig fmt: off
-    var tbl = [_]Tunable {
+    const fields = std.meta.fields(Zon);
+    var tbl: [fields.len]Tunable = .{
         .{ .name = "base_lmr_noisy1", .value = 20 },
         .{ .name = "base_lmr_noisy0", .value = 326 },
         .{ .name = "base_lmr_quiet1", .value = 713 },
@@ -185,6 +185,10 @@ const tunables = blk: {
         .{ .name = "se_d1", .value = 537 },
         .{ .name = "se_d0", .value = 924 },
 
+        .{ .name = "dext_quiet", .value = 17 },
+        .{ .name = "dext_noisy", .value = 15 },
+        .{ .name = "dext_pv", .value = 23 },
+
         .{ .name = "lmr_non_improving", .value = 737 },
         .{ .name = "lmr_cutnode", .value = 1843 },
         .{ .name = "lmr_noisy_ttm", .value = 1236 },
@@ -201,13 +205,10 @@ const tunables = blk: {
 
         .{ .name = "qs_fp_margin", .value = 51 },
     };
-    // zig fmt: on
 
     for (tbl[0..]) |*tunable| {
         const name = tunable.name;
-        if (@hasField(Zon, name)) {
-            tunable.value = @field(zon, name);
-        }
+        tunable.value = @field(zon, name);
     }
 
     break :blk tbl;
