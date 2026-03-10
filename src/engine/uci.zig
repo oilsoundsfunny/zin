@@ -306,6 +306,10 @@ pub fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
             "option name {s} type {s} default {s}\n",
             .{ "UCI_Chess960", "check", "false" },
         );
+        try pool.io.writer().print(
+            "option name {s} type {s} default {s}\n",
+            .{ "UCI_ShowWDL", "check", "false" },
+        );
 
         if (params.tuning) {
             try params.printOptions(pool.io.writer());
