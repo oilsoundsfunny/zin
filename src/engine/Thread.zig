@@ -686,11 +686,28 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
         return true;
     }
 
+    const nodes_scale = blk: {
+        const n: f32 = self.root_moves.constSlice()[0].nodes;
+        const d: f32 = @floatFromInt(self.nodes);
+        const f = n / d;
+
+        const p0: f32 = @floatFromInt(params.values.tm_nodes0);
+        const p1: f32 = @floatFromInt(params.values.tm_nodes1);
+        break :blk (p1 * f + p0) * 1e-3;
+    };
+
+    const time_lim: u64 = if (nodes % 2048 != 0) return false else blk: {
+        const opt = if (which == .hard) limits.hard_stop else limits.soft_stop;
+        const mlim = opt orelse return false;
+        const nlim = mlim * std.time.ns_per_ms;
+
+        const f: f32 = @floatFromInt(nlim);
+        const scaled = f * nodes_scale;
+        break :blk if (which == .hard) nlim else @intFromFloat(scaled);
+    };
+
     const timer = &self.pool.timer;
-    const time_lim = if (which == .hard) limits.hard_stop else limits.soft_stop;
-    return nodes % 2048 == 0 and
-        time_lim != null and
-        time_lim.? * std.time.ns_per_ms <= timer.read();
+    return time_lim <= timer.read();
 }
 
 fn asp(self: *Thread) void {
@@ -1090,6 +1107,13 @@ fn ab(
             defer board.undoMove();
             defer searched += 1;
 
+            const nodes = self.nodes;
+            defer if (is_root) {
+                const rm = self.root_moves.find(m) orelse
+                    std.debug.panic("root move not found", .{});
+                rm.nodes += @floatFromInt(self.nodes - nodes);
+            };
+
             var recur_d = d + e - 1;
             var score: @TypeOf(a, b) = evaluation.score.none;
 
@@ -1164,11 +1188,7 @@ fn ab(
 
         const next_pv = &pos.after(1).pv;
         if (is_root) {
-            const rms = self.root_moves.slice();
-            var rmi: usize = 0;
-            while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {}
-
-            const rm = &rms[rmi];
+            const rm = self.root_moves.find(m) orelse std.debug.panic("root move not found", .{});
             if (searched == 1 or s > a) {
                 rm.update(s, m, next_pv.constSlice());
             } else {
