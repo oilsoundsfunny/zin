@@ -327,9 +327,6 @@ pub const Limits = struct {
     incr: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
     time: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
 
-    hard_stop: ?u64 = null,
-    soft_stop: ?u64 = null,
-
     pub fn set(self: *Limits, overhead: u64, stm: types.Color) void {
         const has_clock = self.incr.get(stm) != null and self.time.get(stm) != null;
 
@@ -346,10 +343,11 @@ pub const Limits = struct {
         };
         const min_time = @min(from_movetime, from_clock);
 
-        self.hard_stop = if (min_time < std.math.maxInt(u64)) min_time else null;
+        self.movetime = if (min_time < std.math.maxInt(u64)) min_time else null;
         self.infinite = self.depth == null and
-            self.soft_nodes == null and self.soft_stop == null and
-            self.hard_nodes == null and self.hard_stop == null;
+            self.movetime == null and
+            self.soft_nodes == null and
+            self.hard_nodes == null;
     }
 };
 
@@ -697,8 +695,7 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
     };
 
     const time_lim: u64 = if (nodes % 2048 != 0) return false else blk: {
-        const opt = if (which == .hard) limits.hard_stop else limits.soft_stop;
-        const mlim = opt orelse return false;
+        const mlim = limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
 
         const f: f32 = @floatFromInt(nlim);
