@@ -111,7 +111,6 @@ const tunables = blk: {
         .{ .name = "tt_lowerbound_w", .value = 122, .min = 4, .max = 4096, .c_end = 8.0 },
         .{ .name = "tt_move_w", .value = 342, .min = 4, .max = 4096, .c_end = 8.0 },
 
-        .{ .name = "rfp_min_margin", .value = 13, .min = 8, .max = 32, .c_end = 1.0 },
         .{ .name = "rfp_depth2", .value = 1569, .min = 512, .max = 2048, .c_end = 64.0 },
         .{ .name = "rfp_depth1", .value = 83220, .min = 65536, .max = 262144, .c_end = 4096.0 },
         .{ .name = "rfp_depth0", .value = 9962, .min = 4096, .max = 16384, .c_end = 512.0 },
@@ -132,11 +131,11 @@ const tunables = blk: {
         .{ .name = "fp_hist_mul", .value = 44, .min = 8, .max = 128, .c_end = 2.0 },
 
         .{ .name = "lmp_improving2", .value = 865, .min = 128, .max = 2048, .c_end = 64.0 },
-        .{ .name = "lmp_improving1", .value = 27, .min = 16, .max = 4096, .c_end = 128.0 },
+        .{ .name = "lmp_improving1", .value = 27, .min = -1024, .max = 1024, .c_end = 128.0 },
         .{ .name = "lmp_improving0", .value = 3335, .min = -8192, .max = 8192, .c_end = 256.0 },
 
         .{ .name = "lmp_nonimproving2", .value = 360, .min = 128, .max = 2048, .c_end = 64.0 },
-        .{ .name = "lmp_nonimproving1", .value = -90, .min = 16, .max = 4096, .c_end = 128.0 },
+        .{ .name = "lmp_nonimproving1", .value = -90, .min = -1024, .max = 1024, .c_end = 128.0 },
         .{ .name = "lmp_nonimproving0", .value = 2209, .min = -8192, .max = 8192, .c_end = 256.0 },
 
         .{ .name = "pvs_see_quiet_mul", .value = -78, .min = -256, .max = -64, .c_end = 4.0 },

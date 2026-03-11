@@ -42,7 +42,6 @@
     .tt_exact_w = 202,
     .tt_lowerbound_w = 217,
     .tt_move_w = 320,
-    .rfp_min_margin = 6,
     .rfp_depth2 = 1203,
     .rfp_depth1 = 84254,
     .rfp_depth0 = 10066,
