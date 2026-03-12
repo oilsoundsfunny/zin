@@ -3,7 +3,7 @@
 ## features
 - uci-compatible
 - evaluation:
-	- (768hmx6->512pw)x2->1x8 neural net
+	- (768hmx16->512pw)x2->1x8 neural net
 	- fused+lazy updates
 - search:
 	- iterative deepening
