@@ -95,10 +95,10 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
             const mat = board.positions.last().material();
             const stm = board.positions.last().stm.flip();
 
-            const norm: i16 = @intCast(engine.evaluation.score.normalize(pvs, mat));
+            const norm = engine.evaluation.score.normalize(@intCast(pvs), mat);
             data.line.pushUnchecked(.{
                 .move = .init(pvm),
-                .score = norm,
+                .score = @intCast(norm),
             });
 
             const is_drawn = rq.adjudicate(.draw, data);

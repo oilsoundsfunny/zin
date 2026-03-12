@@ -685,22 +685,19 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
     }
 
     const nodes_scale = blk: {
-        const n: f32 = self.root_moves.constSlice()[0].nodes;
-        const d: f32 = @floatFromInt(self.nodes);
-        const f = n / d;
+        const n = self.root_moves.constSlice()[0].nodes;
+        const d = self.nodes;
+        const f = n * 1024 / @max(d, 1);
 
-        const p0: f32 = @floatFromInt(params.values.tm_nodes0);
-        const p1: f32 = @floatFromInt(params.values.tm_nodes1);
-        break :blk (p1 * f + p0) * 1e-3;
+        const p0: usize = @intCast(params.values.nodetm0);
+        const p1: usize = @intCast(params.values.nodetm1);
+        break :blk p1 * (p0 - f);
     };
 
     const time_lim: u64 = if (nodes % 2048 != 0) return false else blk: {
         const mlim = limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
-
-        const f: f32 = @floatFromInt(nlim);
-        const scaled = f * nodes_scale;
-        break :blk if (which == .hard) nlim else @intFromFloat(scaled);
+        break :blk if (which == .hard) nlim else std.math.shr(usize, nlim * nodes_scale, 20);
     };
 
     const timer = &self.pool.timer;
@@ -1109,7 +1106,7 @@ fn ab(
             defer if (is_root) {
                 const rm = self.root_moves.find(m) orelse
                     std.debug.panic("root move not found", .{});
-                rm.nodes += @floatFromInt(self.nodes - nodes);
+                rm.nodes += self.nodes - nodes;
             };
 
             var recur_d = d + e - 1;

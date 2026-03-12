@@ -1,6 +1,6 @@
 .{
-    .tm_nodes1 = -1600,
-    .tm_nodes0 = 2240,
+    .nodetm1 = 1169,
+    .nodetm0 = 1399,
     .base_lmr_noisy1 = 21,
     .base_lmr_noisy0 = 327,
     .base_lmr_quiet1 = 703,

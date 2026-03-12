@@ -57,8 +57,8 @@ const tunables = blk: {
 
     const fields = std.meta.fields(Zon);
     var tbl: [fields.len]Tunable = .{
-        .{ .name = "tm_nodes1", .value = -1600, .min = -4096, .max = -1024, .c_end = 96.0 },
-        .{ .name = "tm_nodes0", .value = 2240, .min = 1024, .max = 4096, .c_end = 96.0 },
+        .{ .name = "nodetm1", .value = 1169, .min = 1024, .max = 2048, .c_end = 24.0 },
+        .{ .name = "nodetm0", .value = 1399, .min = 1024, .max = 2048, .c_end = 48.0 },
 
         .{ .name = "base_lmr_noisy1", .value = 20, .min = 4, .max = 64, .c_end = 1.0 },
         .{ .name = "base_lmr_noisy0", .value = 326, .min = 256, .max = 4096, .c_end = 16.0 },
