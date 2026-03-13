@@ -865,7 +865,7 @@ fn ab(
         !is_singular and
         !is_checked and
         d <= 7 and
-        corr_eval >= b + params.values.rfp_min_margin)
+        corr_eval >= b + 6)
     rfp: {
         var margin = params.values.rfp_depth2 * d * d +
             params.values.rfp_depth1 * d +
