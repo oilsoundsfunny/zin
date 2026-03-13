@@ -1078,6 +1078,8 @@ fn ab(
                 return std.math.clamp(sb, min, max);
             } else if (node == .lowerbound) {
                 e -= 3;
+            } else if (ttscore <= a) {
+                e -= 1;
             } else if (ttscore >= b) {
                 e -= 2;
             }
