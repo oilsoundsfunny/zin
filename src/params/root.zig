@@ -57,7 +57,7 @@ const tunables = blk: {
 
     const fields = std.meta.fields(Zon);
     var tbl: [fields.len]Tunable = .{
-        .{ .name = "nodetm1", .value = 1169, .min = 1024, .max = 2048, .c_end = 24.0 },
+        .{ .name = "nodetm1", .value = 1169, .min = 8, .max = 4096, .c_end = 24.0 },
         .{ .name = "nodetm0", .value = 1399, .min = 1024, .max = 2048, .c_end = 48.0 },
 
         .{ .name = "base_lmr_noisy1", .value = 20, .min = 4, .max = 64, .c_end = 1.0 },
@@ -69,13 +69,13 @@ const tunables = blk: {
         .{ .name = "see_ordering_knight", .value = 744, .min = 0, .max = 2340, .c_end = 32.0 },
         .{ .name = "see_ordering_bishop", .value = 865, .min = 0, .max = 2340, .c_end = 32.0 },
         .{ .name = "see_ordering_rook", .value = 1181, .min = 0, .max = 2340, .c_end = 64.0 },
-        .{ .name = "see_ordering_queen", .value = 2333, .min = 0, .max = 23400, .c_end = 128.0 },
+        .{ .name = "see_ordering_queen", .value = 2333, .min = 0, .max = 2340, .c_end = 128.0 },
 
         .{ .name = "see_pruning_pawn", .value = 246, .min = 0, .max = 2340, .c_end = 16.0 },
         .{ .name = "see_pruning_knight", .value = 674, .min = 0, .max = 2340, .c_end = 32.0 },
         .{ .name = "see_pruning_bishop", .value = 868, .min = 0, .max = 2340, .c_end = 32.0 },
         .{ .name = "see_pruning_rook", .value = 1292, .min = 0, .max = 2340, .c_end = 64.0 },
-        .{ .name = "see_pruning_queen", .value = 2152, .min = 0, .max = 23400, .c_end = 128.0 },
+        .{ .name = "see_pruning_queen", .value = 2152, .min = 0, .max = 2340, .c_end = 128.0 },
 
         .{ .name = "base_time_mul", .value = 60, .min = 32, .max = 128, .c_end = 4.0 },
         .{ .name = "base_incr_mul", .value = 700, .min = 256, .max = 1024, .c_end = 32.0 },
