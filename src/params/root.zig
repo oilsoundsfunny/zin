@@ -77,8 +77,8 @@ const tunables = blk: {
         .{ .name = "see_pruning_rook", .value = 1292, .min = 0, .max = 2340, .c_end = 64.0 },
         .{ .name = "see_pruning_queen", .value = 2152, .min = 0, .max = 23400, .c_end = 128.0 },
 
-        .{ .name = "base_time_mul", .value = 60, .min = 25, .max = 125, .c_end = 4.0 },
-        .{ .name = "base_incr_mul", .value = 700, .min = 250, .max = 1000, .c_end = 32.0 },
+        .{ .name = "base_time_mul", .value = 60, .min = 32, .max = 128, .c_end = 4.0 },
+        .{ .name = "base_incr_mul", .value = 700, .min = 256, .max = 1024, .c_end = 32.0 },
 
         .{ .name = "max_hist_bonus", .value = 1232, .min = 256, .max = 4096, .c_end = 256.0 },
         .{ .name = "hist_bonus2", .value = 37, .min = 32, .max = 2048, .c_end = 64.0 },

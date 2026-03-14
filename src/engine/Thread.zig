@@ -332,14 +332,13 @@ pub const Limits = struct {
 
         const from_movetime = if (self.movetime) |mt| mt -| overhead else std.math.maxInt(u64);
         const from_clock = if (!has_clock) std.math.maxInt(u64) else blk: {
-            const incr: f32 = @floatFromInt(self.incr.get(stm).?);
-            const time: f32 = @floatFromInt(self.time.get(stm).?);
+            const incr = self.incr.get(stm).?;
+            const time = self.time.get(stm).?;
 
-            const im: f32 = @floatFromInt(params.values.base_incr_mul);
-            const tm: f32 = @floatFromInt(params.values.base_time_mul);
+            const im: u64 = @intCast(params.values.base_incr_mul);
+            const tm: u64 = @intCast(params.values.base_time_mul);
 
-            const mt: u64 = @intFromFloat(time * tm * 0.001 + incr * im * 0.001);
-            break :blk mt -| overhead;
+            break :blk @divTrunc(time * tm + incr * im, 1024) -| overhead;
         };
         const min_time = @min(from_movetime, from_clock);
 
@@ -682,26 +681,25 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
     const nodes_lim = if (which == .hard) limits.hard_nodes else limits.soft_nodes;
     if (nodes_lim != null and nodes >= nodes_lim.?) {
         return true;
+    } else if (nodes % 2048 != 0) {
+        return false;
     }
 
-    const nodes_scale = blk: {
-        const n = self.root_moves.constSlice()[0].nodes;
-        const d = self.nodes;
-        const f = n * 1024 / @max(d, 1);
-
-        const p0: usize = @intCast(params.values.nodetm0);
-        const p1: usize = @intCast(params.values.nodetm1);
-        break :blk p1 * (p0 - f);
-    };
-
-    const time_lim: u64 = if (nodes % 2048 != 0) return false else blk: {
+    const movetime = blk: {
         const mlim = limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
-        break :blk if (which == .hard) nlim else std.math.shr(usize, nlim * nodes_scale, 20);
+
+        const node0: u64 = @intCast(params.values.nodetm0);
+        const node1: u64 = @intCast(params.values.nodetm1);
+        const node_n = self.root_moves.constSlice()[0].nodes;
+        const node_d = @max(self.nodes, 1);
+        const nodetm = node1 * (node0 - node_n * 1024 / node_d);
+
+        break :blk if (which == .hard) nlim else std.math.shr(u64, nlim * nodetm, 20);
     };
 
     const timer = &self.pool.timer;
-    return time_lim <= timer.read();
+    return timer.read() >= movetime;
 }
 
 fn asp(self: *Thread) void {
