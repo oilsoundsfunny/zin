@@ -11,15 +11,23 @@ pub const score = struct {
     const max = std.math.maxInt(i16);
     const min = std.math.minInt(i16);
 
+    pub const native_len = std.simd.suggestVectorLength(u32) orelse 1;
+
     pub const Int = i32;
+    pub const Native = @Vector(native_len, Int);
+    pub const Small = i16;
 
-    pub const mate = 0 + max;
+    // zig fmt: off
+    pub const mate  = 0 + max;
     pub const mated = 0 - max;
-    pub const none = min;
+    pub const none  = min;
+    // zig fmt: on
 
-    pub const win = 0 + (max - 1 - movegen.Move.Root.capacity);
+    // zig fmt: off
+    pub const win  = 0 + (max - 1 - movegen.RootMove.capacity);
     pub const draw = 0;
-    pub const lose = 0 - (max - 1 - movegen.Move.Root.capacity);
+    pub const lose = 0 - (max - 1 - movegen.RootMove.capacity);
+    // zig fmt: on
 
     fn winrate(s: Int, mat: Int) f32 {
         // zig fmt: off
@@ -101,6 +109,17 @@ pub const score = struct {
         const w = winrate(s, mat);
         const l = winrate(-s, mat);
         return .{ w, 1.0 - w - l, l };
+    }
+
+    pub fn withIndex(s: Int, i: u32) u32 {
+        const h: u32 = @intCast(s + (1 << 20));
+        return (h << 8) | i; 
+    }
+
+    pub fn withIndices(s: Native, i: @Vector(native_len, u32)) @TypeOf(i) {
+        const bias: Native = @splat(1 << 20);
+        const h: @TypeOf(i) = @intCast(s +% bias);
+        return (h << @splat(8)) | i;
     }
 };
 

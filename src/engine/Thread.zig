@@ -424,7 +424,7 @@ tthits: u64 = 0,
 
 depth: Depth = 0,
 seldepth: Depth = 0,
-root_moves: movegen.Move.Root.List = .{},
+root_moves: movegen.RootMove.List = .{},
 
 nmp_verif: bool = false,
 quiethist: hist.Quiet = @splat(@splat(@splat(0))),
@@ -582,7 +582,7 @@ fn updateHist(
 
 fn printInfo(
     self: *const Thread,
-    pv: *const movegen.Move.Root,
+    pv: *const movegen.RootMove,
     depth: Depth,
     seldepth: Depth,
 ) !void {
@@ -648,7 +648,7 @@ fn printInfo(
     try writer.flush();
 }
 
-fn printBest(self: *const Thread, pv: *const movegen.Move.Root) !void {
+fn printBest(self: *const Thread, pv: *const movegen.RootMove) !void {
     self.pool.mtx.lock();
     defer self.pool.mtx.unlock();
 
@@ -1501,7 +1501,7 @@ pub fn search(self: *Thread) !void {
     self.nodes = 0;
     self.tbhits = 0;
     self.tthits = 0;
-    self.root_moves = movegen.Move.Root.List.init(&self.board);
+    self.root_moves = movegen.RootMove.List.init(&self.board);
 
     const pool = self.pool;
     const rq = self.request;
@@ -1521,7 +1521,7 @@ pub fn search(self: *Thread) !void {
 
     var last_depth: Depth = 0;
     var last_seldepth: Depth = 0;
-    var last_pv: movegen.Move.Root = .{};
+    var last_pv: movegen.RootMove = .{};
 
     const no_moves = self.root_moves.constSlice().len == 0 or self.board.isTerminal();
     last_pv = if (no_moves) {
@@ -1534,7 +1534,7 @@ pub fn search(self: *Thread) !void {
         return;
     } else self.root_moves.constSlice()[0];
 
-    const max_depth = pool.limits.depth orelse movegen.Move.Root.capacity;
+    const max_depth = pool.limits.depth orelse movegen.RootMove.capacity;
     const min_depth = 1;
     var depth: Depth = min_depth;
 
@@ -1542,7 +1542,7 @@ pub fn search(self: *Thread) !void {
         self.depth = depth;
         self.seldepth = 0;
         self.asp();
-        movegen.Move.Root.sortSlice(self.root_moves.slice());
+        movegen.RootMove.sortSlice(self.root_moves.slice());
 
         const datagen_stop = is_datagen and self.datagenStop(.soft);
         const go_stop = is_go and self.searchStop(.soft);

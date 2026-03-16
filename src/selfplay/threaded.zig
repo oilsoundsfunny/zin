@@ -35,7 +35,7 @@ fn playRandom(thread: *engine.Thread) !void {
         ply = 0;
     }) {
         while (ply <= random_moves) : (ply += 1) {
-            const root_moves = engine.movegen.Move.Root.List.init(&board);
+            const root_moves = engine.movegen.RootMove.List.init(&board);
             const rms = root_moves.constSlice();
             const rmn = rms.len;
             if (rmn == 0) {
