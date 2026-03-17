@@ -348,9 +348,15 @@ pub const Picker = struct {
     stage: Stage,
     skip_quiets: bool,
 
-    moves: Move.List = .{},
-    scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
-    first: usize = 0,
+    noisy_moves: Move.List = .{},
+    quiet_moves: Move.List = .{},
+    bad_noisy_moves: Move.List = .{},
+    bad_quiet_moves: Move.List = .{},
+
+    noisy_scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
+    quiet_scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
+    bad_noisy_scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
+    bad_quiet_scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
 
     pub const Stage = union(Tag) {
         ttm: void,
@@ -393,11 +399,20 @@ pub const Picker = struct {
     }
 
     fn pick(self: *Picker) ?Move.Scored {
-        const moves = self.moves.constSlice()[self.first..];
-        const scores = self.scores.constSlice()[self.first..];
+        const count, const all_moves, const all_scores = switch (self.stage) {
+            .good_noisy => |*n| .{ n, self.noisy_moves.slice(), self.noisy_scores.slice() },
+            .good_quiet => |*n| .{ n, self.quiet_moves.slice(), self.quiet_scores.slice() },
+            .bad_noisy => |*n| .{ n, self.bad_noisy_moves.slice(), self.bad_noisy_scores.slice() },
+            .bad_quiet => |*n| .{ n, self.bad_quiet_moves.slice(), self.bad_quiet_scores.slice() },
+            else => return null,
+        };
+
+        const first = if (count.* < all_moves.len) count.* else return null;
+        const moves = all_moves[first..];
+        const scores = all_scores[first..];
 
         const native_len = evaluation.score.native_len;
-        var i: usize = 0;
+        var i: u32 = 0;
         var indices = std.simd.iota(u32, native_len);
         var bests = indices - indices;
 
@@ -419,8 +434,14 @@ pub const Picker = struct {
         std.mem.swap(Move, &moves[0], &moves[best_i]);
         std.mem.swap(evaluation.score.Int, &scores[0], &scores[best_i]);
 
-        defer self.first += 1;
-        return self.first;
+        count.* = first + 1;
+        return if (self.shouldSkip(moves[0])) blk: {
+            @branchHint(.cold);
+            break :blk self.pick();
+        } else .{
+            .move = moves[0],
+            .score = @intCast(scores[0]),
+        };
     }
 
     fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
@@ -488,11 +509,13 @@ pub const Picker = struct {
 
         if (self.stage == .gen_noisy) {
             self.stage = .{ .good_noisy = 0 };
-            _ = self.noisy_list.genNoisy(self.board.positions.last());
 
-            const slice = self.noisy_list.slice();
-            for (slice) |*sm| {
-                sm.score = self.scoreNoisy(sm.move);
+            const len = self.noisy_moves.genNoisy(self.board.positions.last());
+            const moves = self.noisy_moves.constSlice();
+            const scores = self.noisy_scores.addManyUnchecked(len);
+
+            for (moves, scores) |m, *s| {
+                s.* = self.scoreNoisy(m);
             }
         }
 
@@ -502,8 +525,9 @@ pub const Picker = struct {
                 break :good_noisy_loop;
             };
             if (sm.score < evaluation.score.draw) {
-                self.bad_noisy_list.array.pushUnchecked(sm);
-                continue;
+                self.bad_noisy_moves.array.pushUnchecked(sm.move);
+                self.bad_noisy_scores.pushUnchecked(sm.score);
+                continue :good_noisy_loop;
             }
 
             return sm;
@@ -515,10 +539,12 @@ pub const Picker = struct {
                 break :gen_quiet;
             }
 
-            _ = self.quiet_list.genQuiet(self.board.positions.last());
-            const slice = self.quiet_list.slice();
-            for (slice) |*sm| {
-                sm.score = self.scoreQuiet(sm.move);
+            const len = self.quiet_moves.genQuiet(self.board.positions.last());
+            const moves = self.quiet_moves.constSlice();
+            const scores = self.quiet_scores.addManyUnchecked(len);
+
+            for (moves, scores) |m, *s| {
+                s.* = self.scoreQuiet(m);
             }
         }
 
@@ -531,7 +557,8 @@ pub const Picker = struct {
 
             const sm = picked.?;
             if (sm.score < evaluation.score.draw) {
-                self.bad_quiet_list.array.pushUnchecked(sm);
+                self.bad_quiet_moves.array.pushUnchecked(sm.move);
+                self.bad_quiet_scores.pushUnchecked(sm.score);
                 continue;
             }
 

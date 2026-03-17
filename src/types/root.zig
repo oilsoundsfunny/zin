@@ -782,6 +782,10 @@ pub fn BoundedArray(
             return if (self.len < capacity) self.addOneUnchecked() else error.OutOfMemory;
         }
 
+        pub fn addMany(self: *Self, n: usize) Error![]align(alignment) T {
+            return if (self.len + n <= capacity) self.addManyUnchecked() else error.OutOfMemory;
+        }
+
         pub fn push(self: *Self, item: T) Error!void {
             const new = try self.addOne();
             new.* = item;
@@ -802,6 +806,13 @@ pub fn BoundedArray(
             std.debug.assert(self.len < capacity);
             self.len += 1;
             return &self.buffer[self.len - 1];
+        }
+
+        pub fn addManyUnchecked(self: *Self, n: usize) []align(alignment) T {
+            std.debug.assert(self.len + n <= capacity);
+            const old_len = self.len;
+            self.len += n;
+            return self.buffer[old_len..][0..n];
         }
 
         pub fn pushUnchecked(self: *Self, item: T) void {
