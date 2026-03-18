@@ -7,26 +7,34 @@ const Options = struct {
     book: ?[]const u8,
 };
 
-// TODO: uhh proper error handling uhh
 fn parseArgs(args: []const u8, allocator: std.mem.Allocator) !Options {
     var opts: Options = undefined;
     var tokens = std.mem.tokenizeAny(u8, args, &.{ '\n', '\r', '\t', ' ' });
 
-    _ = tokens.next();
-    opts.num = try std.fmt.parseUnsigned(usize, tokens.next().?, 10);
+    const first = tokens.next() orelse std.process.fatal("missing arg '{s}'", .{"genfens"});
+    opts.num = if (std.mem.eql(u8, first, "genfens"))
+        try std.fmt.parseUnsigned(usize, tokens.next().?, 10)
+    else
+        std.process.fatal("expected '{s}', found '{s}'", .{"genfens", first});
 
-    _ = tokens.next();
-    opts.seed = try std.fmt.parseUnsigned(u64, tokens.next().?, 10);
+    const second = tokens.next() orelse std.process.fatal("missing arg '{s}'", .{"seed"});
+    opts.seed = if (std.mem.eql(u8, second, "seed"))
+        try std.fmt.parseUnsigned(u64, tokens.next().?, 10)
+    else
+        std.process.fatal("expected '{s}', found '{s}'", .{"seed", second});
 
-    _ = tokens.next();
-    const book = tokens.next() orelse std.process.fatal("expected arg after '{s}'", .{"book"});
+    const third = tokens.next() orelse std.process.fatal("missing arg '{s}'", .{"book"});
+    const book = if (!std.mem.eql(u8, third, "book"))
+        std.process.fatal("expected '{s}', found '{s}'", .{"book", third})
+    else
+        tokens.next() orelse std.process.fatal("expected arg after '{s}'", .{"book"});
     opts.book = if (!std.mem.eql(u8, book, "None"))
         try std.fs.cwd().readFileAlloc(allocator, book, 32 * 1024 * 1024)
     else
         null;
 
     return if (tokens.peek()) |extra| {
-        // TODO: find out wtf <?extra> fucking means
+        // TODO: find out tf age meant by <?extra>
         std.process.fatal("extranous arg '{s}'", .{extra});
     } else opts;
 }
@@ -73,13 +81,10 @@ pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
     const allocator = pool.allocator;
     const opts = try parseArgs(args, allocator);
 
-    var opt_fens = if (opts.book) |book|
-        std.mem.tokenizeAny(u8, book, &.{ '\n', '\r' })
-    else
-        null;
+    var opt_fens = if (opts.book) |book| std.mem.tokenizeAny(u8, book, &.{ '\n', '\r' }) else null;
     var rng: std.Random.Xoroshiro128 = .init(opts.seed);
 
-    var buffer: [512]u8 = undefined;
+    var buffer: [65536]u8 = undefined;
     var writer = std.fs.File.stdout().writer(buffer[0..]);
 
     for (0..opts.num) |_| {
@@ -98,6 +103,5 @@ pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
         const board_fen = try board.printFen(fen_buffer[0..]);
 
         try writer.interface.print("info string genfens {s}\n", .{ board_fen });
-        try writer.interface.flush();
-    }
+    } else try writer.interface.flush();
 }
