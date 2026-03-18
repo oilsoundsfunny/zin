@@ -1216,6 +1216,15 @@ fn ab(
         return if (is_checked) lose else draw;
     }
 
+    if (!is_root and
+        best.score >= b and
+        best.score < evaluation.score.win and
+        best.score > evaluation.score.lose and
+        a < evaluation.score.win and
+        a > evaluation.score.lose) {
+        best.score = @intCast(@divTrunc(best.score * d + b, d + 1));
+    }
+
     if (flag == .lowerbound) {
         self.updateHist(d, best.move, bad_noisy_moves.constSlice(), bad_quiet_moves.constSlice());
     }
