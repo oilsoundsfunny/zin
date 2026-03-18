@@ -327,29 +327,26 @@ pub const Limits = struct {
     incr: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
     time: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
 
-    hard_stop: ?u64 = null,
-    soft_stop: ?u64 = null,
-
     pub fn set(self: *Limits, overhead: u64, stm: types.Color) void {
         const has_clock = self.incr.get(stm) != null and self.time.get(stm) != null;
 
         const from_movetime = if (self.movetime) |mt| mt -| overhead else std.math.maxInt(u64);
         const from_clock = if (!has_clock) std.math.maxInt(u64) else blk: {
-            const incr: f32 = @floatFromInt(self.incr.get(stm).?);
-            const time: f32 = @floatFromInt(self.time.get(stm).?);
+            const incr = self.incr.get(stm).?;
+            const time = self.time.get(stm).?;
 
-            const im: f32 = @floatFromInt(params.values.base_incr_mul);
-            const tm: f32 = @floatFromInt(params.values.base_time_mul);
+            const im: u64 = @intCast(params.values.base_incr_mul);
+            const tm: u64 = @intCast(params.values.base_time_mul);
 
-            const mt: u64 = @intFromFloat(time * tm * 0.001 + incr * im * 0.001);
-            break :blk mt -| overhead;
+            break :blk @divTrunc(time * tm + incr * im, 1024) -| overhead;
         };
         const min_time = @min(from_movetime, from_clock);
 
-        self.hard_stop = if (min_time < std.math.maxInt(u64)) min_time else null;
+        self.movetime = if (min_time < std.math.maxInt(u64)) min_time else null;
         self.infinite = self.depth == null and
-            self.soft_nodes == null and self.soft_stop == null and
-            self.hard_nodes == null and self.hard_stop == null;
+            self.movetime == null and
+            self.soft_nodes == null and
+            self.hard_nodes == null;
     }
 };
 
@@ -684,13 +681,25 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
     const nodes_lim = if (which == .hard) limits.hard_nodes else limits.soft_nodes;
     if (nodes_lim != null and nodes >= nodes_lim.?) {
         return true;
+    } else if (nodes % 2048 != 0) {
+        return false;
     }
 
+    const movetime = blk: {
+        const mlim = limits.movetime orelse return false;
+        const nlim = mlim * std.time.ns_per_ms;
+
+        const node0: u64 = @intCast(params.values.nodetm0);
+        const node1: u64 = @intCast(params.values.nodetm1);
+        const node_n = self.root_moves.constSlice()[0].nodes;
+        const node_d = @max(self.nodes, 1);
+        const nodetm = node1 * (node0 - node_n * 1024 / node_d);
+
+        break :blk if (which == .hard) nlim else std.math.shr(u64, nlim * nodetm, 20);
+    };
+
     const timer = &self.pool.timer;
-    const time_lim = if (which == .hard) limits.hard_stop else limits.soft_stop;
-    return nodes % 2048 == 0 and
-        time_lim != null and
-        time_lim.? * std.time.ns_per_ms <= timer.read();
+    return timer.read() >= movetime;
 }
 
 fn asp(self: *Thread) void {
@@ -861,11 +870,12 @@ fn ab(
     }
 
     // reverse futility pruning (rfp)
+    // TODO: remove min margin
     if (!is_pv and
         !is_singular and
         !is_checked and
         d <= 7 and
-        corr_eval >= b + params.values.rfp_min_margin)
+        corr_eval >= b + 6)
     rfp: {
         var margin = params.values.rfp_depth2 * d * d +
             params.values.rfp_depth1 * d +
@@ -1090,6 +1100,13 @@ fn ab(
             defer board.undoMove();
             defer searched += 1;
 
+            const nodes = self.nodes;
+            defer if (is_root) {
+                const rm = self.root_moves.find(m) orelse
+                    std.debug.panic("root move not found", .{});
+                rm.nodes += self.nodes - nodes;
+            };
+
             var recur_d = d + e - 1;
             var score: @TypeOf(a, b) = evaluation.score.none;
 
@@ -1164,11 +1181,7 @@ fn ab(
 
         const next_pv = &pos.after(1).pv;
         if (is_root) {
-            const rms = self.root_moves.slice();
-            var rmi: usize = 0;
-            while (rms[rmi].line.constSlice()[0] != m) : (rmi += 1) {}
-
-            const rm = &rms[rmi];
+            const rm = self.root_moves.find(m) orelse std.debug.panic("root move not found", .{});
             if (searched == 1 or s > a) {
                 rm.update(s, m, next_pv.constSlice());
             } else {

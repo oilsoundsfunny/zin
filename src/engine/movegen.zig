@@ -10,12 +10,12 @@ const uci = @import("uci.zig");
 
 const RootMove = struct {
     line: types.BoundedArray(Move, null, capacity) = .{},
-    score: evaluation.score.Int = evaluation.score.none,
-    nodes: u32 = 0,
+    score: isize = evaluation.score.none,
+    nodes: usize = 0,
 
     pub const List = RootMoveList;
 
-    pub const capacity = 256 - (@sizeOf(usize) + @sizeOf(u32) * 2) / @sizeOf(Move);
+    pub const capacity = 256 - @sizeOf(usize) * 3 / @sizeOf(Move);
 
     pub fn constSlice(self: *const RootMove) []const Move {
         return self.slice();
@@ -71,6 +71,14 @@ const RootMoveList = struct {
 
     pub fn resize(self: *RootMoveList, len: usize) !void {
         try self.array.resize(len);
+    }
+
+    pub fn find(self: anytype, m: Move) ?types.SameMutPtr(@TypeOf(self), *RootMoveList, *RootMove) {
+        return loop: for (self.slice()) |*rm| {
+            if (rm.constSlice()[0] == m) {
+                break :loop rm;
+            }
+        } else null;
     }
 
     pub fn init(board: *Board) RootMoveList {
@@ -684,3 +692,8 @@ pub const Picker = struct {
         self.skip_quiets = true;
     }
 };
+
+comptime {
+    std.debug.assert(@sizeOf(Move) * 2 == @sizeOf(Move.Scored));
+    std.debug.assert(@sizeOf(Move) * 256 == @sizeOf(Move.Root));
+}
