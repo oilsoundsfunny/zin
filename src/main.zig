@@ -4,6 +4,7 @@ const selfplay = @import("selfplay");
 const std = @import("std");
 
 const bench = @import("bench.zig");
+const genfens = @import("genfens.zig");
 const root = @import("root.zig");
 
 const help =
@@ -83,7 +84,21 @@ pub fn main() !void {
 
     _ = args.skip();
     if (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "bench")) {
+        if (std.mem.indexOf(u8, arg, "genfens")) |index_of| {
+            if (index_of != 0) {
+                std.process.fatal("unknown arg '{s}'", .{arg});
+            }
+
+            const aux = args.next() orelse std.process.fatal("expected arg after '{s}'", .{arg});
+            if (!std.mem.eql(u8, aux, "quit")) {
+                std.process.fatal("unknown arg '{s}'", .{aux});
+            }
+
+            return if (args.next()) |extra|
+                std.process.fatal("extranous arg '{s}'", .{extra})
+            else
+                genfens.run(pool, arg);
+        } else if (std.mem.eql(u8, arg, "bench")) {
             var depth: ?engine.Thread.Depth = null;
             if (args.next()) |aux| {
                 depth = try std.fmt.parseUnsigned(u8, aux, 10);

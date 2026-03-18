@@ -589,6 +589,76 @@ pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) Fe
     perspective.dirty = .initFill(true);
 }
 
+pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
+    const pos = self.positions.last();
+    var list: std.ArrayList(u8) = .initBuffer(buffer);
+
+    const ranks: [types.Rank.num]types.Rank = .{
+        .rank_8, .rank_7, .rank_6, .rank_5, .rank_4, .rank_3, .rank_2, .rank_1,
+    };
+    const files: [types.File.num]types.File = .{
+        .file_a, .file_b, .file_c, .file_d, .file_e, .file_f, .file_g, .file_h,
+    };
+
+    for (ranks) |r| {
+        var empty: usize = 0;
+        var pushed: usize = 0;
+
+        for (files) |f| {
+            const s = types.Square.init(r, f);
+            const p = pos.getSquare(s);
+            const c = p.char() orelse {
+                empty += 1;
+                continue;
+            };
+
+            if (empty != 0) {
+                try list.appendBounded(@truncate(empty + '0'));
+                empty = 0;
+                pushed += 1;
+            }
+
+            try list.appendBounded(c);
+            pushed += 1;
+        } else {
+            if (pushed == 0) {
+                try list.appendBounded(@truncate(empty + '0'));
+            }
+            try list.appendBounded('/');
+        }
+    } else {
+        _ = list.pop();
+        try list.appendBounded(' ');
+    }
+
+    try list.appendBounded(pos.stm.char());
+    try list.appendBounded(' ');
+
+    if (pos.castles.bits != @TypeOf(pos.castles.bits).initEmpty()) {
+        const rights: [types.Castle.num]types.Castle = .{ .wk, .wq, .bk, .bq };
+        for (rights) |right| {
+            if (pos.castles.contains(right)) {
+                const c = right.char();
+                try list.appendBounded(c);
+            }
+        }
+    } else try list.appendBounded('-');
+    try list.appendBounded(' ');
+
+    if (pos.en_pas) |ep| {
+        try list.appendBounded(ep.file().char());
+        try list.appendBounded(ep.rank().char());
+    } else try list.appendBounded('-');
+    try list.appendBounded(' ');
+
+    const ply = self.positions.len - 1;
+    try list.printBounded("{} {}", .{
+        pos.rule50,
+        ply / 2 + @intFromBool(self.positions.first().stm == .white),
+    });
+    return list.items;
+}
+
 pub fn doMove(self: *Board, move: movegen.Move) void {
     const stm = self.positions.last().stm;
     const s = move.src;
