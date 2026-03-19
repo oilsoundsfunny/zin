@@ -207,13 +207,13 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !
     while (tokens.next()) |token| {
         var i: usize = 0;
         var n: usize = 0;
-        var list: movegen.Move.Scored.List = .{};
+        var list: movegen.Move.List = .{};
 
         const pos = board.positions.last();
         n += list.genNoisy(pos);
         n += list.genQuiet(pos);
         while (i < n) : (i += 1) {
-            const m = list.constSlice()[i].move;
+            const m = list.constSlice()[i];
             const s = m.toString(board);
             const l = m.toStringLen();
             if (!std.mem.eql(u8, token, s[0..l]) or !pos.isMoveLegal(m)) {

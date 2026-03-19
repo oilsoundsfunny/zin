@@ -51,7 +51,7 @@ fn playRandom(board: *engine.Board, rng: *std.Random.Xoroshiro128, random_moves:
     }) {
         var ply: usize = 0;
         while (ply < random_moves) : (ply += 1) {
-            const rms = engine.movegen.Move.Root.List.init(board);
+            const rms = engine.movegen.RootMove.List.init(board);
             const rmn = rms.constSlice().len;
             if (rmn == 0) {
                 continue :find_line;
@@ -60,7 +60,7 @@ fn playRandom(board: *engine.Board, rng: *std.Random.Xoroshiro128, random_moves:
             const i = rng.random().uintLessThan(usize, rmn);
             board.doMove(rms.constSlice()[i].constSlice()[0]);
         } else {
-            const rms = engine.movegen.Move.Root.List.init(board);
+            const rms = engine.movegen.RootMove.List.init(board);
             if (rms.constSlice().len == 0) {
                 continue :find_line;
             }
