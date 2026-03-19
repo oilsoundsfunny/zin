@@ -8,18 +8,27 @@ const movegen = @import("movegen.zig");
 const Thread = @import("Thread.zig");
 
 pub const score = struct {
-    const max = std.math.maxInt(i16);
-    const min = std.math.minInt(i16);
+    const max = std.math.maxInt(Small);
+    const min = std.math.minInt(Small);
 
     pub const Int = i32;
+    pub const Small = i16;
 
-    pub const mate = 0 + max;
-    pub const mated = 0 - max;
-    pub const none = min;
+    pub const Simd = @Vector(simd_len, Int);
 
-    pub const win = 0 + (max - 1 - movegen.Move.Root.capacity);
+    pub const simd_len = std.simd.suggestVectorLength(Int) orelse 1;
+
+    // zig fmt: off
+    pub const mate  =  max;
+    pub const mated = -max;
+    pub const none  =  min;
+    // zig fmt: on
+
+    // zig fmt: off
+    pub const win  = max - 1 - movegen.RootMove.capacity;
     pub const draw = 0;
-    pub const lose = 0 - (max - 1 - movegen.Move.Root.capacity);
+    pub const lose = min + 1 + movegen.RootMove.capacity;
+    // zig fmt: on
 
     fn winrate(s: Int, mat: Int) f32 {
         // zig fmt: off
@@ -101,6 +110,19 @@ pub const score = struct {
         const w = winrate(s, mat);
         const l = winrate(-s, mat);
         return .{ w, 1.0 - w - l, l };
+    }
+
+    pub fn withIndex(s: Int, i: u32) u32 {
+        const o = 1 << 20;
+        const h: u32 = @intCast(s + o);
+        return h * 256 + i;
+    }
+
+    pub fn withIndices(s: Simd, i: @Vector(simd_len, u32)) @Vector(simd_len, u32) {
+        const o: Simd = @splat(1 << 20);
+        const h: @Vector(simd_len, u32) = @intCast(s +% o);
+        const m: @Vector(simd_len, u32) = @splat(256);
+        return h *% m +% i;
     }
 };
 
