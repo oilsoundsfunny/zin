@@ -57,7 +57,7 @@ const fens: [50][]const u8 = .{
 };
 
 pub fn run(pool: *engine.Thread.Pool, depth: ?engine.Thread.Depth) !void {
-    pool.limits.depth = depth orelse 11;
+    pool.limits.depth = depth orelse 10;
     pool.limits.infinite = false;
 
     var sum: u64 = 0;
