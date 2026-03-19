@@ -26,16 +26,16 @@ fn playRandom(thread: *engine.Thread) !void {
     const rq = &thread.request.datagen;
     const random_moves = rq.random_moves;
 
-    var board = thread.board;
-    var ply: usize = 0;
-    defer thread.board = board;
+    const board = try thread.pool.allocator.create(engine.Board);
+    defer {
+        thread.board = board.*;
+        thread.pool.allocator.destroy(board);
+    }
 
-    find_line: while (true) : ({
-        board = thread.board;
-        ply = 0;
-    }) {
+    find_line: while (true) : (board.* = thread.board) {
+        var ply: usize = 0;
         while (ply <= random_moves) : (ply += 1) {
-            const root_moves = engine.movegen.Move.Root.List.init(&board);
+            const root_moves = engine.movegen.Move.Root.List.init(board);
             const rms = root_moves.constSlice();
             const rmn = rms.len;
             if (rmn == 0) {
@@ -49,10 +49,10 @@ fn playRandom(thread: *engine.Thread) !void {
                 continue;
             }
 
-            const eval = board.evaluate();
             const mat = board.positions.last().material();
-            const cp = engine.evaluation.score.normalize(eval, mat);
-            if (cp != std.math.clamp(cp, -200, 200)) {
+            const eval = board.evaluate();
+            const norm = engine.evaluation.score.normalize(eval, mat);
+            if (norm != std.math.clamp(norm, -200, 200)) {
                 continue :find_line;
             }
         } else break :find_line;
@@ -148,14 +148,16 @@ pub fn datagen(thread: *engine.Thread) !void {
     var played: usize = 0;
     var positions: usize = 0;
 
+    const board = try thread.pool.allocator.create(engine.Board);
+    defer thread.pool.allocator.destroy(board);
+
     loop: while (readOpening(thread)) |opening| {
         defer thread.pool.allocator.free(opening);
         thread.board.parseFen(opening) catch continue :loop;
+        board.* = thread.board;
 
-        const board = thread.board;
         const played_fen = played;
-
-        while (played - played_fen < repeat and played < games) : (thread.board = board) {
+        while (played - played_fen < repeat and played < games) : (thread.board = board.*) {
             playRandom(thread) catch continue :loop;
             playOut(thread, &data) catch continue :loop;
             writeData(thread, &data) catch continue :loop;

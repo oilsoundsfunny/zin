@@ -78,8 +78,13 @@ fn playRandom(board: *engine.Board, rng: *std.Random.Xoroshiro128, random_moves:
 }
 
 pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
-    const allocator = pool.allocator;
-    const opts = try parseArgs(args, allocator);
+    const opts = try parseArgs(args, pool.allocator);
+    defer if (opts.book) |book| {
+        pool.allocator.free(book);
+    };
+
+    const board = try pool.allocator.create(engine.Board);
+    defer pool.allocator.destroy(board);
 
     var opt_fens = if (opts.book) |book| std.mem.tokenizeAny(u8, book, &.{ '\n', '\r' }) else null;
     var rng: std.Random.Xoroshiro128 = .init(opts.seed);
@@ -94,14 +99,11 @@ pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
             }
             break :blk fens.next().?;
         } else engine.Board.Position.startpos[0..];
-        var board: engine.Board = .{};
-
         try board.parseFen(fen);
-        playRandom(&board, &rng, if (opt_fens) |_| 4 else 8);
+        playRandom(board, &rng, if (opt_fens) |_| 4 else 8);
 
         var fen_buffer: [128]u8 = undefined;
         const board_fen = try board.printFen(fen_buffer[0..]);
-
         try writer.interface.print("info string genfens {s}\n", .{ board_fen });
     } else try writer.interface.flush();
 }

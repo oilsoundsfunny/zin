@@ -182,14 +182,12 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
 }
 
 fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
-    var board: Board = .{ .finny_table = pool.threads.items[0].board.finny_table };
     const frc = pool.threads.items[0].board.frc;
+    const board = try pool.allocator.create(Board);
+    defer pool.allocator.destroy(board);
 
-    defer pool.setBoard(&board, frc);
-    errdefer {
-        board = .{};
-        board.parseFen(Board.Position.startpos) catch std.debug.panic("invalid startpos", .{});
-    }
+    defer pool.setBoard(board, frc);
+    errdefer board.* = pool.threads.items[0].board;
 
     const first = tokens.next() orelse return error.UnknownCommand;
     if (std.mem.eql(u8, first, "fen")) {
@@ -216,7 +214,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !
         n += list.genQuiet(pos);
         while (i < n) : (i += 1) {
             const m = list.constSlice()[i].move;
-            const s = m.toString(&board);
+            const s = m.toString(board);
             const l = m.toStringLen();
             if (!std.mem.eql(u8, token, s[0..l]) or !pos.isMoveLegal(m)) {
                 continue;

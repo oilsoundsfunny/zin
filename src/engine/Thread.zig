@@ -174,7 +174,10 @@ pub const Pool = struct {
     }
 
     pub fn realloc(self: *Pool, num: usize) !void {
-        const board = self.threads.items[0].board;
+        const board = try self.allocator.create(Board);
+        board.* = self.threads.items[0].board;
+        defer self.allocator.destroy(board);
+
         const prev_len = self.threads.items.len;
         if (prev_len == num) {
             return;
@@ -212,7 +215,7 @@ pub const Pool = struct {
 
         for (self.threads.items, 0..) |*thread, i| {
             thread.* = .{
-                .board = board,
+                .board = board.*,
                 .pool = self,
                 .idx = i,
                 .cnt = num,
@@ -238,9 +241,11 @@ pub const Pool = struct {
             };
         }
 
-        var board: Board = .{};
+        const board = try self.allocator.create(Board);
+        defer self.allocator.destroy(board);
+
         try board.parseFen(Board.Position.startpos);
-        self.setBoard(&board, false);
+        self.setBoard(board, false);
     }
 
     pub fn nodes(self: *const Pool) u64 {
