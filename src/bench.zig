@@ -60,14 +60,16 @@ pub fn run(pool: *engine.Thread.Pool, depth: ?engine.Thread.Depth) !void {
     pool.limits.depth = depth orelse 11;
     pool.limits.infinite = false;
 
+    const board = try pool.allocator.create(engine.Board);
+    defer pool.allocator.destroy(board);
+
     var sum: u64 = 0;
     var time: u64 = 0;
 
     for (fens) |fen| {
-        var board: engine.Board = .{};
         try board.parseFen(fen);
 
-        pool.setBoard(&board, true);
+        pool.setBoard(board, true);
         pool.bench();
 
         time += pool.timer.lap();

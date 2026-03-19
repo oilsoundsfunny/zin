@@ -579,14 +579,12 @@ pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
 }
 
 pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
-    const backup = self.*;
-    errdefer self.* = backup;
-    self.* = .{};
+    var parsed: Position = .{};
+    try parsed.parseFenTokens(tokens);
 
-    const perspective = self.perspectives.last();
-    const position = self.positions.last();
-    try position.parseFenTokens(tokens);
-    perspective.dirty = .initFill(true);
+    self.* = .{};
+    self.positions.last().* = parsed;
+    self.perspectives.last().dirty = .initFill(true);
 }
 
 pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
