@@ -1226,7 +1226,8 @@ fn ab(
         best.score < evaluation.score.win and
         best.score > evaluation.score.loss and
         a < evaluation.score.win and
-        a > evaluation.score.loss) {
+        a > evaluation.score.loss)
+    {
         best.score = @intCast(@divTrunc(best.score * d + b, d + 1));
     }
 

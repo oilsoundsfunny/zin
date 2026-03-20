@@ -174,9 +174,9 @@ pub const Move = packed struct(u16) {
             .len = 0,
         },
 
-        const capacity = 256 - @sizeOf(usize) / @sizeOf(Move);
+        pub const capacity = 256 - @sizeOf(usize) / @sizeOf(Move);
 
-        fn genCastle(self: *List, pos: *const Board.Position, comptime flag: Move.Flag,) usize {
+        fn genCastle(self: *List, pos: *const Board.Position, comptime flag: Move.Flag) usize {
             const len = self.slice().len;
             const stm = pos.stm;
             const occ = pos.bothOcc();
@@ -443,37 +443,25 @@ pub const Picker = struct {
     excluded: Move,
     ttm: Move = .{},
 
-    stage: Stage = .gen_noisy,
     skip_quiets: bool = false,
+    stage: Stage = .gen_noisy,
 
-    noisy_moves: Move.List = .{},
-    quiet_moves: Move.List = .{},
-    bad_noisy_moves: Move.List = .{},
-    bad_quiet_moves: Move.List = .{},
+    moves: Move.List = .{},
+    scores: evaluation.score.List = .{},
 
-    noisy_scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
-    quiet_scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
-    bad_noisy_scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
-    bad_quiet_scores: types.BoundedArray(evaluation.score.Int, null, Move.List.capacity) = .{},
+    first: usize = 0,
+    last: usize = 0,
+    bad_noisy_n: usize = 0,
+    bad_quiet_n: usize = 0,
 
-    pub const Stage = union(Tag) {
-        ttm: void,
-        gen_noisy: void,
-        good_noisy: usize,
-        gen_quiet: void,
-        good_quiet: usize,
-        bad_noisy: usize,
-        bad_quiet: usize,
-
-        const Tag = enum {
-            ttm,
-            gen_noisy,
-            good_noisy,
-            gen_quiet,
-            good_quiet,
-            bad_noisy,
-            bad_quiet,
-        };
+    pub const Stage = enum {
+        ttm,
+        gen_noisy,
+        good_noisy,
+        gen_quiet,
+        good_quiet,
+        bad_noisy,
+        bad_quiet,
 
         pub fn isNoisy(self: Stage) bool {
             return self == .good_noisy or self == .bad_noisy;
@@ -497,16 +485,9 @@ pub const Picker = struct {
     }
 
     fn pick(self: *Picker) ?Move.Scored {
-        const cnter, const all_moves, const all_scores = switch (self.stage) {
-            .good_noisy => |*n| .{ n, self.noisy_moves.slice(), self.noisy_scores.slice() },
-            .good_quiet => |*n| .{ n, self.quiet_moves.slice(), self.quiet_scores.slice() },
-            .bad_noisy => |*n| .{ n, self.bad_noisy_moves.slice(), self.bad_noisy_scores.slice() },
-            .bad_quiet => |*n| .{ n, self.bad_quiet_moves.slice(), self.bad_quiet_scores.slice() },
-            else => return null,
-        };
-        const first = if (cnter.* < all_moves.len) cnter.* else return null;
-        const moves = all_moves[first..];
-        const scores = all_scores[first..];
+        const len = if (self.last > self.first) self.last - self.first else return null;
+        const moves = self.moves.array.buffer[self.first..][0..len];
+        const scores = self.scores.array.buffer[self.first..][0..len];
 
         const simd_len = evaluation.score.simd_len;
         var i: u32 = 0;
@@ -530,7 +511,7 @@ pub const Picker = struct {
         std.mem.swap(Move, &moves[0], &moves[best_i]);
         std.mem.swap(evaluation.score.Int, &scores[0], &scores[best_i]);
 
-        cnter.* += 1;
+        self.first += 1;
         return if (self.shouldSkip(moves[0])) blk: {
             @branchHint(.cold);
             break :blk self.pick();
@@ -600,13 +581,14 @@ pub const Picker = struct {
         }
 
         if (self.stage == .gen_noisy) {
-            self.stage = .{ .good_noisy = 0 };
+            self.stage = .good_noisy;
+            self.first = 0;
+            self.last += self.moves.genNoisy(self.board.positions.last());
 
-            const pos = self.board.positions.last();
-            const len = self.noisy_moves.genNoisy(pos);
+            const len = self.last - self.first;
+            const moves = self.moves.constSlice()[0..len];
+            const scores = self.scores.array.addManyUnchecked(len);
 
-            const moves = self.noisy_moves.constSlice();
-            const scores = self.noisy_scores.addManyUnchecked(len);
             for (moves, scores) |m, *s| {
                 s.* = self.scoreNoisy(m);
             }
@@ -619,8 +601,9 @@ pub const Picker = struct {
             };
 
             if (sm.score < evaluation.score.draw) {
-                self.bad_noisy_moves.array.pushUnchecked(sm.move);
-                self.bad_noisy_scores.pushUnchecked(sm.score);
+                self.moves.array.buffer[self.bad_noisy_n] = sm.move;
+                self.scores.array.buffer[self.bad_noisy_n] = sm.score;
+                self.bad_noisy_n += 1;
                 continue :good_noisy_loop;
             }
 
@@ -628,16 +611,17 @@ pub const Picker = struct {
         }
 
         if (self.stage == .gen_quiet) gen_quiet: {
-            self.stage = .{ .good_quiet = 0 };
-            if (self.skip_quiets) {
+            self.stage = .good_quiet;
+            self.first = self.last;
+            self.last += if (!self.skip_quiets)
+                self.moves.genQuiet(self.board.positions.last())
+            else
                 break :gen_quiet;
-            }
 
-            const pos = self.board.positions.last();
-            const len = self.quiet_moves.genQuiet(pos);
+            const len = self.last - self.first;
+            const moves = self.moves.constSlice()[self.first..][0..len];
+            const scores = self.scores.array.addManyUnchecked(len);
 
-            const moves = self.quiet_moves.constSlice();
-            const scores = self.quiet_scores.addManyUnchecked(len);
             for (moves, scores) |m, *s| {
                 s.* = self.scoreQuiet(m);
             }
@@ -646,14 +630,17 @@ pub const Picker = struct {
         good_quiet_loop: while (self.stage == .good_quiet) {
             const picked = self.pick();
             if (self.skip_quiets or picked == null) {
-                self.stage = .{ .bad_noisy = 0 };
+                self.stage = .bad_noisy;
+                self.first = 0;
+                self.last = self.bad_noisy_n;
                 break :good_quiet_loop;
             }
 
             const sm = picked.?;
             if (sm.score < evaluation.score.draw) {
-                self.bad_quiet_moves.array.pushUnchecked(sm.move);
-                self.bad_quiet_scores.pushUnchecked(sm.score);
+                self.moves.array.buffer[self.bad_quiet_n] = sm.move;
+                self.scores.array.buffer[self.bad_quiet_n] = sm.score;
+                self.bad_quiet_n += 1;
                 continue :good_quiet_loop;
             }
 
@@ -662,7 +649,9 @@ pub const Picker = struct {
 
         if (self.stage == .bad_noisy) bad_noisy: {
             const sm = self.pick() orelse {
-                self.stage = .{ .bad_quiet = 0 };
+                self.stage = .bad_quiet;
+                self.first = self.bad_noisy_n;
+                self.last += self.bad_quiet_n;
                 break :bad_noisy;
             };
             return sm;

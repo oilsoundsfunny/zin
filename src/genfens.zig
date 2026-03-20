@@ -15,17 +15,17 @@ fn parseArgs(args: []const u8, allocator: std.mem.Allocator) !Options {
     opts.num = if (std.mem.eql(u8, first, "genfens"))
         try std.fmt.parseUnsigned(usize, tokens.next().?, 10)
     else
-        std.process.fatal("expected '{s}', found '{s}'", .{"genfens", first});
+        std.process.fatal("expected '{s}', found '{s}'", .{ "genfens", first });
 
     const second = tokens.next() orelse std.process.fatal("missing arg '{s}'", .{"seed"});
     opts.seed = if (std.mem.eql(u8, second, "seed"))
         try std.fmt.parseUnsigned(u64, tokens.next().?, 10)
     else
-        std.process.fatal("expected '{s}', found '{s}'", .{"seed", second});
+        std.process.fatal("expected '{s}', found '{s}'", .{ "seed", second });
 
     const third = tokens.next() orelse std.process.fatal("missing arg '{s}'", .{"book"});
     const book = if (!std.mem.eql(u8, third, "book"))
-        std.process.fatal("expected '{s}', found '{s}'", .{"book", third})
+        std.process.fatal("expected '{s}', found '{s}'", .{ "book", third })
     else
         tokens.next() orelse std.process.fatal("expected arg after '{s}'", .{"book"});
     opts.book = if (!std.mem.eql(u8, book, "None"))
@@ -104,6 +104,6 @@ pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
 
         var fen_buffer: [128]u8 = undefined;
         const board_fen = try board.printFen(fen_buffer[0..]);
-        try writer.interface.print("info string genfens {s}\n", .{ board_fen });
+        try writer.interface.print("info string genfens {s}\n", .{board_fen});
     } else try writer.interface.flush();
 }
