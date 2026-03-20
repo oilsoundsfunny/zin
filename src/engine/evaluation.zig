@@ -32,8 +32,8 @@ pub const score = struct {
 
     fn winrate(s: Int, mat: Int) f32 {
         // zig fmt: off
-        const p_a: [4]f32 = .{  6.87155862, -39.65226391,   90.68460352, 170.66996364 };
-        const p_b: [4]f32 = .{ -7.19890710,  56.13947185, -139.91091183, 182.81007427 };
+        const p_a: [4]f32 = .{ -72.32565836,  185.93832038, -144.58862193, 416.44950446 };
+        const p_b: [4]f32 = .{  83.86794042, -136.06112997,   69.98820887,  47.62901433 };
         // zig fmt: on
 
         const fm: f32 = @floatFromInt(std.math.clamp(mat, 17, 78));
@@ -93,10 +93,8 @@ pub const score = struct {
     }
 
     pub fn normalize(s: Int, mat: Int) Int {
-        const params = [_]f32{
-            6.87155862, -39.65226391, 90.68460352, 170.66996364,
-        };
-        const fm: f32 = @floatFromInt(@max(mat, 10));
+        const params: [4]f32 = .{ -72.32565836, 185.93832038, -144.58862193, 416.44950446 };
+        const fm: f32 = @floatFromInt(@max(mat, 17));
         const fs: f32 = @floatFromInt(s);
 
         var x = params[0];

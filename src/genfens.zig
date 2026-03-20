@@ -65,10 +65,10 @@ fn playRandom(board: *engine.Board, rng: *std.Random.Xoroshiro128, random_moves:
                 continue :find_line;
             }
 
-            const mat = board.positions.last().material();
-            const eval = board.evaluate();
-            const norm = engine.evaluation.score.normalize(eval, mat);
-            if (norm != std.math.clamp(norm, -200, 200)) {
+            const m = board.positions.last().material();
+            const e = board.evaluate();
+            const w, const d, const l = engine.evaluation.score.wdl(e, m);
+            if (w > 0.235342676972 or d > 0.85411151145 or l > 0.235342676972) {
                 continue :find_line;
             }
 

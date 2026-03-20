@@ -618,16 +618,16 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
 
             try list.appendBounded(c);
             pushed += 1;
-        } else {
-            if (pushed == 0) {
-                try list.appendBounded(@truncate(empty + '0'));
-            }
-            try list.appendBounded('/');
         }
-    } else {
-        _ = list.pop();
-        try list.appendBounded(' ');
+
+        if (pushed == 0 or empty != 0) {
+            try list.appendBounded(@truncate(empty + '0'));
+        }
+        try list.appendBounded('/');
     }
+
+    _ = list.pop();
+    try list.appendBounded(' ');
 
     try list.appendBounded(pos.stm.char());
     try list.appendBounded(' ');
@@ -650,10 +650,8 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
     try list.appendBounded(' ');
 
     const ply = self.positions.len - 1;
-    try list.printBounded("{} {}", .{
-        pos.rule50,
-        ply / 2 + @intFromBool(self.positions.first().stm == .white),
-    });
+    const len = ply / 2 + @intFromBool(self.positions.first().stm == .white);
+    try list.printBounded("{} {}", .{ pos.rule50, len });
     return list.items;
 }
 
