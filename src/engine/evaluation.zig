@@ -27,7 +27,7 @@ pub const score = struct {
     // zig fmt: off
     pub const win  = max - 1 - movegen.RootMove.capacity;
     pub const draw = 0;
-    pub const lose = min + 1 + movegen.RootMove.capacity;
+    pub const loss = min + 1 + movegen.RootMove.capacity;
     // zig fmt: on
 
     fn winrate(s: Int, mat: Int) f32 {
@@ -55,7 +55,7 @@ pub const score = struct {
     }
 
     pub fn isMated(s: Int) bool {
-        return s == std.math.clamp(s, mated, lose);
+        return s == std.math.clamp(s, mated, loss);
     }
 
     pub fn mateIn(ply: usize) Int {
@@ -70,7 +70,7 @@ pub const score = struct {
 
     pub fn fromTT(s: Int, ply: usize) Int {
         var r = s;
-        if (r < lose) {
+        if (r < loss) {
             r += @intCast(ply);
         } else if (r > win) {
             r -= @intCast(ply);
@@ -80,7 +80,7 @@ pub const score = struct {
 
     pub fn toTT(s: Int, ply: usize) Int {
         var r = s;
-        if (r < lose) {
+        if (r < loss) {
             r -= @intCast(ply);
         } else if (r > win) {
             r += @intCast(ply);
@@ -89,7 +89,7 @@ pub const score = struct {
     }
 
     pub fn clamp(s: Int) Int {
-        return std.math.clamp(s, lose + 1, win - 1);
+        return std.math.clamp(s, loss + 1, win - 1);
     }
 
     pub fn normalize(s: Int, mat: Int) Int {

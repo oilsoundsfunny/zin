@@ -776,7 +776,7 @@ pub fn evaluate(self: *Board) evaluation.score.Int {
 
     const inferred = nnue.network.verbatim.infer(perspective, position);
     const scaled = @divTrunc(inferred * (100 - position.rule50), 100);
-    const min = evaluation.score.lose + 1;
+    const min = evaluation.score.loss + 1;
     const max = evaluation.score.win - 1;
     return std.math.clamp(scaled, min, max);
 }

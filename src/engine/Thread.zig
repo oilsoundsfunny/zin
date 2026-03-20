@@ -505,7 +505,7 @@ fn correctedEval(self: *const Thread, eval: evaluation.score.Int) evaluation.sco
     corr = @divTrunc(corr, 1 << 18);
 
     const corrected = eval + @as(evaluation.score.Int, @intCast(corr));
-    return std.math.clamp(corrected, evaluation.score.lose + 1, evaluation.score.win - 1);
+    return std.math.clamp(corrected, evaluation.score.loss + 1, evaluation.score.win - 1);
 }
 
 fn updateCorrHists(
@@ -781,7 +781,7 @@ fn ab(
     const mated = evaluation.score.matedIn(ply);
 
     const draw = mated + mate;
-    const lose = mated;
+    const loss = mated;
 
     // mate dist pruning
     a = @max(a, mated);
@@ -829,12 +829,12 @@ fn ab(
 
     if (!is_checked and !is_singular) {
         const has_tteval = tth and
-            tte.eval > evaluation.score.lose and
+            tte.eval > evaluation.score.loss and
             tte.eval < evaluation.score.win;
         const stat_eval = if (has_tteval) tte.eval else board.evaluate();
 
         const is_ttscore_correct = tth and
-            ttscore > evaluation.score.lose and
+            ttscore > evaluation.score.loss and
             ttscore < evaluation.score.win and
             !(tte.flag == .upperbound and ttscore > stat_eval) and
             !(tte.flag == .lowerbound and ttscore <= stat_eval);
@@ -902,7 +902,7 @@ fn ab(
         !is_singular and
         !is_checked and
         d >= 2 and
-        b > evaluation.score.lose and
+        b > evaluation.score.loss and
         b <= corr_eval - params.values.nmp_eval_margin and
         !self.nmp_verif)
     nmp: {
@@ -989,7 +989,7 @@ fn ab(
         const base_lmr = params.lmr.get(d, searched, is_quiet);
         const lmr_d = @max(d * 1024 - base_lmr, 0);
 
-        if (!is_root and best.score > evaluation.score.lose) {
+        if (!is_root and best.score > evaluation.score.loss) {
             // history pruning
             // 10.0+0.1: 16.91 +- 8.41
             // 40.0+0.4: 3.77 +- 8.30
@@ -1068,7 +1068,7 @@ fn ab(
             const raw_sb = @divTrunc(ttscore * 1024 - d * bmul, 1024);
             const raw_sd = params.values.se_d1 * d + params.values.se_d0;
 
-            const sb = @max(raw_sb, evaluation.score.lose + 1);
+            const sb = @max(raw_sb, evaluation.score.loss + 1);
             const sd = @divTrunc(raw_sd, 1024);
             const se_score = self.ab(node, ply, sb - 1, sb, sd);
 
@@ -1088,7 +1088,7 @@ fn ab(
                     e += 1;
                 }
             } else if (sb >= b) {
-                const min = evaluation.score.lose + 1;
+                const min = evaluation.score.loss + 1;
                 const max = evaluation.score.win - 1;
                 return std.math.clamp(sb, min, max);
             } else if (node == .lowerbound) {
@@ -1218,15 +1218,15 @@ fn ab(
     }
 
     if (!is_singular and searched == 0) {
-        return if (is_checked) lose else draw;
+        return if (is_checked) loss else draw;
     }
 
     if (!is_root and
         best.score >= b and
         best.score < evaluation.score.win and
-        best.score > evaluation.score.lose and
+        best.score > evaluation.score.loss and
         a < evaluation.score.win and
-        a > evaluation.score.lose) {
+        a > evaluation.score.loss) {
         best.score = @intCast(@divTrunc(best.score * d + b, d + 1));
     }
 
@@ -1287,7 +1287,7 @@ fn qs(
     }
 
     const draw = evaluation.score.draw;
-    const lose = evaluation.score.lose + 1;
+    const loss = evaluation.score.loss + 1;
 
     const b = beta;
     var a = alpha;
@@ -1312,14 +1312,14 @@ fn qs(
     }
 
     const has_tteval = tth and
-        tte.eval > evaluation.score.lose and
+        tte.eval > evaluation.score.loss and
         tte.eval < evaluation.score.win;
     const stat_eval = if (is_checked)
         evaluation.score.none
     else if (has_tteval) tte.eval else board.evaluate();
 
     const use_ttscore = tth and
-        ttscore > evaluation.score.lose and
+        ttscore > evaluation.score.loss and
         ttscore < evaluation.score.win and
         !(tte.flag == .upperbound and ttscore > stat_eval) and
         !(tte.flag == .lowerbound and ttscore <= stat_eval);
@@ -1412,7 +1412,7 @@ fn qs(
     }
 
     if (searched == 0 and is_checked) {
-        return lose;
+        return loss;
     }
 
     tte = .{
