@@ -638,8 +638,8 @@ pub const Picker = struct {
 
             const sm = picked.?;
             if (sm.score < evaluation.score.draw) {
-                self.moves.array.buffer[self.bad_quiet_n] = sm.move;
-                self.scores.array.buffer[self.bad_quiet_n] = sm.score;
+                self.moves.array.buffer[self.bad_noisy_n + self.bad_quiet_n] = sm.move;
+                self.scores.array.buffer[self.bad_noisy_n + self.bad_quiet_n] = sm.score;
                 self.bad_quiet_n += 1;
                 continue :good_quiet_loop;
             }
