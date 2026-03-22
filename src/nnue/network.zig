@@ -134,10 +134,13 @@ pub fn Network(comptime opts: Options) type {
                 .black = self.l1w[ob][l0s / 2 * 1 ..][0 .. l0s / 2],
             });
 
-            var l1: Madd = @splat(0);
+            var ev: engine.evaluation.score.Int = 0;
             for (types.Color.values) |c| {
                 const vec = vecs.get(c);
                 const wgt = wgts.get(c);
+
+                var l1: Madd = @splat(0);
+                defer ev += @reduce(.Add, l1);
 
                 var i: usize = 0;
                 while (i < l0s / 2) : (i += native_len) {
@@ -151,7 +154,6 @@ pub fn Network(comptime opts: Options) type {
                 }
             }
 
-            var ev = @reduce(.Add, l1);
             ev = @divTrunc(ev, qa) + self.l1b[ob];
             ev = @divTrunc(ev * scale, qa * qb);
             return ev;
