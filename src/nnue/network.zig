@@ -25,11 +25,11 @@ pub const Default = Network(.{
         14, 14, 15, 15,
         // zig fmt: on
     },
-    .hl_size = 512,
+    .hl_size = 1024,
     .output_buckets = 8,
     .qa = 255,
     .qb = 64,
-    .scale = 240,
+    .scale = 360,
 });
 
 pub const Options = struct {
