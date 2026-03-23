@@ -1355,11 +1355,12 @@ fn qs(
         const m = sm.move;
 
         if (searched > 0) {
-            if (mp.stage.isBad()) {
+            // quiesce late move pruning
+            if (searched > 3 or mp.stage.isBad()) {
                 break :move_loop;
             }
 
-            // qs see pruning
+            // quiesce see pruning
             // 10.0+0.1: 206.81 +- 35.91
             if (!pos.see(.pruning, m, draw)) {
                 continue :move_loop;
@@ -1367,7 +1368,7 @@ fn qs(
         }
 
         if (!is_checked) {
-            // qs futility pruning
+            // quiesce futility pruning
             // 10.0+0.1: 65.37 +- 17.63
             const margin = params.values.qs_fp_margin;
             if (corr_eval + margin <= a and !pos.see(.pruning, m, draw + 1)) {
