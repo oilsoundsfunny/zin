@@ -1088,9 +1088,23 @@ fn ab(
                     e += 1;
                 }
             } else if (sb >= b) {
-                const min = evaluation.score.loss + 1;
-                const max = evaluation.score.win - 1;
-                return std.math.clamp(sb, min, max);
+                const to_tt = @min(sb, evaluation.score.win - 1);
+                tt.write(key, .{
+                    .was_pv = was_pv,
+                    .flag = .lowerbound,
+                    .age = @truncate(tt.age),
+                    .depth = @intCast(sd),
+                    .key = @truncate(key),
+                    .eval = @intCast(stat_eval),
+                    .score = @intCast(to_tt),
+                    .move = mp.ttm,
+                });
+
+                if (!is_checked and se_score > corr_eval) {
+                    self.updateCorrHists(depth, best.score - corr_eval);
+                }
+
+                return to_tt;
             } else if (node == .lowerbound) {
                 e -= 3;
             } else if (ttscore >= b) {
