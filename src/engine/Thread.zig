@@ -1088,7 +1088,7 @@ fn ab(
                     e += 1;
                 }
             } else if (sb >= b) {
-                const to_tt = @min(sb, evaluation.score.win - 1);
+                const to_tt = evaluation.score.toTT(se_score, ply);
                 tt.write(key, .{
                     .was_pv = was_pv,
                     .flag = .lowerbound,
@@ -1101,10 +1101,10 @@ fn ab(
                 });
 
                 if (!is_checked and se_score > corr_eval) {
-                    self.updateCorrHists(depth, best.score - corr_eval);
+                    self.updateCorrHists(depth, se_score - corr_eval);
                 }
 
-                return to_tt;
+                return se_score;
             } else if (node == .lowerbound) {
                 e -= 3;
             } else if (ttscore >= b) {
