@@ -95,11 +95,13 @@ const tunables = blk: {
         .{ .name = "hist_bonus2", .min = 32, .max = 2048, .c_end = 64.0 },
         .{ .name = "hist_bonus1", .min = 32, .max = 512, .c_end = 32.0 },
         .{ .name = "hist_bonus0", .min = -768, .max = 768, .c_end = 64.0 },
+        .{ .name = "hist_bonus_checked", .min = 0, .max = 1024, .c_end = 32.0 },
 
         .{ .name = "max_hist_malus", .min = 256, .max = 4096, .c_end = 256.0 },
         .{ .name = "hist_malus2", .min = 32, .max = 2048, .c_end = 64.0 },
         .{ .name = "hist_malus1", .min = 32, .max = 512, .c_end = 32.0 },
         .{ .name = "hist_malus0", .min = -768, .max = 768, .c_end = 64.0 },
+        .{ .name = "hist_malus_checked", .min = 0, .max = 1024, .c_end = 32.0 },
 
         .{ .name = "corr_pawn_w", .min = 256, .max = 4096, .c_end = 128.0 },
         .{ .name = "corr_minor_w", .min = 256, .max = 4096, .c_end = 128.0 },

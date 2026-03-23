@@ -388,19 +388,19 @@ pub const hist = struct {
     pub const min = std.math.minInt(Int) / 2;
     pub const max = -min;
 
-    fn bonus(d: Depth) evaluation.score.Int {
-        const x: evaluation.score.Int =
-            params.values.hist_bonus2 * d * d +
+    fn bonus(d: Depth, is_checked: bool) evaluation.score.Int {
+        const lhs = params.values.hist_bonus2 * d * d +
             params.values.hist_bonus1 * d +
             params.values.hist_bonus0;
+        const x = if (is_checked) @divTrunc(lhs * params.values.hist_bonus_checked, 1024) else lhs;
         return @min(x, params.values.max_hist_bonus);
     }
 
-    fn malus(d: Depth) evaluation.score.Int {
-        const x: evaluation.score.Int =
-            params.values.hist_malus2 * d * d +
+    fn malus(d: Depth, is_checked: bool) evaluation.score.Int {
+        const lhs = params.values.hist_malus2 * d * d +
             params.values.hist_malus1 * d +
             params.values.hist_malus0;
+        const x = if (is_checked) @divTrunc(lhs * params.values.hist_malus_checked, 1024) else lhs;
         return -@min(x, params.values.max_hist_malus);
     }
 
@@ -552,13 +552,14 @@ fn updateCorrHists(
 
 fn updateHist(
     self: *Thread,
+    is_checked: bool,
     depth: Depth,
     move: movegen.Move,
     bad_noisy_moves: []const movegen.Move,
     bad_quiet_moves: []const movegen.Move,
 ) void {
-    const bonus = hist.bonus(depth);
-    const malus = hist.malus(depth);
+    const bonus = hist.bonus(depth, is_checked);
+    const malus = hist.malus(depth, is_checked);
 
     const is_quiet = move.flag.isQuiet();
     if (is_quiet) {
@@ -1232,7 +1233,13 @@ fn ab(
     }
 
     if (flag == .lowerbound) {
-        self.updateHist(d, best.move, bad_noisy_moves.constSlice(), bad_quiet_moves.constSlice());
+        self.updateHist(
+            is_checked,
+            d,
+            best.move,
+            bad_noisy_moves.constSlice(),
+            bad_quiet_moves.constSlice(),
+        );
     }
 
     if (!is_singular) {
