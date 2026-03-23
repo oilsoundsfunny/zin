@@ -949,6 +949,69 @@ fn ab(
         }
     }
 
+    // small probcut
+    if (!is_pv and
+        !is_singular and
+        !is_checked and
+        d >= 5 and
+        b > evaluation.score.loss and
+        b < evaluation.score.win and
+        ttscore > evaluation.score.loss and
+        ttscore < evaluation.score.win)
+    probcut: {
+        const pb = b + params.values.probcut_margin;
+        const pd = d - 4;
+        if (tth and ttscore < pb and tte.depth > pd) {
+            break :probcut;
+        }
+
+        var mp: movegen.Picker = .init(self, tte.move);
+        while (mp.next()) |sm| {
+            const m = sm.move;
+            if (m != mp.ttm and !pos.isMoveLegal(m)) {
+                continue;
+            }
+
+            const lim = pb - corr_eval;
+            if (!pos.see(.pruning, m, lim)) {
+                continue;
+            }
+
+            const s = blk: {
+                board.doMove(m);
+                tt.prefetch(board.positions.last().key);
+                defer board.undoMove();
+
+                var score = -self.qs(ply + 1, -pb, 1 - pb);
+                if (score >= pb) {
+                    score = -self.ab(node.flip(), ply + 1, -pb, 1 - pb, pd);
+                }
+
+                break :blk score;
+            };
+
+            const datagen_stop = is_datagen and self.datagenStop(.hard);
+            const go_stop = !is_datagen and self.pool.stopped;
+            if (datagen_stop or go_stop) {
+                return a;
+            }
+
+            if (s >= pb) {
+                tt.write(key, .{
+                    .was_pv = was_pv,
+                    .flag = .lowerbound,
+                    .age = @truncate(tt.age),
+                    .depth = @intCast(pd + 1),
+                    .key = @truncate(key),
+                    .eval = @intCast(stat_eval),
+                    .score = @intCast(evaluation.score.toTT(s, ply)),
+                    .move = m,
+                });
+                return s;
+            }
+        }
+    }
+
     // razoring
     if (!is_pv and
         !is_singular and
