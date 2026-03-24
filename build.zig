@@ -126,7 +126,7 @@ pub fn build(bld: *std.Build) !void {
     const network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
-        bld.dependency("networks", .{}).path("1024hl-16b-8ob-220326.nnue");
+        bld.dependency("networks", .{}).path("1024hl-16b-8ob-250326.nnue");
 
     for (Modules.values) |m| {
         const deps = Modules.dependencies.get(m);

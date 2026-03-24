@@ -3,8 +3,8 @@
     .version = "0.15.2",
     .dependencies = .{
         .networks = .{
-            .url = "git+https://codeberg.org/oilsoundsfunny/zin-nets.git#f1377e50f9a084829b74642bbcbaf8caa00ae7d5",
-            .hash = "N-V-__8AAOdMgAE5ctl9XeBGW0-tDjnay-0uewQCxG0BzakL",
+            .url = "git+https://codeberg.org/oilsoundsfunny/zin-nets.git#f1f886bd06efd03f30e4780c10e4980e573f1881",
+            .hash = "N-V-__8AACeVAAMaWAmDxSwLeEKQj0UMLJ72-jCt3lU6a0Ka",
         },
     },
     .paths = .{""},
