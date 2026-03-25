@@ -88,7 +88,6 @@
     .lmr_is_checked = 39,
     .lmr_is_pv = 845,
     .lmr_was_pv = 1390,
-    .lmr_was_pv_non_fail_low = 1043,
     .deeper_margin1 = -415,
     .deeper_margin0 = 381,
     .shallower_margin1 = 347,

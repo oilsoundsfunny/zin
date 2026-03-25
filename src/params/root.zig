@@ -179,7 +179,6 @@ const tunables = blk: {
         .{ .name = "lmr_is_checked", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_is_pv", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_was_pv", .min = 0, .max = 4096, .c_end = 64.0 },
-        .{ .name = "lmr_was_pv_non_fail_low", .min = 0, .max = 4096, .c_end = 64.0 },
 
         .{ .name = "deeper_margin1", .min = -1024, .max = 1024, .c_end = 32.0 },
         .{ .name = "deeper_margin0", .min = -1024, .max = 1024, .c_end = 32.0 },

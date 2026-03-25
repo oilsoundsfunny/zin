@@ -1146,8 +1146,6 @@ fn ab(
 
                 r -= @as(@TypeOf(d), @intFromBool(was_pv)) *
                     params.values.lmr_was_pv;
-                r -= @as(@TypeOf(d), @intFromBool(was_pv and ttscore > a)) *
-                    params.values.lmr_was_pv_non_fail_low;
 
                 r = @divTrunc(r, 1024);
                 const rd = std.math.clamp(recur_d - r, 1, recur_d);
