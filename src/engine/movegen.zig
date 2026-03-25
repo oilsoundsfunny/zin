@@ -532,7 +532,7 @@ pub const Picker = struct {
             };
 
             const hist = self.thread.getNoisyHist(move);
-            break :blk @intCast(@divTrunc(mvv * 7 + hist, 2));
+            break :blk @intCast(@divTrunc(mvv * 7 + hist * 3, 4));
         };
     }
 
