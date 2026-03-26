@@ -1074,21 +1074,19 @@ fn ab(
             const sd = @divTrunc(raw_sd, 1024);
             const se_score = self.ab(node, ply, sb - 1, sb, sd);
 
-            if (se_score < sb) {
+            if (se_score < sb) extend: {
                 e += 1;
 
-                const dext_margin = blk: {
-                    const base = if (is_noisy)
-                        params.values.dext_noisy
-                    else
-                        params.values.dext_quiet;
-                    const pv = params.values.dext_pv * @intFromBool(is_pv);
-                    break :blk base + pv;
+                const margins: [2]evaluation.score.Int = if (is_noisy) .{
+                    params.values.dext_noisy + params.values.dext_pv * @intFromBool(is_pv),
+                    params.values.text_noisy + params.values.text_pv * @intFromBool(is_pv),
+                } else .{
+                    params.values.dext_quiet + params.values.dext_pv * @intFromBool(is_pv),
+                    params.values.text_quiet + params.values.text_pv * @intFromBool(is_pv),
                 };
 
-                if (se_score < sb - dext_margin) {
-                    e += 1;
-                }
+                e += if (se_score < sb - margins[0]) 1 else break :extend;
+                e += if (se_score < sb - margins[1]) 1 else break :extend;
             } else if (sb >= b) {
                 const min = evaluation.score.loss + 1;
                 const max = evaluation.score.win - 1;

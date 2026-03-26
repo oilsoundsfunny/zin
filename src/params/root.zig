@@ -172,6 +172,10 @@ const tunables = blk: {
         .{ .name = "dext_noisy", .min = 8, .max = 32, .c_end = 1.0 },
         .{ .name = "dext_pv", .min = 8, .max = 32, .c_end = 1.0 },
 
+        .{ .name = "text_quiet", .min = 32, .max = 128, .c_end = 4.0 },
+        .{ .name = "text_noisy", .min = 32, .max = 128, .c_end = 4.0 },
+        .{ .name = "text_pv", .min = 32, .max = 128, .c_end = 4.0 },
+
         .{ .name = "lmr_non_improving", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_cutnode", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_noisy_ttm", .min = 0, .max = 4096, .c_end = 64.0 },
@@ -191,8 +195,21 @@ const tunables = blk: {
     var tbl: [fields.len]Tunable = undefined;
 
     for (tbl[0..], ini[0..]) |*tunable, i| {
-        const name = i.name;
-        tunable.* = .init(i, @field(zon, name));
+        tunable.* = .{
+            .name = i.name,
+            .value = @field(zon, i.name),
+            .min = i.min,
+            .max = i.max,
+            .c_end = i.c_end,
+        };
+
+        if (tunable.value != std.math.clamp(tunable.value, tunable.min, tunable.max)) {
+            const msg = std.fmt.comptimePrint(
+                "'{}' has value {} outside of [{}, {}]",
+                .{ tunable.name, tunable.value, tunable.min, tunable.max },
+            );
+            @compileError(msg);
+        }
     }
 
     break :blk tbl;
