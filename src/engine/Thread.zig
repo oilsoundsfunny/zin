@@ -1032,7 +1032,9 @@ fn ab(
                 params.values.lmp_nonimproving2 * d * d +
                     params.values.lmp_nonimproving1 * d +
                     params.values.lmp_nonimproving0;
-            if (searched > @abs(@divTrunc(very_late, 1024))) {
+            if (searched > 1 and
+                searched > @abs(@divTrunc(very_late, 1024)) and
+                searched > @abs(@divTrunc(very_late, 1024)) + @intFromBool(pos.isDirectCheck(m))) {
                 break :move_loop;
             }
 

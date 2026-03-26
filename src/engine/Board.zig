@@ -484,6 +484,27 @@ pub const Position = struct {
         return self.checks != .full;
     }
 
+    pub fn isDirectCheck(self: *const Position, move: movegen.Move) bool {
+        const stm = self.stm;
+        const occ = self.bothOcc();
+        const s = move.src;
+        const d = move.dst;
+
+        const kb = self.pieceOcc(.init(.king, stm.flip()));
+        const ks = kb.lowSquare() orelse std.debug.panic("king not found", .{});
+
+        return switch (self.getSquare(s).ptype()) {
+            // zig fmt: off
+            .pawn   => bitboard.pAtk(kb, stm.flip()).get(d),
+            .knight => bitboard.nAtk(ks).get(d),
+            .bishop => bitboard.bAtk(ks, occ).get(d),
+            .rook   => bitboard.rAtk(ks, occ).get(d),
+            .queen  => bitboard.qAtk(ks, occ).get(d),
+            .king   => false,
+            // zig fmt: on
+        };
+    }
+
     pub fn isMoveLegal(self: *const Position, move: movegen.Move) bool {
         return if (self.tryMove(move)) |_| true else |_| false;
     }
