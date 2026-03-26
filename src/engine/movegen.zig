@@ -316,8 +316,8 @@ pub const Move = packed struct(u16) {
             const len = self.slice().len;
             const stm = pos.stm;
             const occ = pos.bothOcc();
-            const target = types.Square.Set
-                .full
+
+            const target = types.Square.Set.full
                 .bwa(if (ptype != .king) pos.checks else .full)
                 .bwa(if (noisy) pos.colorOcc(stm.flip()) else occ.flip());
 
