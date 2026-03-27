@@ -1097,6 +1097,7 @@ fn ab(
                 e -= 3;
             } else if (ttscore >= b) {
                 e -= 2;
+                e += @intFromBool(is_pv);
             }
         }
 
