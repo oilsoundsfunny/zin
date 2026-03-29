@@ -983,6 +983,7 @@ fn ab(
             continue :move_loop;
         }
 
+        const is_direct_check = pos.isDirectCheck(m);
         const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
         const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
 
@@ -1034,7 +1035,7 @@ fn ab(
                     params.values.lmp_nonimproving0;
             if (searched > 1 and
                 searched > @abs(@divTrunc(very_late, 1024)) and
-                searched > @abs(@divTrunc(very_late, 1024)) + @intFromBool(pos.isDirectCheck(m))) {
+                searched > @abs(@divTrunc(very_late, 1024)) + @intFromBool(is_direct_check)) {
                 break :move_loop;
             }
 
@@ -1055,12 +1056,13 @@ fn ab(
         var e: Depth = 0;
         var r: Depth = 0;
 
-        if (!is_root and
+        const do_se = !is_root and
             m == mp.ttm and
             d >= 6 and
             d <= tte.depth + 3 and
-            tte.flag != .upperbound)
-        {
+            tte.flag != .upperbound;
+
+        if (do_se) {
             pos.excluded = m;
             defer pos.excluded = .{};
 
@@ -1113,6 +1115,10 @@ fn ab(
                     std.debug.panic("root move not found", .{});
                 rm.nodes += self.nodes - nodes;
             };
+
+            if (!do_se and board.positions.last().isChecked() and !is_direct_check) {
+                e += 1;
+            }
 
             var recur_d = d + e - 1;
             var score: @TypeOf(a, b) = evaluation.score.none;
