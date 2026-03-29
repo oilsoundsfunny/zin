@@ -19,16 +19,16 @@ pub fn init() !void {
                 continue;
             }
 
-            const d: f32 = @floatFromInt(depth);
-            const n: f32 = @floatFromInt(num);
+            const d: f32 = @floatFromInt(depth - 1);
+            const n: f32 = @floatFromInt(num - 1);
 
             const noisy1: f32 = @floatFromInt(root.values.base_lmr_noisy1);
             const noisy0: f32 = @floatFromInt(root.values.base_lmr_noisy0);
-            const noisy = @round(noisy0 + noisy1 * @log(d) * @log(n));
+            const noisy = noisy0 + noisy1 * @log(d) * @log(n);
 
             const quiet1: f32 = @floatFromInt(root.values.base_lmr_quiet1);
             const quiet0: f32 = @floatFromInt(root.values.base_lmr_quiet0);
-            const quiet = @round(quiet0 + quiet1 * @log(d) * @log(n));
+            const quiet = quiet0 + quiet1 * @log(d) * @log(n);
 
             by_num.* = .{ @intFromFloat(noisy), @intFromFloat(quiet) };
         }

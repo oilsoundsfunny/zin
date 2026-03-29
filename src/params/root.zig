@@ -71,10 +71,10 @@ const tunables = blk: {
         .{ .name = "nodetm1", .min = 8, .max = 4096, .c_end = 24.0 },
         .{ .name = "nodetm0", .min = 1024, .max = 2048, .c_end = 48.0 },
 
-        .{ .name = "base_lmr_noisy1", .min = 4, .max = 64, .c_end = 1.0 },
-        .{ .name = "base_lmr_noisy0", .min = 256, .max = 4096, .c_end = 16.0 },
-        .{ .name = "base_lmr_quiet1", .min = 256, .max = 4096, .c_end = 36.0 },
-        .{ .name = "base_lmr_quiet0", .min = 256, .max = 4096, .c_end = 36.0 },
+        .{ .name = "base_lmr_noisy1", .min = 2, .max = 32, .c_end = 0.5 },
+        .{ .name = "base_lmr_noisy0", .min = 128, .max = 1024, .c_end = 8.0 },
+        .{ .name = "base_lmr_quiet1", .min = 128, .max = 1024, .c_end = 16.0 },
+        .{ .name = "base_lmr_quiet0", .min = 128, .max = 1024, .c_end = 16.0 },
 
         .{ .name = "see_ordering_pawn", .min = 0, .max = 2340, .c_end = 16.0 },
         .{ .name = "see_ordering_knight", .min = 0, .max = 2340, .c_end = 32.0 },
