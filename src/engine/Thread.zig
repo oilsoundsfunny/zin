@@ -1010,14 +1010,15 @@ fn ab(
             // futility pruning
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
-            const fp_margin = @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
+            const fp_margin =
+                @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
                 params.values.fp_margin1 * fp_d +
                 params.values.fp_margin0;
             if (fp_d <= 8 and
-                is_quiet and
+                !is_noisy and
                 !is_checked and
                 a < evaluation.score.win and
-                stat_eval + fp_margin <= a)
+                stat_eval <= a - fp_margin)
             {
                 continue :move_loop;
             }
@@ -1134,6 +1135,19 @@ fn ab(
                 // late move reduction (lmr)
                 // 10.0+0.1: 48.29 +- 15.89
                 r += base_lmr;
+
+                // futility reduction(s(?))
+                const fut_d = @divTrunc(lmr_d, 1024);
+                const fut_m =
+                    params.values.fr_margin1 * fut_d +
+                    params.values.fr_margin0;
+                const fut =
+                    fut_d <= 8 and
+                    !is_noisy and
+                    !is_checked and
+                    a < evaluation.score.win and
+                    stat_eval <= a - fut_m;
+                r += @as(@TypeOf(d), @intFromBool(fut)) * params.values.lmr_fut;
 
                 r += @as(@TypeOf(d), @intFromBool(!improving)) * params.values.lmr_non_improving;
                 r += @as(@TypeOf(d), @intFromBool(node == .lowerbound)) * params.values.lmr_cutnode;

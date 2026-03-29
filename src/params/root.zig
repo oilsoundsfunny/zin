@@ -172,6 +172,10 @@ const tunables = blk: {
         .{ .name = "dext_noisy", .min = 8, .max = 32, .c_end = 1.0 },
         .{ .name = "dext_pv", .min = 8, .max = 32, .c_end = 1.0 },
 
+        .{ .name = "fr_margin0", .min = 256, .max = 1024, .c_end = 32.0 },
+        .{ .name = "fr_margin1", .min = 128, .max = 512, .c_end = 16.0 },
+
+        .{ .name = "lmr_fut", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_non_improving", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_cutnode", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_noisy_ttm", .min = 0, .max = 4096, .c_end = 64.0 },
