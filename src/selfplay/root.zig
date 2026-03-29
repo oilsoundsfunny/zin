@@ -5,6 +5,7 @@ const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
+pub const Book = @import("Book.zig");
 pub const Request = @import("Request.zig");
 pub const threaded = @import("threaded.zig");
 pub const ViriFormat = @import("ViriFormat.zig");
@@ -16,6 +17,8 @@ const Options = struct {
     book: ?[]const u8 = null,
     data: ?[]const u8 = null,
     games: ?usize = null,
+
+    seed: ?u64 = null,
     random_moves: ?usize = null,
 
     hash: ?usize = null,
@@ -34,7 +37,7 @@ const Options = struct {
     draw_adj_score: ?Score = null,
 };
 
-pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
+fn parseArgs(args: *std.process.ArgIterator) !Options {
     const duped_err = "duplicated arg '{s}'";
     const expected_err = "expected arg after '{s}'";
     var options: Options = .{};
@@ -52,6 +55,13 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
             }
 
             options.data = args.next() orelse std.process.fatal(expected_err, .{arg});
+        } else if (std.mem.eql(u8, arg, "--seed")) {
+            if (options.seed) |_| {
+                std.process.fatal(duped_err, .{arg});
+            }
+
+            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+            options.seed = try std.fmt.parseUnsigned(u64, token, 10);
         } else if (std.mem.eql(u8, arg, "--random-moves")) {
             if (options.random_moves) |_| {
                 std.process.fatal(duped_err, .{arg});
@@ -146,6 +156,20 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
         } else std.process.fatal("unknown arg '{s}'", .{arg});
     }
 
+    return options;
+}
+
+pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
+    const options = try parseArgs(args);
+
+    const data = options.data orelse std.process.fatal("missing arg '--data'", .{});
+    const games = options.games orelse std.process.fatal("missing arg '--games'", .{});
+    var book = try Book.init(pool.allocator, options.book);
+    defer book.deinit(pool.allocator);
+
+    pool.io.deinit(pool.allocator);
+    pool.io = try .init(pool.allocator, null, std.atomic.cache_line, data, 65536);
+
     const hash = options.hash orelse 128;
     const threads = options.threads orelse 1;
 
@@ -154,19 +178,18 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
     pool.tt = try .init(pool.allocator, hash);
     pool.clearHash();
 
-    const book = options.book orelse std.process.fatal("missing arg '--book'", .{});
-    const data = options.data orelse std.process.fatal("missing arg '--data'", .{});
-
-    pool.io.deinit(pool.allocator);
-    pool.io = try .init(pool.allocator, book, 65536, data, 65536);
-
     pool.limits.depth = options.depth;
-    pool.limits.soft_nodes = options.soft_nodes orelse 5000;
-    pool.limits.hard_nodes = options.hard_nodes orelse pool.limits.soft_nodes.? * 50;
+    pool.limits.soft_nodes, pool.limits.hard_nodes = if (options.depth) |_| .{ null, null } else .{
+        options.soft_nodes orelse 5000,
+        options.hard_nodes orelse pool.limits.soft_nodes.? * 50,
+    };
     pool.limits.set(pool.opts.overhead, .white);
 
+    pool.setFRC(true);
     pool.datagen(.{
-        .games = options.games,
+        .rng = .init(options.seed orelse 0x5555555555555555),
+        .book = book,
+        .games = games,
         .random_moves = options.random_moves orelse 8,
         .win_adj = try .init(
             options.win_adj_min_ply orelse 3,
