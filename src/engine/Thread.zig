@@ -1075,8 +1075,6 @@ fn ab(
             const se_score = self.ab(node, ply, sb - 1, sb, sd);
 
             if (se_score < sb) {
-                e += 1;
-
                 const dext_margin = blk: {
                     const base = if (is_noisy)
                         params.values.dext_noisy
@@ -1086,17 +1084,18 @@ fn ab(
                     break :blk base + pv;
                 };
 
-                if (se_score < sb - dext_margin) {
-                    e += 1;
-                }
+                e += 1;
+                e += @intFromBool(se_score < sb - dext_margin);
             } else if (sb >= b) {
                 const min = evaluation.score.loss + 1;
                 const max = evaluation.score.win - 1;
                 return std.math.clamp(sb, min, max);
-            } else if (node == .lowerbound) {
+            } else if (ttscore <= a) {
                 e -= 3;
+                e -= @intFromBool(node == .lowerbound);
             } else if (ttscore >= b) {
                 e -= 2;
+                e -= @intFromBool(node == .lowerbound);
             }
         }
 
