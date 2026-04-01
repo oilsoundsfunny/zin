@@ -189,45 +189,12 @@ pub fn build(bld: *std.Build) !void {
         );
 
     for (Steps.values) |s| {
-        switch (s) {
-            .releases => {
-                for (release_targets.items) |release_target| {
-                    var options = module_opts;
-                    options.root_source_file = bld.path(Steps.srcs.get(s));
-                    options.target = release_target;
+        var options = module_opts;
+        options.root_source_file = bld.path(Steps.srcs.get(s));
 
-                    const module = bld.createModule(options);
-                    const deps = Steps.dependencies.get(s);
-                    for (deps) |dep| {
-                        const dep_name = Modules.names.get(dep);
-                        const dep_module = modules.get(dep);
-                        module.addImport(dep_name, dep_module);
-                    }
-
-                    const is_linux = release_target.result.os.tag == .linux;
-                    const name = try std.mem.concat(bld.allocator, u8, &.{
-                        exe_name, "-", version_string, "-", release_target.result.cpu.model.name,
-                    });
-                    const comp = add_exe: {
-                        const exe = bld.addExecutable(.{
-                            .root_module = module,
-                            .name = name,
-                            .version = version,
-                            .use_lld = use_llvm,
-                            .use_llvm = use_llvm,
-                        });
-                        exe.want_lto = if (is_linux) lto else false;
-                        break :add_exe exe;
-                    };
-                    const sub_step = &bld.addInstallArtifact(comp, .{}).step;
-                    steps.get(s).dependOn(sub_step);
-                }
-            },
-
-            else => {
-                var options = module_opts;
-                options.root_source_file = bld.path(Steps.srcs.get(s));
-
+        if (s == .releases) {
+            for (release_targets.items) |release_target| {
+                options.target = release_target;
                 const module = bld.createModule(options);
                 const deps = Steps.dependencies.get(s);
                 for (deps) |dep| {
@@ -236,29 +203,55 @@ pub fn build(bld: *std.Build) !void {
                     module.addImport(dep_name, dep_module);
                 }
 
-                const comp = if (s == .install) add_exe: {
+                const is_linux = release_target.result.os.tag == .linux;
+                const name = try std.mem.concat(bld.allocator, u8, &.{
+                    exe_name, "-", version_string, "-", release_target.result.cpu.model.name,
+                });
+                const comp = add_exe: {
                     const exe = bld.addExecutable(.{
                         .root_module = module,
-                        .name = exe_name,
+                        .name = name,
                         .version = version,
                         .use_lld = use_llvm,
                         .use_llvm = use_llvm,
                     });
-                    exe.want_lto = lto;
+                    exe.want_lto = if (is_linux) lto else false;
                     break :add_exe exe;
-                } else bld.addTest(.{
+                };
+                const sub_step = &bld.addInstallArtifact(comp, .{}).step;
+                steps.get(s).dependOn(sub_step);
+            }
+        } else {
+            const module = bld.createModule(options);
+            const deps = Steps.dependencies.get(s);
+            for (deps) |dep| {
+                const dep_name = Modules.names.get(dep);
+                const dep_module = modules.get(dep);
+                module.addImport(dep_name, dep_module);
+            }
+
+            const comp = if (s == .install) add_exe: {
+                const exe = bld.addExecutable(.{
                     .root_module = module,
-                    .name = if (s == .perft) "perft" else "test",
+                    .name = exe_name,
+                    .version = version,
                     .use_lld = use_llvm,
                     .use_llvm = use_llvm,
                 });
+                exe.want_lto = lto;
+                break :add_exe exe;
+            } else bld.addTest(.{
+                .root_module = module,
+                .name = if (s == .perft) "perft" else "test",
+                .use_lld = use_llvm,
+                .use_llvm = use_llvm,
+            });
 
-                const sub_step = if (s == .install)
-                    &bld.addInstallArtifact(comp, .{}).step
-                else
-                    &bld.addRunArtifact(comp).step;
-                steps.get(s).dependOn(sub_step);
-            },
+            const sub_step = if (s == .install)
+                &bld.addInstallArtifact(comp, .{}).step
+            else
+                &bld.addRunArtifact(comp).step;
+            steps.get(s).dependOn(sub_step);
         }
     }
 }
