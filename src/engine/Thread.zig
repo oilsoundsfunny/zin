@@ -1370,6 +1370,11 @@ fn qs(
         }
 
         if (!is_checked) {
+            // qs pruning
+            if (searched > 1) {
+                break :move_loop;
+            }
+
             // qs futility pruning
             // 10.0+0.1: 65.37 +- 17.63
             const margin = params.values.qs_fp_margin;
