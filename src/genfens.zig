@@ -1,4 +1,5 @@
 const engine = @import("engine");
+const selfplay = @import("selfplay");
 const std = @import("std");
 
 const Options = struct {
@@ -7,7 +8,7 @@ const Options = struct {
     book: ?[]const u8,
 };
 
-fn parseArgs(args: []const u8, allocator: std.mem.Allocator) !Options {
+fn parseArgs(args: []const u8) !Options {
     var opts: Options = undefined;
     var tokens = std.mem.tokenizeAny(u8, args, &.{ '\n', '\r', '\t', ' ' });
 
@@ -28,10 +29,7 @@ fn parseArgs(args: []const u8, allocator: std.mem.Allocator) !Options {
         std.process.fatal("expected '{s}', found '{s}'", .{ "book", third })
     else
         tokens.next() orelse std.process.fatal("expected arg after '{s}'", .{"book"});
-    opts.book = if (!std.mem.eql(u8, book, "None"))
-        try std.fs.cwd().readFileAlloc(allocator, book, 32 * 1024 * 1024)
-    else
-        null;
+    opts.book = if (std.mem.eql(u8, book, "None")) null else book;
 
     return if (tokens.peek()) |extra| {
         // TODO: find out tf age meant by <?extra>
@@ -58,49 +56,37 @@ fn playRandom(board: *engine.Board, rng: *std.Random.Xoroshiro128, random_moves:
             }
 
             const i = rng.random().uintLessThan(usize, rmn);
-            board.doMove(rms.constSlice()[i].constSlice()[0]);
+            const m = rms.constSlice()[i].constSlice()[0];
+            board.doMove(m);
         } else {
-            const rms = engine.movegen.RootMove.List.init(board);
-            if (rms.constSlice().len == 0) {
-                continue :find_line;
+            const mat = board.positions.last().material();
+            const eval = board.evaluate();
+            const norm = engine.evaluation.score.normalize(eval, mat);
+            if (norm == std.math.clamp(norm, -200, 200)) {
+                break :find_line;
             }
-
-            const m = board.positions.last().material();
-            const e = board.evaluate();
-            const w, const d, const l = engine.evaluation.score.wdl(e, m);
-            if (w > 0.235342676972 or d > 0.85411151145 or l > 0.235342676972) {
-                continue :find_line;
-            }
-
-            break :find_line;
         }
     }
 }
 
 pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
-    const opts = try parseArgs(args, pool.allocator);
-    defer if (opts.book) |book| {
-        pool.allocator.free(book);
-    };
+    const opts = try parseArgs(args);
 
+    var rng: std.Random.Xoroshiro128 = .init(opts.seed);
+    var book: selfplay.Book = try .init(pool.allocator, opts.book);
+    defer book.deinit(pool.allocator);
+
+    pool.setFRC(true);
     const board = try pool.allocator.create(engine.Board);
     defer pool.allocator.destroy(board);
-
-    var opt_fens = if (opts.book) |book| std.mem.tokenizeAny(u8, book, &.{ '\n', '\r' }) else null;
-    var rng: std.Random.Xoroshiro128 = .init(opts.seed);
 
     var buffer: [65536]u8 = undefined;
     var writer = std.fs.File.stdout().writer(buffer[0..]);
 
     for (0..opts.num) |_| {
-        const fen = if (opt_fens) |*fens| blk: {
-            if (fens.peek() == null) {
-                fens.reset();
-            }
-            break :blk fens.next().?;
-        } else engine.Board.Position.startpos[0..];
+        const fen = book.getRandom(rng.random());
         try board.parseFen(fen);
-        playRandom(board, &rng, if (opt_fens) |_| 4 else 8);
+        playRandom(board, &rng, if (opts.book) |_| 4 else 8);
 
         var fen_buffer: [128]u8 = undefined;
         const board_fen = try board.printFen(fen_buffer[0..]);

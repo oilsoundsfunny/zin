@@ -36,23 +36,27 @@ pub const score = struct {
     pub const loss = min + 1 + movegen.RootMove.capacity;
     // zig fmt: on
 
-    fn winrate(s: Int, mat: Int) f32 {
+    fn wdlParams(m: Int) struct { f32, f32 } {
         // zig fmt: off
-        const p_a: [4]f32 = .{ -72.32565836,  185.93832038, -144.58862193, 416.44950446 };
-        const p_b: [4]f32 = .{  83.86794042, -136.06112997,   69.98820887,  47.62901433 };
+        const p_a: [4]f32 = .{ -125.94470275,  361.13329132, -436.02351672, 465.82175860 };
+        const p_b: [4]f32 = .{   78.70983897, -167.31729756,  143.00239659,  57.40055307 };
         // zig fmt: on
-
-        const fm: f32 = @floatFromInt(std.math.clamp(mat, 17, 78));
-        const fs: f32 = @floatFromInt(s);
+        const x: f32 = @floatFromInt(std.math.clamp(m, 17, 78));
 
         var a: f32 = 0.0;
         var b: f32 = 0.0;
         for (p_a[0..], p_b[0..]) |pa, pb| {
-            a = @mulAdd(f32, a, fm / 58.0, pa);
-            b = @mulAdd(f32, b, fm / 58.0, pb);
+            a = @mulAdd(f32, a, x / 58.0, pa);
+            b = @mulAdd(f32, b, x / 58.0, pb);
         }
 
-        const d = 1.0 + @exp((a - fs) / b);
+        return .{ a, b };
+    }
+
+    fn winrate(s: Int, mat: Int) f32 {
+        const a, const b = wdlParams(mat);
+        const x: f32 = @floatFromInt(s);
+        const d: f32 = 1.0 + @exp((a - x) / b);
         return 1.0 / d;
     }
 
@@ -99,21 +103,15 @@ pub const score = struct {
     }
 
     pub fn normalize(s: Int, mat: Int) Int {
-        const params: [4]f32 = .{ -72.32565836, 185.93832038, -144.58862193, 416.44950446 };
-        const fm: f32 = @floatFromInt(@max(mat, 17));
-        const fs: f32 = @floatFromInt(s);
-
-        var x = params[0];
-        for (params[1..]) |k| {
-            x = @mulAdd(f32, x, fm / 58.0, k);
-        }
-        return @intFromFloat(@round(100.0 * fs / x));
+        const a, _ = wdlParams(mat);
+        const x: f32 = @floatFromInt(s);
+        return @intFromFloat(x / a * 100.0);
     }
 
     pub fn wdl(s: Int, mat: Int) struct { f32, f32, f32 } {
         const w = winrate(s, mat);
         const l = winrate(-s, mat);
-        return .{ w, 1.0 - w - l, l };
+        return .{ w, std.math.clamp(1.0 - w - l, 0.0, 1.0), l };
     }
 
     pub fn withIndex(s: Int, i: u32) u32 {

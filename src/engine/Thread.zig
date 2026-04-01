@@ -358,6 +358,7 @@ pub const Limits = struct {
 pub const Options = struct {
     frc: bool = false,
     show_wdl: bool = false,
+    soft_nodes: bool = false,
     hash: usize = 64,
     threads: usize = 1,
     overhead: u64 = 10,
@@ -1034,7 +1035,8 @@ fn ab(
                     params.values.lmp_nonimproving0;
             if (searched > 1 and
                 searched > @abs(@divTrunc(very_late, 1024)) and
-                searched > @abs(@divTrunc(very_late, 1024)) + @intFromBool(pos.isDirectCheck(m))) {
+                searched > @abs(@divTrunc(very_late, 1024)) + @intFromBool(pos.isDirectCheck(m)))
+            {
                 break :move_loop;
             }
 

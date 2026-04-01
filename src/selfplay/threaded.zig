@@ -34,7 +34,7 @@ fn playRandom(thread: *engine.Thread) !void {
 
     find_line: while (true) : (board.* = thread.board) {
         var ply: usize = 0;
-        while (ply <= random_moves) : (ply += 1) {
+        while (ply < random_moves) : (ply += 1) {
             const root_moves = engine.movegen.RootMove.List.init(board);
             const rms = root_moves.constSlice();
             const rmn = rms.len;
@@ -42,20 +42,17 @@ fn playRandom(thread: *engine.Thread) !void {
                 continue :find_line;
             }
 
-            if (ply < random_moves) {
-                const i = rq.rng.random().uintLessThan(usize, rmn);
-                const m = rms[i].constSlice()[0];
-                board.doMove(m);
-                continue;
-            }
-
+            const i = rq.rng.random().uintLessThan(usize, rmn);
+            const m = rms[i].constSlice()[0];
+            board.doMove(m);
+        } else {
             const mat = board.positions.last().material();
             const eval = board.evaluate();
             const norm = engine.evaluation.score.normalize(eval, mat);
-            if (norm != std.math.clamp(norm, -200, 200)) {
-                continue :find_line;
+            if (norm == std.math.clamp(norm, -200, 200)) {
+                break :find_line;
             }
-        } else break :find_line;
+        }
     }
 }
 
@@ -71,16 +68,14 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
         try thread.search();
 
         const is_terminal = board.isTerminal();
-        data.head.result = if (is_terminal)
-            terminalResult(thread)
-        else if (root_moves.constSlice().len == 0) no_moves: {
+        data.head.result = if (root_moves.constSlice().len == 0) no_moves: {
             const stm = board.positions.last().stm;
             const is_checked = board.positions.last().isChecked();
             const is_drawn = board.isDrawn();
 
-            break :no_moves if (is_drawn)
-                .draw
-            else if (!is_checked)
+            break :no_moves if (is_terminal)
+                terminalResult(thread)
+            else if (is_drawn or !is_checked)
                 .draw
             else switch (stm) {
                 .white => .black,
@@ -92,8 +87,9 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
             const pvs = pv.score;
 
             board.doMove(pvm);
-            const mat = board.positions.last().material();
-            const stm = board.positions.last().stm.flip();
+            const pos = board.positions.last();
+            const mat = pos.material();
+            const stm = pos.stm.flip();
 
             const norm = engine.evaluation.score.normalize(@intCast(pvs), mat);
             data.line.pushUnchecked(.{
@@ -136,52 +132,37 @@ pub fn datagen(thread: *engine.Thread) !void {
     const i = thread.idx;
     const n = thread.cnt;
     const rq = switch (thread.request) {
-        .datagen => |rq| rq,
+        .datagen => |*rq| rq,
         else => return,
     };
     var data: ViriFormat = undefined;
 
-    const lines = thread.pool.io.lineCount() catch std.debug.panic("unabled to count book", .{});
-    const games = if (rq.games) |g| g / n + @intFromBool(g % n != 0) else std.math.maxInt(usize);
-    const repeat = if (rq.games) |_| games / lines + @intFromBool(games % lines != 0) else 1;
-
+    const games = rq.games / n + @intFromBool(rq.games % n != 0);
     var played: usize = 0;
     var positions: usize = 0;
 
-    const board = try thread.pool.allocator.create(engine.Board);
-    defer thread.pool.allocator.destroy(board);
+    while (played < games) {
+        const opening = rq.book.getRandom(rq.rng.random());
+        thread.board.parseFen(opening) catch continue;
 
-    loop: while (readOpening(thread)) |opening| {
-        defer thread.pool.allocator.free(opening);
-        thread.board.parseFen(opening) catch continue :loop;
-        board.* = thread.board;
+        playRandom(thread) catch continue;
+        playOut(thread, &data) catch continue;
+        writeData(thread, &data) catch continue;
 
-        const played_fen = played;
-        while (played - played_fen < repeat and played < games) : (thread.board = board.*) {
-            playRandom(thread) catch continue :loop;
-            playOut(thread, &data) catch continue :loop;
-            writeData(thread, &data) catch continue :loop;
+        played += 1;
+        positions += data.line.constSlice().len -| 1;
 
-            played += 1;
-            positions += data.line.constSlice().len -| 1;
+        if (played % 256 == 0 or played >= games) {
+            const ntime = thread.pool.timer.read();
+            const pps =
+                @as(f32, @floatFromInt(positions)) /
+                @as(f32, @floatFromInt(ntime)) *
+                std.time.ns_per_s;
 
-            if (played % 256 == 0 or played >= games) {
-                const ntime = thread.pool.timer.read();
-                const pps =
-                    @as(f32, @floatFromInt(positions)) /
-                    @as(f32, @floatFromInt(ntime)) *
-                    std.time.ns_per_s;
-
-                std.log.info(
-                    "thread {} played {} games cont. {} positions @ {} pps",
-                    .{ i, played, positions, pps },
-                );
-            }
-        } else if (played >= games) {
-            break :loop;
+            std.log.info(
+                "thread {} played {} games cont. {} positions @ {} pps",
+                .{ i, played, positions, pps },
+            );
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => return err,
     }
 }

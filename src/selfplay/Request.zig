@@ -2,12 +2,14 @@ const engine = @import("engine");
 const std = @import("std");
 const types = @import("types");
 
+const Book = @import("Book.zig");
 const ViriFormat = @import("ViriFormat.zig");
 
 const Request = @This();
 
-rng: std.Random.Xoroshiro128 = .init(0x5555555555555555),
-games: ?usize,
+rng: std.Random.Xoroshiro128,
+book: Book,
+games: usize,
 random_moves: usize,
 win_adj: Adj,
 draw_adj: Adj,

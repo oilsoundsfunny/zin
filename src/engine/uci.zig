@@ -21,9 +21,27 @@ const Command = enum {
     ucinewgame,
 };
 
-pub const Error = error{
-    UnknownCommand,
+const Tokens = struct {
+    list: std.ArrayList([]const u8),
+
+    fn deinit(self: *Tokens, allocator: std.mem.Allocator) void {
+        for (self.list.items) |token| {
+            allocator.free(token);
+        }
+        self.list.deinit(allocator);
+    }
+
+    fn init(allocator: std.mem.Allocator, tokens: *std.mem.TokenIterator(u8, .any)) !Tokens {
+        var list: std.ArrayList([]const u8) = .empty;
+        while (tokens.next()) |token| {
+            const duped = try allocator.dupe(token);
+            try list.append(allocator, duped);
+        }
+        return .{ .list = list };
+    }
 };
+
+pub const Error = error{UnknownCommand};
 
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
     const pos = pool.threads.items[0].board.positions.last();
@@ -53,8 +71,14 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Comman
             limits.movetime = std.fmt.parseUnsigned(u64, aux, 10) catch
                 return error.UnknownCommand;
         } else if (std.mem.eql(u8, token, "nodes")) {
-            limits.hard_nodes = std.fmt.parseUnsigned(u64, aux, 10) catch
+            const nodes = std.fmt.parseUnsigned(u64, aux, 10) catch
                 return error.UnknownCommand;
+
+            if (pool.opts.soft_nodes) {
+                limits.soft_nodes = nodes;
+            } else {
+                limits.hard_nodes = nodes;
+            }
         } else if (std.mem.eql(u8, token, "winc")) {
             limits.incr.put(.white, std.fmt.parseUnsigned(u64, aux, 10) catch
                 return error.UnknownCommand);
@@ -174,6 +198,24 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
         }
 
         options.show_wdl = show_wdl;
+    } else if (std.ascii.eqlIgnoreCase(name, "UCI_SoftNodes")) {
+        if (!std.mem.eql(u8, aux, "value")) {
+            return error.UnknownCommand;
+        }
+
+        const value = tokens.next() orelse return error.UnknownCommand;
+        const soft_nodes = if (std.mem.eql(u8, value, "false"))
+            false
+        else if (std.mem.eql(u8, value, "true"))
+            true
+        else
+            return error.UnknownCommand;
+
+        if (tokens.peek()) |_| {
+            return error.UnknownCommand;
+        }
+
+        options.soft_nodes = soft_nodes;
     } else if (!params.tuning) {
         return error.UnknownCommand;
     } else params.parseTunable(name, aux, tokens) catch |err| return err;

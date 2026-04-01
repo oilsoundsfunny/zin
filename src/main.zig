@@ -20,6 +20,8 @@ const help =
     \\            --book [path]               epd opening book to read from. must be specified.
     \\            --data [path]               data file to write to. must be specified.
     \\            --games [num]               number of games to be played.
+    \\            --seed [num]                seed for the random mover.
+    \\                                        defaults to 0x5555555555555555.
     \\            --random-moves [num]        number of random moves to play
     \\                                        at the start of each game.
     \\                                        defaults to 8.
