@@ -49,23 +49,52 @@ const Modules = enum {
 
 const Steps = enum {
     install,
+    releases,
     perft,
     tests,
 
     const dependencies = std.EnumArray(Steps, []const Modules).init(.{
         .install = &.{ .bitboard, .engine, .params, .selfplay, .types },
+        .releases = &.{ .bitboard, .engine, .params, .selfplay, .types },
         .perft = &.{ .bitboard, .engine, .types },
         .tests = &.{ .bitboard, .engine, .nnue, .params, .selfplay, .types },
     });
 
     const srcs = std.EnumArray(Steps, []const u8).init(.{
         .install = "src/main.zig",
+        .releases = "src/main.zig",
         .perft = "tests/perft/root.zig",
         .tests = "tests/root.zig",
     });
 
     const values = std.enums.values(Steps);
 };
+
+fn releaseTargets(bld: *std.Build) !std.ArrayList(std.Build.ResolvedTarget) {
+    const triples: [2][]const u8 = .{
+        "x86_64-linux-musl",
+        "x86_64-windows-msvc",
+    };
+    const cpus: [9][]const u8 = .{
+        // zig fmt: off
+        "x86_64", "x86_64_v2", "x86_64_v3", "x86_64_v4",
+        "znver1", "znver2", "znver3", "znver4", "znver5",
+        // zig fmt: on
+    };
+
+    var list: std.ArrayList(std.Build.ResolvedTarget) = .empty;
+    for (triples) |triple| {
+        for (cpus) |cpu| {
+            const query: std.Target.Query = try .parse(.{
+                .arch_os_abi = triple,
+                .cpu_features = cpu,
+            });
+            const resolved = bld.resolveTargetQuery(query);
+            try list.append(bld.allocator, resolved);
+        }
+    }
+    return list;
+}
 
 pub fn build(bld: *std.Build) !void {
     const root = bld.addModule("root", .{
@@ -74,6 +103,9 @@ pub fn build(bld: *std.Build) !void {
 
     const optimize = bld.standardOptimizeOption(.{});
     const target = bld.standardTargetOptions(.{});
+
+    var release_targets = try releaseTargets(bld);
+    defer release_targets.deinit(bld.allocator);
 
     const is_debug = optimize == .Debug;
     const has_debuginfo = is_debug or optimize == .ReleaseSafe;
@@ -104,6 +136,7 @@ pub fn build(bld: *std.Build) !void {
 
     const steps = std.EnumArray(Steps, *std.Build.Step).init(.{
         .install = bld.getInstallStep(),
+        .releases = bld.step("releases", ""),
         .perft = bld.step("perft", ""),
         .tests = bld.step("test", ""),
     });
@@ -147,39 +180,78 @@ pub fn build(bld: *std.Build) !void {
     const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
     const version = @import("src/root.zig").version;
 
+    var version_buf: [128]u8 align(std.atomic.cache_line) = undefined;
+    const version_string = bld.option([]const u8, "version-string", "") orelse
+        try std.fmt.bufPrint(
+            version_buf[0..],
+            "{}.{}.{}",
+            .{ version.major, version.minor, version.patch },
+        );
+
     for (Steps.values) |s| {
         var options = module_opts;
         options.root_source_file = bld.path(Steps.srcs.get(s));
 
-        const module = bld.createModule(options);
-        const deps = Steps.dependencies.get(s);
-        for (deps) |dep| {
-            const dep_name = Modules.names.get(dep);
-            const dep_module = modules.get(dep);
-            module.addImport(dep_name, dep_module);
-        }
+        if (s == .releases) {
+            for (release_targets.items) |release_target| {
+                options.target = release_target;
+                const module = bld.createModule(options);
+                const deps = Steps.dependencies.get(s);
+                for (deps) |dep| {
+                    const dep_name = Modules.names.get(dep);
+                    const dep_module = modules.get(dep);
+                    module.addImport(dep_name, dep_module);
+                }
 
-        const comp = if (s == .install) add_exe: {
-            const exe = bld.addExecutable(.{
+                const is_linux = release_target.result.os.tag == .linux;
+                const name = try std.mem.concat(bld.allocator, u8, &.{
+                    exe_name, "-", version_string, "-", release_target.result.cpu.model.name,
+                });
+                const comp = add_exe: {
+                    const exe = bld.addExecutable(.{
+                        .root_module = module,
+                        .name = name,
+                        .version = version,
+                        .use_lld = use_llvm,
+                        .use_llvm = use_llvm,
+                    });
+                    exe.want_lto = if (is_linux) lto else false;
+                    break :add_exe exe;
+                };
+                const sub_step = &bld.addInstallArtifact(comp, .{}).step;
+                steps.get(s).dependOn(sub_step);
+            }
+        } else {
+            const module = bld.createModule(options);
+            const deps = Steps.dependencies.get(s);
+            for (deps) |dep| {
+                const dep_name = Modules.names.get(dep);
+                const dep_module = modules.get(dep);
+                module.addImport(dep_name, dep_module);
+            }
+
+            const comp = if (s == .install) add_exe: {
+                const exe = bld.addExecutable(.{
+                    .root_module = module,
+                    .name = exe_name,
+                    .version = version,
+                    .use_lld = use_llvm,
+                    .use_llvm = use_llvm,
+                });
+                exe.want_lto = lto;
+                break :add_exe exe;
+            } else bld.addTest(.{
                 .root_module = module,
-                .name = exe_name,
-                .version = version,
+                .name = if (s == .perft) "perft" else "test",
                 .use_lld = use_llvm,
                 .use_llvm = use_llvm,
             });
-            exe.want_lto = lto;
-            break :add_exe exe;
-        } else bld.addTest(.{
-            .root_module = module,
-            .name = if (s == .perft) "perft" else "test",
-            .use_lld = use_llvm,
-            .use_llvm = use_llvm,
-        });
 
-        const sub_step = if (s == .install)
-            &bld.addInstallArtifact(comp, .{}).step
-        else
-            &bld.addRunArtifact(comp).step;
-        steps.get(s).dependOn(sub_step);
+            const sub_step = if (s == .install)
+                &bld.addInstallArtifact(comp, .{}).step
+            else
+                &bld.addRunArtifact(comp).step;
+            steps.get(s).dependOn(sub_step);
+        }
     }
 }
