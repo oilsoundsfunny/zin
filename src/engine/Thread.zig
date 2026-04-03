@@ -792,7 +792,7 @@ fn ab(
     }
 
     if (d <= 0) {
-        return self.qs(ply, a, b);
+        return self.qs(node, ply, a, b);
     }
 
     const is_pv = node == .exact;
@@ -957,7 +957,7 @@ fn ab(
         d <= 7 and
         d * params.values.razoring_mul + corr_eval <= a)
     {
-        const rs = self.qs(ply + 1, a, b);
+        const rs = self.qs(node, ply + 1, a, b);
         if (rs <= a) {
             return rs;
         }
@@ -984,6 +984,7 @@ fn ab(
             continue :move_loop;
         }
 
+        const is_direct_check = pos.isDirectCheck(m);
         const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
         const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
 
@@ -1033,10 +1034,8 @@ fn ab(
                 params.values.lmp_nonimproving2 * d * d +
                     params.values.lmp_nonimproving1 * d +
                     params.values.lmp_nonimproving0;
-            if (searched > 1 and
-                searched > @abs(@divTrunc(very_late, 1024)) and
-                searched > @abs(@divTrunc(very_late, 1024)) + @intFromBool(pos.isDirectCheck(m)))
-            {
+            const lmp_threshold = @abs(@divTrunc(very_late, 1024)) + @intFromBool(is_direct_check);
+            if (searched > @max(lmp_threshold, 1)) {
                 break :move_loop;
             }
 
@@ -1265,6 +1264,7 @@ fn ab(
 
 fn qs(
     self: *Thread,
+    node: Node,
     ply: usize,
     alpha: evaluation.score.Int,
     beta: evaluation.score.Int,
@@ -1306,12 +1306,16 @@ fn qs(
     const key = pos.key;
     const is_checked = pos.isChecked();
 
-    var tte: transposition.Entry = .{};
     const tt = self.pool.tt;
-    const tth = tt.read(key, &tte);
+    const tte, const tth = fetch: {
+        var entry: transposition.Entry = .{};
+        const hit = tt.read(key, &entry);
+        break :fetch .{ entry, hit };
+    };
     const ttscore = evaluation.score.fromTT(tte.score, ply);
 
-    if (tth and tte.shouldTrust(a, b, 0)) {
+    const is_pv = node == .exact;
+    if (!is_pv and tth and tte.shouldTrust(a, b, 0)) {
         return ttscore;
     }
 
@@ -1337,10 +1341,10 @@ fn qs(
     pos.stat_eval = stat_eval;
     pos.corr_eval = corr_eval;
 
-    if (stat_eval >= b) {
-        return stat_eval;
-    }
     a = @max(a, stat_eval);
+    if (a >= b) {
+        return a;
+    }
 
     var best: movegen.Move.Scored = .{
         .move = .{},
@@ -1350,12 +1354,18 @@ fn qs(
 
     var searched: usize = 0;
     var mp = movegen.Picker.init(self, tte.move);
-    if (!is_checked) {
+
+    const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
+    const evade = !is_pv and is_ttm_quiet and tte.flag != .upperbound;
+    if (!is_checked and !evade) {
         mp.skipQuiets();
     }
 
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
+        if (m != mp.ttm and !pos.isMoveLegal(m)) {
+            continue :move_loop;
+        }
 
         if (searched > 0) {
             if (mp.stage.isBad()) {
@@ -1380,10 +1390,6 @@ fn qs(
         }
 
         const s = recur: {
-            // TODO: move this to top of the loop
-            if (!pos.isMoveLegal(m)) {
-                continue :move_loop;
-            }
             board.doMove(m);
             tt.prefetch(board.positions.last().key);
 
@@ -1391,7 +1397,17 @@ fn qs(
             defer mp.skipQuiets();
             defer searched += 1;
 
-            break :recur -self.qs(ply + 1, -b, -a);
+            var score: evaluation.score.Int = evaluation.score.none;
+            if (is_pv and searched == 0) {
+                score = -self.qs(.exact, ply + 1, -b, -a);
+                break :recur score;
+            }
+
+            score = -self.qs(node.flip(), ply + 1, -b, -a);
+            if (score > a and score < b) {
+                score = -self.qs(.exact, ply + 1, -b, -a);
+            }
+            break :recur score;
         };
 
         const datagen_stop = is_datagen and self.datagenStop(.hard);
@@ -1419,7 +1435,7 @@ fn qs(
         return loss;
     }
 
-    tte = .{
+    tt.write(key, .{
         .was_pv = tte.was_pv,
         .flag = flag,
         .age = @truncate(tt.age),
@@ -1428,8 +1444,7 @@ fn qs(
         .eval = @intCast(stat_eval),
         .score = @intCast(evaluation.score.toTT(best.score, ply)),
         .move = best.move,
-    };
-    tt.write(key, tte);
+    });
 
     return best.score;
 }
