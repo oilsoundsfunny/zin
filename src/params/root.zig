@@ -139,6 +139,7 @@ const tunables = blk: {
 
         .{ .name = "fp_margin0", .min = 128, .max = 512, .c_end = 16.0 },
         .{ .name = "fp_margin1", .min = 64, .max = 256, .c_end = 8.0 },
+        .{ .name = "fp_direct_check", .min = 64, .max = 256, .c_end = 8.0 },
         .{ .name = "fp_hist_mul", .min = 8, .max = 128, .c_end = 2.0 },
 
         .{ .name = "lmp_improving2", .min = 128, .max = 2048, .c_end = 64.0 },

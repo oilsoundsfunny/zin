@@ -56,6 +56,7 @@
     .razoring_mul = 311,
     .fp_margin0 = 360,
     .fp_margin1 = 133,
+    .fp_direct_check = 133,
     .fp_hist_mul = 46,
     .lmp_improving2 = 869,
     .lmp_improving1 = 98,

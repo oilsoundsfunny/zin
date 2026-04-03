@@ -984,6 +984,7 @@ fn ab(
             continue :move_loop;
         }
 
+        const is_direct_check = pos.isDirectCheck(m);
         const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
         const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
 
@@ -1011,12 +1012,14 @@ fn ab(
             // futility pruning
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
-            const fp_margin = @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
+            const fp_margin =
+                @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
+                params.values.fp_direct_check * @intFromBool(is_direct_check) +
                 params.values.fp_margin1 * fp_d +
                 params.values.fp_margin0;
             if (fp_d <= 8 and
-                is_quiet and
                 !is_checked and
+                !is_noisy and
                 a < evaluation.score.win and
                 stat_eval + fp_margin <= a)
             {
@@ -1033,10 +1036,8 @@ fn ab(
                 params.values.lmp_nonimproving2 * d * d +
                     params.values.lmp_nonimproving1 * d +
                     params.values.lmp_nonimproving0;
-            if (searched > 1 and
-                searched > @abs(@divTrunc(very_late, 1024)) and
-                searched > @abs(@divTrunc(very_late, 1024)) + @intFromBool(pos.isDirectCheck(m)))
-            {
+            const lmp_threshold = @abs(@divTrunc(very_late, 1024)) + @intFromBool(is_direct_check);
+            if (searched > @max(lmp_threshold, 1)) {
                 break :move_loop;
             }
 
