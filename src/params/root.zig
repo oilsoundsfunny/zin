@@ -111,7 +111,7 @@ const tunables = blk: {
         .{ .name = "corr_major_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
         .{ .name = "corr_nonpawn_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
 
-        .{ .name = "asp_window", .min = 2, .max = 32, .c_end = 2.0 },
+        .{ .name = "asp_window", .min = 2, .max = 32, .c_end = 1.0 },
         .{ .name = "asp_window_mul", .min = 4, .max = 256, .c_end = 32.0 },
 
         .{ .name = "tt_depth_w", .min = 4, .max = 4096, .c_end = 64.0 },
