@@ -1337,7 +1337,7 @@ fn qs(
     const stat_eval = pos.stat_eval;
     const corr_eval = pos.corr_eval;
 
-    a = @max(a, corr_eval);
+    a = @max(a, stat_eval);
     if (a >= b) {
         return a;
     }
