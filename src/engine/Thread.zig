@@ -1019,7 +1019,7 @@ fn ab(
                 !is_noisy and
                 !is_checked and
                 a < evaluation.score.win and
-                stat_eval + fp_margin <= a)
+                corr_eval + fp_margin <= a)
             {
                 continue :move_loop;
             }
@@ -1253,9 +1253,12 @@ fn ab(
         });
     }
 
+    const is_alpha_raised = a > alpha;
+    const is_bestmove_winning_capt = best.move.flag.isNoisy() and
+        pos.see(.pruning, best.move, evaluation.score.draw);
     if (!is_checked and
         !is_singular and
-        !best.move.flag.isNoisy() and
+        !(is_alpha_raised and is_bestmove_winning_capt) and
         !(flag == .upperbound and best.score > corr_eval) and
         !(flag == .lowerbound and best.score < corr_eval))
     {
@@ -1317,32 +1320,30 @@ fn qs(
         return ttscore;
     }
 
-    const has_tteval = tth and
-        tte.eval > evaluation.score.loss and
-        tte.eval < evaluation.score.win;
-    const stat_eval = if (is_checked)
-        evaluation.score.none
-    else if (has_tteval) tte.eval else board.evaluate();
+    if (!is_checked) {
+        const has_tteval = tth and
+            tte.eval > evaluation.score.loss and
+            tte.eval < evaluation.score.win;
+        const stat_eval = if (has_tteval) tte.eval else board.evaluate();
 
-    const use_ttscore = tth and
-        ttscore > evaluation.score.loss and
-        ttscore < evaluation.score.win and
-        !(tte.flag == .upperbound and ttscore > stat_eval) and
-        !(tte.flag == .lowerbound and ttscore <= stat_eval);
-    const corr_eval = if (use_ttscore)
-        ttscore
-    else if (is_checked)
-        evaluation.score.none
-    else
-        stat_eval;
+        const is_ttscore_correct = tth and
+            ttscore > evaluation.score.loss and
+            ttscore < evaluation.score.win and
+            !(tte.flag == .upperbound and ttscore > stat_eval) and
+            !(tte.flag == .lowerbound and ttscore <= stat_eval);
+        const corr_eval = if (is_ttscore_correct) ttscore else self.correctedEval(stat_eval);
 
-    pos.stat_eval = stat_eval;
-    pos.corr_eval = corr_eval;
-
-    if (stat_eval >= b) {
-        return stat_eval;
+        pos.stat_eval = stat_eval;
+        pos.corr_eval = corr_eval;
     }
+
+    const stat_eval = pos.stat_eval;
+    const corr_eval = pos.corr_eval;
+
     a = @max(a, stat_eval);
+    if (a >= b) {
+        return a;
+    }
 
     var best: movegen.Move.Scored = .{
         .move = .{},
@@ -1358,6 +1359,9 @@ fn qs(
 
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
+        if (m != mp.ttm and !pos.isMoveLegal(m)) {
+            continue :move_loop;
+        }
 
         if (searched > 0) {
             if (mp.stage.isBad()) {
@@ -1382,10 +1386,6 @@ fn qs(
         }
 
         const s = recur: {
-            // TODO: move this to top of the loop
-            if (!pos.isMoveLegal(m)) {
-                continue :move_loop;
-            }
             board.doMove(m);
             tt.prefetch(board.positions.last().key);
 
