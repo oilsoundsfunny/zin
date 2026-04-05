@@ -1317,36 +1317,34 @@ fn qs(
         return ttscore;
     }
 
-    const has_tteval = tth and
-        tte.eval > evaluation.score.loss and
-        tte.eval < evaluation.score.win;
-    const stat_eval = if (is_checked)
-        evaluation.score.none
-    else if (has_tteval) tte.eval else board.evaluate();
+    if (!is_checked) {
+        const has_tteval = tth and
+            tte.eval > evaluation.score.loss and
+            tte.eval < evaluation.score.win;
+        const stat_eval = if (has_tteval) tte.eval else board.evaluate();
 
-    const use_ttscore = tth and
-        ttscore > evaluation.score.loss and
-        ttscore < evaluation.score.win and
-        !(tte.flag == .upperbound and ttscore > stat_eval) and
-        !(tte.flag == .lowerbound and ttscore <= stat_eval);
-    const corr_eval = if (use_ttscore)
-        ttscore
-    else if (is_checked)
-        evaluation.score.none
-    else
-        stat_eval;
+        const is_ttscore_correct = tth and
+            ttscore > evaluation.score.loss and
+            ttscore < evaluation.score.win and
+            !(tte.flag == .upperbound and ttscore > stat_eval) and
+            !(tte.flag == .lowerbound and ttscore <= stat_eval);
+        const corr_eval = if (is_ttscore_correct) ttscore else self.correctedEval(stat_eval);
 
-    pos.stat_eval = stat_eval;
-    pos.corr_eval = corr_eval;
-
-    if (stat_eval >= b) {
-        return stat_eval;
+        pos.stat_eval = stat_eval;
+        pos.corr_eval = corr_eval;
     }
-    a = @max(a, stat_eval);
+
+    const stat_eval = pos.stat_eval;
+    const corr_eval = pos.corr_eval;
+
+    a = @max(a, corr_eval);
+    if (a >= b) {
+        return a;
+    }
 
     var best: movegen.Move.Scored = .{
         .move = .{},
-        .score = @intCast(stat_eval),
+        .score = @intCast(a),
     };
     var flag = transposition.Entry.Flag.upperbound;
 
