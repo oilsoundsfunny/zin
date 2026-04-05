@@ -955,7 +955,7 @@ fn ab(
         !is_singular and
         !is_checked and
         d <= 7 and
-        d * params.values.razoring_mul + corr_eval <= a)
+        corr_eval + params.values.razoring_mul * d <= a)
     {
         const rs = self.qs(ply + 1, a, b);
         if (rs <= a) {
@@ -1011,11 +1011,12 @@ fn ab(
             // futility pruning
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
-            const fp_margin = @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
+            const fp_margin =
+                @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
                 params.values.fp_margin1 * fp_d +
                 params.values.fp_margin0;
             if (fp_d <= 8 and
-                is_quiet and
+                !is_noisy and
                 !is_checked and
                 a < evaluation.score.win and
                 stat_eval + fp_margin <= a)
@@ -1025,18 +1026,19 @@ fn ab(
 
             // late move pruning (lmp)
             // 10.0+0.1: 21.30 +- 9.80
-            const very_late = if (improving)
-                params.values.lmp_improving2 * d * d +
-                    params.values.lmp_improving1 * d +
-                    params.values.lmp_improving0
-            else
-                params.values.lmp_nonimproving2 * d * d +
-                    params.values.lmp_nonimproving1 * d +
-                    params.values.lmp_nonimproving0;
-            if (searched > 1 and
-                searched > @abs(@divTrunc(very_late, 1024)) and
-                searched > @abs(@divTrunc(very_late, 1024)) + @intFromBool(pos.isDirectCheck(m)))
-            {
+            const lmp_lim = blk: {
+                const base = if (improving)
+                    params.values.lmp_improving2 * d * d +
+                        params.values.lmp_improving1 * d +
+                        params.values.lmp_improving0
+                else
+                    params.values.lmp_nonimproving2 * d * d +
+                        params.values.lmp_nonimproving1 * d +
+                        params.values.lmp_nonimproving0;
+                const div: usize = @intCast(@divTrunc(base, 1024));
+                break :blk @max(div + @intFromBool(pos.isDirectCheck(m)), 1);
+            };
+            if (searched > lmp_lim) {
                 break :move_loop;
             }
 
@@ -1058,7 +1060,7 @@ fn ab(
         var r: Depth = 0;
 
         if (!is_root and
-            m == mp.ttm and
+            is_ttm and
             d >= 6 and
             d <= tte.depth + 3 and
             tte.flag != .upperbound)
