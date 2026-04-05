@@ -1255,7 +1255,7 @@ fn ab(
 
     if (!is_checked and
         !is_singular and
-        !best.move.flag.isNoisy() and
+        !(best.move.flag.isNoisy() and pos.see(.pruning, best.move, evaluation.score.draw)) and
         !(flag == .upperbound and best.score > corr_eval) and
         !(flag == .lowerbound and best.score < corr_eval))
     {
