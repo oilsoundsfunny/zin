@@ -177,6 +177,45 @@ pub const Position = struct {
         }
     }
 
+    fn popEnPas(self: *Position) void {
+        if (self.en_pas) |ep| {
+            self.en_pas = null;
+            self.key ^= zobrist.enp(ep);
+        }
+    }
+
+    fn setEnPas(self: *Position, ep: types.Square) FenError!void {
+        if (self.en_pas) |_| {
+            return error.InvalidEnPassant;
+        } else {
+            const pawns = self.pieceOcc(.init(.pawn, self.stm));
+
+            const wa = bitboard.pAtkWest(pawns, self.stm).bwa(ep.toSet());
+            if (wa.lowSquare()) |d| {
+                const s = d.shift(self.stm.forward().add(.west).flip(), 1);
+                const m: movegen.Move = .{ .flag = .en_passant, .src = s, .dst = d };
+                if (self.tryMove(m)) |_| {
+                    self.en_pas = ep;
+                    self.key ^= zobrist.enp(ep);
+                    return;
+                } else |_| {}
+            }
+
+            const ea = bitboard.pAtkEast(pawns, self.stm).bwa(ep.toSet());
+            if (ea.lowSquare()) |d| {
+                const s = d.shift(self.stm.forward().add(.east).flip(), 1);
+                const m: movegen.Move = .{ .flag = .en_passant, .src = s, .dst = d };
+                if (self.tryMove(m)) |_| {
+                    self.en_pas = ep;
+                    self.key ^= zobrist.enp(ep);
+                    return;
+                } else |_| {}
+            }
+
+            return error.InvalidEnPassant;
+        }
+    }
+
     fn genCheckMask(self: *const Position) types.Square.Set {
         const occ = self.bothOcc();
         const stm = self.stm;
@@ -214,7 +253,7 @@ pub const Position = struct {
         self.* = .{};
         errdefer self.* = backup;
 
-        const sa = [types.Square.num]types.Square{
+        const sa: [types.Square.num]types.Square = .{
             .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
             .a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
             .a6, .b6, .c6, .d6, .e6, .f6, .g6, .h6,
@@ -342,12 +381,12 @@ pub const Position = struct {
                 if (enp_token[0] != '-') {
                     return error.InvalidEnPassant;
                 }
-                self.en_pas = null;
+                self.popEnPas();
             },
             2 => {
                 const r = types.Rank.fromChar(enp_token[1]) orelse return error.InvalidEnPassant;
                 const f = types.File.fromChar(enp_token[0]) orelse return error.InvalidEnPassant;
-                self.en_pas = types.Square.init(r, f);
+                try self.setEnPas(.init(r, f));
             },
             else => return error.InvalidFen,
         }
@@ -362,57 +401,6 @@ pub const Position = struct {
         self.key ^= zobrist.enp(self.en_pas);
     }
 
-    fn tryMove(self: *const Position, move: movegen.Move) MoveError!Position {
-        var pos = self.*;
-        const stm = pos.stm;
-        const s = move.src;
-        const d = move.dst;
-        const sp = pos.getSquare(s);
-        const dp = pos.getSquare(d);
-
-        switch (move.flag) {
-            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-                pos.popSq(s, sp);
-                pos.setSq(d, add_p);
-            },
-
-            .castle_q, .castle_k => |f| {
-                const right = f.castle(stm) orelse unreachable;
-                const castle = pos.castles.getAssertContains(right);
-
-                const rook = types.Piece.init(.rook, stm);
-                const king = types.Piece.init(.king, stm);
-
-                pos.popSq(castle.ks, king);
-                pos.popSq(castle.rs, rook);
-
-                pos.setSq(castle.kd, king);
-                pos.setSq(castle.rd, rook);
-            },
-
-            else => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-                const del_p, const del_s = if (f == .en_passant)
-                    .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
-                else
-                    .{ dp, d };
-
-                pos.popSq(del_s, del_p);
-                pos.setSq(d, add_p);
-                pos.popSq(s, sp);
-            },
-        }
-
-        const king = types.Piece.init(.king, stm);
-        const kb = pos.pieceOcc(king);
-        const ks = kb.lowSquare() orelse return error.InvalidMove;
-
-        const atkers = pos.squareAtkers(ks);
-        const them = pos.colorOcc(stm.flip());
-        return if (atkers.bwa(them) == .none) pos else error.InvalidMove;
-    }
-
     pub fn before(
         self: anytype,
         dist: usize,
@@ -425,6 +413,15 @@ pub const Position = struct {
         dist: usize,
     ) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
         return &(self[0..1].ptr + dist)[0];
+    }
+
+    pub fn see(
+        self: *const Position,
+        comptime mode: @import("see.zig").Mode,
+        move: movegen.Move,
+        min: evaluation.score.Int,
+    ) bool {
+        return @import("see.zig").func(mode, self, move, min);
     }
 
     pub fn bothOcc(self: *const Position) types.Square.Set {
@@ -584,13 +581,94 @@ pub const Position = struct {
         };
     }
 
-    pub fn see(
-        self: *const Position,
-        comptime mode: @import("see.zig").Mode,
-        move: movegen.Move,
-        min: evaluation.score.Int,
-    ) bool {
-        return @import("see.zig").func(mode, self, move, min);
+    pub fn tryMove(self: *const Position, move: movegen.Move) MoveError!Position {
+        var pos = self.*;
+        const stm = pos.stm;
+        const s = move.src;
+        const d = move.dst;
+        const sp = pos.getSquare(s);
+        const dp = pos.getSquare(d);
+
+        switch (move.flag) {
+            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
+                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+                pos.popSq(s, sp);
+                pos.setSq(d, add_p);
+            },
+
+            .castle_q, .castle_k => |f| {
+                const right = f.castle(stm) orelse unreachable;
+                const castle = pos.castles.getAssertContains(right);
+
+                const rook = types.Piece.init(.rook, stm);
+                const king = types.Piece.init(.king, stm);
+
+                pos.popSq(castle.ks, king);
+                pos.popSq(castle.rs, rook);
+
+                pos.setSq(castle.kd, king);
+                pos.setSq(castle.rd, rook);
+            },
+
+            else => |f| {
+                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+                const del_p, const del_s = if (f == .en_passant)
+                    .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
+                else
+                    .{ dp, d };
+
+                pos.popSq(del_s, del_p);
+                pos.setSq(d, add_p);
+                pos.popSq(s, sp);
+            },
+        }
+
+        const king = types.Piece.init(.king, stm);
+        const kb = pos.pieceOcc(king);
+        const ks = kb.lowSquare() orelse return error.InvalidMove;
+
+        const atkers = pos.squareAtkers(ks);
+        const them = pos.colorOcc(stm.flip());
+        if (atkers.bwa(them) != .none) {
+            return error.InvalidMove;
+        }
+
+        pos.popEnPas();
+        pos.excluded = .{};
+        pos.rule50 = (pos.rule50 + 1) * @intFromBool(sp.ptype() != .pawn and !move.flag.isNoisy());
+        pos.stm = stm.flip();
+        pos.checks = pos.genCheckMask();
+
+        if (sp.ptype() == .pawn and move.flag == .torped) {
+            pos.setEnPas(d.shift(stm.forward().flip(), 1)) catch {};
+        } else if (sp.ptype() == .rook) {
+            var iter = pos.castles.iterator();
+            while (iter.next()) |entry| {
+                const k = entry.key;
+                const v = entry.value;
+                if (s == v.rs) {
+                    pos.popCastle(k);
+                    break;
+                }
+            }
+        } else if (sp.ptype() == .king) {
+            pos.popCastle(if (stm == .white) .wk else .bk);
+            pos.popCastle(if (stm == .white) .wq else .bq);
+        }
+
+        if (dp != .none and dp.ptype() == .rook) {
+            var iter = pos.castles.iterator();
+            while (iter.next()) |entry| {
+                const k = entry.key;
+                const v = entry.value;
+                if (d == v.rs) {
+                    pos.popCastle(k);
+                    break;
+                }
+            }
+        }
+
+        return pos;
     }
 };
 
@@ -677,7 +755,6 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
 }
 
 pub fn doMove(self: *Board, move: movegen.Move) void {
-    const stm = self.positions.last().stm;
     const s = move.src;
     const d = move.dst;
     const sp = self.positions.last().getSquare(s);
@@ -689,49 +766,9 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
 
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
-    pos.en_pas = null;
-    pos.excluded = .{};
-    pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
 
     const perspective = self.perspectives.addOneUnchecked();
     perspective.dirty = .initFill(true);
-
-    if (sp.ptype() == .pawn) {
-        // TODO: check en passant (pseudo-)legality
-        if (move.flag == .torped) {
-            pos.en_pas = d.shift(stm.forward().flip(), 1);
-        }
-    } else if (sp.ptype() == .rook) {
-        var iter = pos.castles.iterator();
-        while (iter.next()) |entry| {
-            const k = entry.key;
-            const v = entry.value;
-            if (s == v.rs) {
-                pos.popCastle(k);
-                break;
-            }
-        }
-    } else if (sp.ptype() == .king) {
-        pos.popCastle(if (stm == .white) .wk else .bk);
-        pos.popCastle(if (stm == .white) .wq else .bq);
-    }
-
-    if (dp != .none and dp.ptype() == .rook) {
-        var iter = pos.castles.iterator();
-        while (iter.next()) |entry| {
-            const k = entry.key;
-            const v = entry.value;
-            if (d == v.rs) {
-                pos.popCastle(k);
-                break;
-            }
-        }
-    }
-
-    pos.stm = stm.flip();
-    pos.checks = pos.genCheckMask();
-    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
-    pos.excluded = .{};
 }
 
 pub fn doNull(self: *Board) void {
@@ -739,18 +776,16 @@ pub fn doNull(self: *Board) void {
     self.positions.last().src_piece = .none;
     self.positions.last().dst_piece = .none;
 
-    const perspective = self.perspectives.addOneUnchecked();
-    perspective.dirty = .initFill(true);
-
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).*;
-    pos.en_pas = null;
+    pos.popEnPas();
+    pos.checks = .full;
     pos.excluded = .{};
     pos.rule50 = 0;
-
     pos.stm = pos.stm.flip();
-    pos.checks = .full;
-    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
+
+    const perspective = self.perspectives.addOneUnchecked();
+    perspective.dirty = .initFill(true);
 }
 
 pub fn undoMove(self: *Board) void {
@@ -764,11 +799,13 @@ pub fn undoNull(self: *Board) void {
 
 pub fn getRepeat(self: *const Board) usize {
     const key = self.positions.last().key;
+    const occ = self.positions.last().bothOcc();
     var peat: usize = 0;
 
     for (self.positions.slice()) |*p| {
         const key_matched = p.key == key;
-        peat += @intFromBool(key_matched);
+        const occ_matched = p.bothOcc() == occ;
+        peat += @intFromBool(key_matched and occ_matched);
     }
     return peat;
 }
