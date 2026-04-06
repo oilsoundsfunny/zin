@@ -17,19 +17,19 @@ pub const Default = Network(.{
         // zig fmt: off
          0,  1,  2,  3,
          4,  5,  6,  7,
-         8,  9, 10, 11,
-         8,  9, 10, 11,
+         8,  8,  9,  9,
+         8,  8,  9,  9,
+        10, 10, 11, 11,
+        10, 10, 11, 11,
         12, 12, 13, 13,
         12, 12, 13, 13,
-        14, 14, 15, 15,
-        14, 14, 15, 15,
         // zig fmt: on
     },
     .hl_size = 1024,
-    .output_buckets = 8,
+    .output_buckets = 1,
     .qa = 255,
     .qb = 64,
-    .scale = 255,
+    .scale = 400,
 });
 
 pub const Options = struct {
@@ -71,7 +71,7 @@ pub fn Network(comptime opts: Options) type {
         l0w: [ibn][inp][l0s]i16,
         l0b: [l0s]i16,
 
-        l1w: [obn][l0s]i16,
+        l1w: [obn][l0s * types.Color.num]i16,
         l1b: [obn]i16 align(64),
 
         const Self = @This();
@@ -97,7 +97,7 @@ pub fn Network(comptime opts: Options) type {
             break :blk a;
         };
 
-        pub const inp = types.Piece.num * types.Square.num;
+        pub const inp = (types.Piece.num - 1) * types.Square.num;
         pub const ibn = std.mem.max(u8, opts.input_buckets[0..]) + 1;
         pub const l0s = switch (opts.hl_size % 32) {
             0 => opts.hl_size,
@@ -144,13 +144,11 @@ pub fn Network(comptime opts: Options) type {
 
                 var i: usize = 0;
                 while (i < l0s / 2) : (i += native_len) {
-                    const v0: *const Native = @alignCast(vec[i + l0s / 2 * 0 ..][0..native_len]);
-                    const v1: *const Native = @alignCast(vec[i + l0s / 2 * 1 ..][0..native_len]);
+                    const v: *const Native = @alignCast(vec[i..][0..native_len]);
                     const w: *const Native = @alignCast(wgt[i..][0..native_len]);
 
-                    const crelu0 = clamp(v0.*, @splat(0), @splat(qa));
-                    const crelu1 = clamp(v1.*, @splat(0), @splat(qa));
-                    l1 +%= madd(crelu0, crelu1 *% w.*);
+                    const clamped = clamp(v.*, @splat(0), @splat(qa));
+                    l1 +%= madd(clamped, clamped *% w.*);
                 }
             }
 
