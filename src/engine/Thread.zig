@@ -980,7 +980,13 @@ fn ab(
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
         const is_ttm = m == mp.ttm;
-        if (!is_ttm and !pos.isMoveLegal(m)) {
+
+        const is_legal = is_ttm or check: {
+            const next_pos = pos.tryMove(m) catch break :check false;
+            tt.prefetch(next_pos.key);
+            break :check true;
+        };
+        if (!is_legal) {
             continue :move_loop;
         }
 
@@ -1105,8 +1111,6 @@ fn ab(
 
         const s = recur: {
             board.doMove(m);
-            tt.prefetch(board.positions.last().key);
-
             defer board.undoMove();
             defer searched += 1;
 
@@ -1358,6 +1362,17 @@ fn qs(
 
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
+        const is_ttm = m == mp.ttm;
+
+        const is_legal = is_ttm or check: {
+            const next_pos = pos.tryMove(m) catch break :check false;
+            tt.prefetch(next_pos.key);
+            break :check true;
+        };
+        if (!is_legal) {
+            continue :move_loop;
+        }
+
 
         if (searched > 0) {
             if (mp.stage.isBad()) {
@@ -1382,13 +1397,7 @@ fn qs(
         }
 
         const s = recur: {
-            // TODO: move this to top of the loop
-            if (!pos.isMoveLegal(m)) {
-                continue :move_loop;
-            }
             board.doMove(m);
-            tt.prefetch(board.positions.last().key);
-
             defer board.undoMove();
             defer mp.skipQuiets();
             defer searched += 1;
