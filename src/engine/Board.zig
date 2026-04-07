@@ -189,30 +189,24 @@ pub const Position = struct {
             return error.InvalidEnPassant;
         } else {
             const pawns = self.pieceOcc(.init(.pawn, self.stm));
+            const wa = bitboard.pAtkWest(ep.toSet(), self.stm.flip()).bwa(pawns);
+            const ea = bitboard.pAtkEast(ep.toSet(), self.stm.flip()).bwa(pawns);
+            var found = false;
 
-            const wa = bitboard.pAtkWest(pawns, self.stm).bwa(ep.toSet());
-            if (wa.lowSquare()) |d| {
-                const s = d.shift(self.stm.forward().add(.west).flip(), 1);
-                const m: movegen.Move = .{ .flag = .en_passant, .src = s, .dst = d };
-                if (self.tryMove(m)) |_| {
-                    self.en_pas = ep;
-                    self.key ^= zobrist.enp(ep);
-                    return;
-                } else |_| {}
+            if (wa.lowSquare()) |s| {
+                const m: movegen.Move = .{ .flag = .en_passant, .src = s, .dst = ep };
+                found = if (self.tryMove(m)) |_| true else |_| false;
+            } else if (ea.lowSquare()) |s| {
+                const m: movegen.Move = .{ .flag = .en_passant, .src = s, .dst = ep };
+                found = if (self.tryMove(m)) |_| true else |_| false;
             }
 
-            const ea = bitboard.pAtkEast(pawns, self.stm).bwa(ep.toSet());
-            if (ea.lowSquare()) |d| {
-                const s = d.shift(self.stm.forward().add(.east).flip(), 1);
-                const m: movegen.Move = .{ .flag = .en_passant, .src = s, .dst = d };
-                if (self.tryMove(m)) |_| {
-                    self.en_pas = ep;
-                    self.key ^= zobrist.enp(ep);
-                    return;
-                } else |_| {}
+            if (!found) {
+                return error.InvalidEnPassant;
             }
 
-            return error.InvalidEnPassant;
+            self.en_pas = ep;
+            self.key ^= zobrist.enp(ep);
         }
     }
 
@@ -797,21 +791,16 @@ pub fn undoNull(self: *Board) void {
     self.undoMove();
 }
 
-pub fn getRepeat(self: *const Board) usize {
+pub fn is3peat(self: *const Board) bool {
     const key = self.positions.last().key;
-    const occ = self.positions.last().bothOcc();
     var peat: usize = 0;
 
-    for (self.positions.slice()) |*p| {
-        const key_matched = p.key == key;
-        const occ_matched = p.bothOcc() == occ;
-        peat += @intFromBool(key_matched and occ_matched);
-    }
-    return peat;
-}
-
-pub fn is3peat(self: *const Board) bool {
-    return self.getRepeat() >= 3;
+    return loop: for (self.positions.slice()) |*p| {
+        peat += @intFromBool(p.key == key);
+        if (peat == 3) {
+            break :loop true;
+        }
+    } else false;
 }
 
 pub fn isDrawn(self: *const Board) bool {
