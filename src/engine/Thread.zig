@@ -803,7 +803,7 @@ fn ab(
         self.seldepth = @max(self.seldepth, len);
     }
 
-    const is_drawn = self.board.isDrawn();
+    const is_drawn = self.board.isDrawn() and ply > 0 and draw > a;
     const is_terminal = self.board.isTerminal();
     if (is_drawn or is_terminal) {
         @branchHint(.unlikely);
@@ -1298,7 +1298,7 @@ fn qs(
     const b = beta;
     var a = alpha;
 
-    const is_drawn = self.board.isDrawn();
+    const is_drawn = self.board.isDrawn() and ply > 0 and draw > a;
     const is_terminal = self.board.isTerminal();
     if (is_drawn or is_terminal) {
         @branchHint(.unlikely);

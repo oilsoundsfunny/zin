@@ -43,11 +43,6 @@ pub const RootMove = struct {
         }
 
         pub fn init(board: *Board) List {
-            if (board.isDrawn()) {
-                @branchHint(.cold);
-                return .{};
-            }
-
             const pos = board.positions.last();
             var root_moves: List = .{};
             var gen_moves: Move.List = .{};
