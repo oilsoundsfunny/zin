@@ -49,8 +49,8 @@ pub fn func(
     const s = move.src;
     const d = move.dst;
 
-    const sp = pos.getSquare(s);
-    const dp = pos.getSquare(d);
+    const sp = pos.getSq(s);
+    const dp = pos.getSq(d);
 
     var v = pieceValue(mode, dp) - min;
     if (v < 0) {

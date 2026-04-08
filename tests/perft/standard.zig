@@ -54,19 +54,20 @@ test {
         try board.parseFen(result.fen);
 
         for (result.moves) |ms| {
-            var list: engine.movegen.Move.Scored.List = .{};
-            _ = list.genNoisy(board.top());
-            _ = list.genQuiet(board.top());
+            const pos = board.positions.last();
+            var list: engine.movegen.Move.List = .{};
+            _ = list.genNoisy(pos);
+            _ = list.genQuiet(pos);
 
-            const m = find_move: for (list.constSlice()) |sm| {
-                const s = sm.move.toString(&board);
-                const l = sm.move.toStringLen();
+            const m = find_move: for (list.constSlice()) |move| {
+                const s = move.toString(&board);
+                const l = move.toStringLen();
                 if (std.mem.eql(u8, s[0..l], ms)) {
-                    break :find_move sm.move;
+                    break :find_move move;
                 }
             } else return error.NotFound;
 
-            try std.testing.expect(board.top().isMoveLegal(m));
+            try std.testing.expect(pos.isMoveLegal(m));
             board.doMove(m);
         }
 

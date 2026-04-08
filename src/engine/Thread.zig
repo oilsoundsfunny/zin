@@ -441,7 +441,7 @@ fn quietHistPtr(
     self: anytype,
     move: movegen.Move,
 ) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
-    const sp = self.board.positions.last().getSquare(move.src);
+    const sp = self.board.positions.last().getSq(move.src);
     return &self.quiethist[sp.color().int()][sp.ptype().int()][move.dst.int()];
 }
 
@@ -450,8 +450,8 @@ fn noisyHistPtr(
     move: movegen.Move,
 ) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
     const pos = self.board.positions.last();
-    const sp = pos.getSquare(move.src);
-    const dp = switch (pos.getSquare(move.dst)) {
+    const sp = pos.getSq(move.src);
+    const dp = switch (pos.getSq(move.dst)) {
         .none => types.Ptype.num,
         else => |p| p.ptype().int(),
     };
@@ -465,7 +465,7 @@ fn contHistPtr(
     ply: usize,
 ) ?types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
     const pos: *const Board.Position = self.board.positions.last();
-    const this_p = pos.getSquare(move.src).ptype().int();
+    const this_p = pos.getSq(move.src).ptype().int();
     const this_d = move.dst.int();
 
     const hist_pos = if (self.board.positions.len > ply) pos.before(ply) else return null;
@@ -803,7 +803,7 @@ fn ab(
         self.seldepth = @max(self.seldepth, len);
     }
 
-    const is_drawn = self.board.isDrawn();
+    const is_drawn = self.board.isDrawn() and ply > 0;
     const is_terminal = self.board.isTerminal();
     if (is_drawn or is_terminal) {
         @branchHint(.unlikely);
@@ -1302,7 +1302,7 @@ fn qs(
     const b = beta;
     var a = alpha;
 
-    const is_drawn = self.board.isDrawn();
+    const is_drawn = self.board.isDrawn() and ply > 0;
     const is_terminal = self.board.isTerminal();
     if (is_drawn or is_terminal) {
         @branchHint(.unlikely);
@@ -1372,7 +1372,6 @@ fn qs(
         if (!is_legal) {
             continue :move_loop;
         }
-
 
         if (searched > 0) {
             if (mp.stage.isBad()) {
@@ -1563,7 +1562,7 @@ pub fn search(self: *Thread) !void {
         return;
     } else self.root_moves.constSlice()[0];
 
-    const max_depth = pool.limits.depth orelse movegen.RootMove.capacity;
+    const max_depth = pool.limits.depth orelse movegen.RootMove.max_len;
     const min_depth = 1;
     var depth: Depth = min_depth;
 

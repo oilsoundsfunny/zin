@@ -3,14 +3,12 @@ const types = @import("types");
 
 const root = @import("root.zig");
 
-var b_incl: [types.Square.num][types.Square.num]types.Square.Set align(std.atomic.cache_line) =
+var diag_incl: [types.Square.num][types.Square.num]types.Square.Set align(std.atomic.cache_line) =
     @splat(@splat(.none));
-var r_incl: [types.Square.num][types.Square.num]types.Square.Set align(std.atomic.cache_line) =
-    @splat(@splat(.none));
-var q_incl: [types.Square.num][types.Square.num]types.Square.Set align(std.atomic.cache_line) =
+var orth_incl: [types.Square.num][types.Square.num]types.Square.Set align(std.atomic.cache_line) =
     @splat(@splat(.none));
 
-fn bInit() void {
+fn diagInit() void {
     for (types.Square.values) |s| {
         for (types.Square.values) |d| {
             const from_s = root.bAtk(s, d.toSet());
@@ -19,14 +17,14 @@ fn bInit() void {
                 continue;
             }
 
-            b_incl[s.int()][d.int()] = from_s.bwa(from_d);
-            b_incl[s.int()][d.int()].set(s);
-            b_incl[s.int()][d.int()].set(d);
+            diag_incl[s.int()][d.int()] = from_s.bwa(from_d);
+            diag_incl[s.int()][d.int()].set(s);
+            diag_incl[s.int()][d.int()].set(d);
         }
     }
 }
 
-fn rInit() void {
+fn orthInit() void {
     for (types.Square.values) |s| {
         for (types.Square.values) |d| {
             const from_s = root.rAtk(s, d.toSet());
@@ -35,37 +33,37 @@ fn rInit() void {
                 continue;
             }
 
-            r_incl[s.int()][d.int()] = from_s.bwa(from_d);
-            r_incl[s.int()][d.int()].set(s);
-            r_incl[s.int()][d.int()].set(d);
+            orth_incl[s.int()][d.int()] = from_s.bwa(from_d);
+            orth_incl[s.int()][d.int()].set(s);
+            orth_incl[s.int()][d.int()].set(d);
         }
     }
 }
 
 pub fn init() !void {
-    bInit();
-    rInit();
+    diagInit();
+    orthInit();
 }
 
-pub fn bRayIncl(s: types.Square, d: types.Square) types.Square.Set {
-    const p = &b_incl[s.int()][d.int()];
+pub fn diagIncl(s: types.Square, d: types.Square) types.Square.Set {
+    const p = &diag_incl[s.int()][d.int()];
     return p.*;
 }
 
-pub fn rRayIncl(s: types.Square, d: types.Square) types.Square.Set {
-    const p = &r_incl[s.int()][d.int()];
+pub fn orthIncl(s: types.Square, d: types.Square) types.Square.Set {
+    const p = &orth_incl[s.int()][d.int()];
     return p.*;
 }
 
-pub fn bRayExcl(s: types.Square, d: types.Square) types.Square.Set {
-    var b = bRayIncl(s, d);
+pub fn diagExcl(s: types.Square, d: types.Square) types.Square.Set {
+    var b = diagIncl(s, d);
     b.pop(s);
     b.pop(d);
     return b;
 }
 
-pub fn rRayExcl(s: types.Square, d: types.Square) types.Square.Set {
-    var b = rRayIncl(s, d);
+pub fn orthExcl(s: types.Square, d: types.Square) types.Square.Set {
+    var b = orthIncl(s, d);
     b.pop(s);
     b.pop(d);
     return b;

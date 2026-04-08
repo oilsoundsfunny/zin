@@ -31,9 +31,9 @@ pub const score = struct {
     // zig fmt: on
 
     // zig fmt: off
-    pub const win  = max - 1 - movegen.RootMove.capacity;
+    pub const win  = max - 1 - movegen.RootMove.max_len;
     pub const draw = 0;
-    pub const loss = min + 1 + movegen.RootMove.capacity;
+    pub const loss = min + 1 + movegen.RootMove.max_len;
     // zig fmt: on
 
     fn wdlParams(m: Int) struct { f32, f32 } {

@@ -47,8 +47,8 @@ pub const Castle = struct {
     rd: types.Square,
 
     fn init(ks: types.Square, kd: types.Square, rs: types.Square, rd: types.Square) Castle {
-        const kb = bitboard.rays.rRayIncl(ks, kd);
-        const rb = bitboard.rays.rRayIncl(rs, rd);
+        const kb = bitboard.rays.orthIncl(ks, kd);
+        const rb = bitboard.rays.orthIncl(rs, rd);
 
         var occ = kb.bwo(rb);
         occ.pop(ks);
@@ -188,19 +188,36 @@ pub const Position = struct {
         if (self.en_pas) |_| {
             return error.InvalidEnPassant;
         } else {
-            const pawns = self.pieceOcc(.init(.pawn, self.stm));
+            const stm = self.stm;
+            const ntm = stm.flip();
+
+            const ks = self.pieceOcc(.init(.king, stm)).lowSquare() orelse
+                std.debug.panic("king not found", .{});
+            const pawns = self.pieceOcc(.init(.pawn, stm));
+            const capt = bitboard.pPush1(ep.toSet(), .none, ntm).lowSquare() orelse
+                std.debug.panic("pawn not on board", .{});
+
+            var atkers = bitboard.pAtk(ep.toSet(), ntm).bwa(pawns);
             var found = false;
 
-            const wa = bitboard.pAtkWest(ep.toSet(), self.stm.flip()).bwa(pawns);
-            if (wa.lowSquare()) |s| {
-                const m: movegen.Move = .{ .flag = .en_passant, .src = s, .dst = ep };
-                found = found or if (self.tryMove(m)) |_| true else |_| false;
-            }
+            const diag = self.pieceOcc(.init(.queen, ntm)).bwo(self.pieceOcc(.init(.bishop, ntm)));
+            const line = self.pieceOcc(.init(.queen, ntm)).bwo(self.pieceOcc(.init(.rook, ntm)));
 
-            const ea = bitboard.pAtkEast(ep.toSet(), self.stm.flip()).bwa(pawns);
-            if (ea.lowSquare()) |s| {
-                const m: movegen.Move = .{ .flag = .en_passant, .src = s, .dst = ep };
-                found = found or if (self.tryMove(m)) |_| true else |_| false;
+            while (atkers.lowSquare()) |s| : (atkers.popLow()) {
+                const occ = self.bothOcc()
+                    .bwx(capt.toSet())
+                    .bwx(s.toSet())
+                    .bwx(ep.toSet());
+
+                if (bitboard.bAtk(ks, occ).bwa(diag) != .none) {
+                    continue;
+                }
+
+                if (bitboard.rAtk(ks, occ).bwa(line) != .none) {
+                    continue;
+                }
+
+                found = true;
             }
 
             if (!found) {
@@ -213,7 +230,6 @@ pub const Position = struct {
     }
 
     fn genCheckMask(self: *const Position) types.Square.Set {
-        const occ = self.bothOcc();
         const stm = self.stm;
 
         const kb = self.pieceOcc(types.Piece.init(.king, stm));
@@ -221,24 +237,20 @@ pub const Position = struct {
         const atkers = self.squareAtkers(ks).bwa(self.colorOcc(stm.flip()));
         var ka = atkers;
 
-        const kba = bitboard.bAtk(ks, occ);
-        const diag = types.Square.Set
-            .none
+        const diag = types.Square.Set.none
             .bwo(self.ptypeOcc(.bishop))
             .bwo(self.ptypeOcc(.queen))
             .bwa(atkers);
         if (diag.lowSquare()) |s| {
-            ka.setOther(bitboard.bAtk(s, occ).bwa(kba));
+            ka.setOther(bitboard.rays.diagExcl(ks, s));
         }
 
-        const kra = bitboard.rAtk(ks, occ);
-        const line = types.Square.Set
-            .none
+        const line = types.Square.Set.none
             .bwo(self.ptypeOcc(.rook))
             .bwo(self.ptypeOcc(.queen))
             .bwa(atkers);
         if (line.lowSquare()) |s| {
-            ka.setOther(bitboard.rAtk(s, occ).bwa(kra));
+            ka.setOther(bitboard.rays.orthExcl(ks, s));
         }
 
         return if (ka != .none) ka else .full;
@@ -444,7 +456,7 @@ pub const Position = struct {
         return @TypeOf(co, to).bwa(co, to);
     }
 
-    pub fn getSquare(self: *const Position, s: types.Square) types.Piece {
+    pub fn getSq(self: *const Position, s: types.Square) types.Piece {
         return self.by_square.getPtrConst(s).*;
     }
 
@@ -487,7 +499,7 @@ pub const Position = struct {
         const kb = self.pieceOcc(.init(.king, stm.flip()));
         const ks = kb.lowSquare() orelse std.debug.panic("king not found", .{});
 
-        return switch (self.getSquare(s).ptype()) {
+        return switch (self.getSq(s).ptype()) {
             // zig fmt: off
             .pawn   => bitboard.pAtk(kb, stm.flip()).get(d),
             .knight => bitboard.nAtk(ks).get(d),
@@ -515,8 +527,8 @@ pub const Position = struct {
             return false;
         }
 
-        const sp = self.getSquare(s);
-        const dp = self.getSquare(d);
+        const sp = self.getSq(s);
+        const dp = self.getSq(d);
 
         const atk, const push1, const push2 = switch (sp.ptype()) {
             .pawn => .{
@@ -583,8 +595,8 @@ pub const Position = struct {
         const stm = pos.stm;
         const s = move.src;
         const d = move.dst;
-        const sp = pos.getSquare(s);
-        const dp = pos.getSquare(d);
+        const sp = pos.getSq(s);
+        const dp = pos.getSq(d);
 
         switch (move.flag) {
             .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
@@ -632,7 +644,7 @@ pub const Position = struct {
 
         pos.popEnPas();
         pos.excluded = .{};
-        pos.rule50 = (pos.rule50 + 1) * @intFromBool(sp.ptype() != .pawn and !move.flag.isNoisy());
+        pos.rule50 = if (sp.ptype() == .pawn or move.flag.isNoisy()) pos.rule50 + 1 else 0;
         pos.stm = stm.flip();
         pos.checks = pos.genCheckMask();
 
@@ -701,7 +713,7 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
 
         for (files) |f| {
             const s = types.Square.init(r, f);
-            const p = pos.getSquare(s);
+            const p = pos.getSq(s);
             const c = p.char() orelse {
                 empty += 1;
                 continue;
@@ -752,11 +764,45 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
     return list.items;
 }
 
+pub fn printSelf(self: *const Board, buf: []u8) ![]const u8 {
+    const pos = self.positions.last();
+    var list: std.ArrayList(u8) = .initBuffer(buf);
+
+    const ranks: [types.Rank.num]types.Rank = .{
+        .rank_8, .rank_7, .rank_6, .rank_5, .rank_4, .rank_3, .rank_2, .rank_1,
+    };
+    const files: [types.File.num]types.File = .{
+        .file_a, .file_b, .file_c, .file_d, .file_e, .file_f, .file_g, .file_h,
+    };
+
+    for (ranks) |r| {
+        try list.printBounded("\t{c}", .{r.char()});
+        for (files) |f| {
+            const s: types.Square = .init(r, f);
+            try list.printBounded(" {c}", .{pos.getSq(s).char() orelse '.'});
+        }
+        try list.appendBounded('\n');
+    }
+    try list.printBounded("\t  a b c d e f g h\n", .{});
+
+    if (self.isDrawn()) {
+        try list.printBounded("drawn: true\n", .{});
+        try list.printBounded("\thalfmoves: {}\n", .{pos.rule50});
+        try list.printBounded("\trepetition: {}\n", .{self.repetition()});
+    } else {
+        try list.printBounded("drawn: false\n", .{});
+    }
+
+    try list.printBounded("key: {x:016}\n", .{pos.key});
+
+    return list.items;
+}
+
 pub fn doMove(self: *Board, move: movegen.Move) void {
     const s = move.src;
     const d = move.dst;
-    const sp = self.positions.last().getSquare(s);
-    const dp = self.positions.last().getSquare(d);
+    const sp = self.positions.last().getSq(s);
+    const dp = self.positions.last().getSq(d);
 
     self.positions.last().move = move;
     self.positions.last().src_piece = sp;
@@ -795,23 +841,19 @@ pub fn undoNull(self: *Board) void {
     self.undoMove();
 }
 
-pub fn getRepeat(self: *const Board) usize {
+pub fn repetition(self: *const Board) usize {
     const key = self.positions.last().key;
-    var peat: usize = 0;
+    const occ = self.positions.last().bothOcc();
 
+    var peat: usize = 0;
     for (self.positions.slice()) |*p| {
-        const key_matched = p.key == key;
-        peat += @intFromBool(key_matched);
+        peat += @intFromBool(p.key == key and p.bothOcc() == occ);
     }
     return peat;
 }
 
-pub fn is3peat(self: *const Board) bool {
-    return self.getRepeat() >= 3;
-}
-
 pub fn isDrawn(self: *const Board) bool {
-    return self.positions.last().rule50 >= 100 or self.is3peat();
+    return self.positions.last().rule50 >= 100 or self.repetition() >= 3;
 }
 
 pub fn isTerminal(self: *const Board) bool {

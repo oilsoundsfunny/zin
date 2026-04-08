@@ -15,15 +15,14 @@ fn div(comptime root: bool, board: *engine.Board, depth: engine.Thread.Depth) us
         return 1;
     }
 
-    const pos = board.top();
-    var ml: engine.movegen.Move.Scored.List = .{};
+    const pos = board.positions.last();
+    var list: engine.movegen.Move.List = .{};
     var sum: usize = 0;
-    _ = ml.genNoisy(pos);
-    _ = ml.genQuiet(pos);
+    _ = list.genNoisy(pos);
+    _ = list.genQuiet(pos);
 
-    for (ml.slice()) |sm| {
-        const m = sm.move;
-        if (!board.top().isMoveLegal(m)) {
+    for (list.slice()) |m| {
+        if (!pos.isMoveLegal(m)) {
             continue;
         }
 

@@ -277,6 +277,19 @@ pub fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
             return error.UnknownCommand;
         }
 
+        var board_buf: [65536]u8 align(std.atomic.cache_line) = undefined;
+        const board = try pool.threads.items[0].board.printSelf(board_buf[0..]);
+
+        var fen_buf: [65536]u8 align(std.atomic.cache_line) = undefined;
+        const fen = try pool.threads.items[0].board.printFen(fen_buf[0..]);
+
+        pool.mtx.lock();
+        defer pool.mtx.unlock();
+
+        try pool.io.writer().print("{s}", .{board});
+        try pool.io.writer().print("fen: {s}\n", .{fen});
+        try pool.io.writer().flush();
+
         return .debug;
     } else if (std.mem.eql(u8, first, "go")) {
         return parseGo(&tokens, pool);

@@ -9,13 +9,13 @@ const Thread = @import("Thread.zig");
 const uci = @import("uci.zig");
 
 pub const RootMove = struct {
-    line: types.BoundedArray(Move, null, capacity) = .{},
+    line: types.BoundedArray(Move, null, max_len) = .{},
     score: isize = evaluation.score.none,
     nodes: usize = 0,
 
     pub const List = struct {
-        array: types.BoundedArray(RootMove, null, capacity) = .{
-            .buffer = .{@as(RootMove, .{})} ** capacity,
+        array: types.BoundedArray(RootMove, null, 256) = .{
+            .buffer = .{@as(RootMove, .{})} ** 256,
             .len = 0,
         },
 
@@ -43,11 +43,6 @@ pub const RootMove = struct {
         }
 
         pub fn init(board: *Board) List {
-            if (board.isDrawn()) {
-                @branchHint(.cold);
-                return .{};
-            }
-
             const pos = board.positions.last();
             var root_moves: List = .{};
             var gen_moves: Move.List = .{};
@@ -69,7 +64,7 @@ pub const RootMove = struct {
         }
     };
 
-    pub const capacity = 256 - @sizeOf(usize) * 3 / @sizeOf(Move);
+    pub const max_len = 256 - @sizeOf(usize) * 3 / @sizeOf(Move);
 
     pub fn constSlice(self: *const RootMove) []const Move {
         return self.slice();
@@ -522,7 +517,7 @@ pub const Picker = struct {
         return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
             const mvv = if (move.flag == .en_passant)
                 params.values.see_ordering_pawn
-            else switch (self.board.positions.last().getSquare(move.dst).ptype()) {
+            else switch (self.board.positions.last().getSq(move.dst).ptype()) {
                 .pawn => params.values.see_ordering_pawn,
                 .knight => params.values.see_ordering_knight,
                 .bishop => params.values.see_ordering_bishop,
@@ -664,7 +659,3 @@ pub const Picker = struct {
         self.skip_quiets = true;
     }
 };
-
-comptime {
-    std.debug.assert(@sizeOf(RootMove) == @sizeOf(Move) * 256);
-}

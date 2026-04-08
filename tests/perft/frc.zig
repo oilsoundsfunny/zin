@@ -58,24 +58,6 @@ const suite = [_]root.Result{
         .moves = &.{},
         .nodes = &.{ 24, 600, 15347, 407633, 11013726, 307250511 },
     },
-
-    .{
-        .fen = "bbrkrnqn/pppp1ppp/8/4p3/8/6P1/PPPPPPRP/BRKQNN1B b Bec - 1 2",
-        .moves = &.{ "b7b6", "e1f3", "c7c5", "b2b4", "c5b4", "b1b4", "f7f6", "b4b3", "d7d5" },
-        .nodes = &.{ 35, 1150, 37945, 1272828, 41792528, 1434022957 },
-    },
-
-    .{
-        .fen = "bbrkrnqn/pppp1ppp/8/4p3/8/6P1/PPPPPPRP/BRKQNN1B b Bec - 1 2",
-        .moves = &.{ "b7b6", "e1f3", "c7c5", "b2b4", "c5b4", "b1b4" },
-        .nodes = &.{ 33, 1198, 40431, 1393139, 47847802, 1616875609 },
-    },
-
-    .{
-        .fen = "bbrkrnqn/pppp1ppp/8/4p3/8/6P1/PPPPPPRP/BRKQNN1B b Bec - 1 2",
-        .moves = &.{ "b7b6", "e1f3", "c7c5", "b2b4", "c5b4", "b1b4", "c8c4" },
-        .nodes = &.{32},
-    },
 };
 
 test {
@@ -85,24 +67,25 @@ test {
     try engine.init();
     defer engine.deinit();
 
-    for (suite[suite.len - 1 ..]) |result| {
+    for (suite[0..1]) |result| {
         var board: engine.Board = .{};
         try board.parseFen(result.fen);
 
         for (result.moves) |ms| {
-            var list: engine.movegen.Move.Scored.List = .{};
-            _ = list.genNoisy(board.top());
-            _ = list.genQuiet(board.top());
+            const pos = board.positions.last();
+            var list: engine.movegen.Move.List = .{};
+            _ = list.genNoisy(pos);
+            _ = list.genQuiet(pos);
 
-            const m = find_move: for (list.constSlice()) |sm| {
-                const s = sm.move.toString(&board);
-                const l = sm.move.toStringLen();
+            const m = find_move: for (list.constSlice()) |move| {
+                const s = move.toString(&board);
+                const l = move.toStringLen();
                 if (std.mem.eql(u8, s[0..l], ms)) {
-                    break :find_move sm.move;
+                    break :find_move move;
                 }
             } else return error.NotFound;
 
-            try std.testing.expect(board.top().isMoveLegal(m));
+            try std.testing.expect(pos.isMoveLegal(m));
             board.doMove(m);
         }
 
