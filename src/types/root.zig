@@ -637,6 +637,12 @@ pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_in
         const d: Direction.Int = dir.mul(amt).int();
         return fromInt(@intCast(s + d));
     }
+
+    pub fn midpoint(self: Square, other: Square) Square {
+        const lhs: u8 = self.int();
+        const rhs: u8 = other.int();
+        return .fromInt(@truncate((lhs + rhs) / 2));
+    }
 };
 
 pub const Direction = enum(i8) {

@@ -476,7 +476,7 @@ pub const Position = struct {
         pos.popEnPas();
 
         if (sp.ptype() == .pawn and move.flag == .torped) {
-            pos.setEnPas(d.shift(stm.forward().flip(), 1)) catch {};
+            pos.setEnPas(.midpoint(d, s)) catch {};
         } else if (sp.ptype() == .rook) {
             var iter = pos.castles.iterator();
             while (iter.next()) |entry| {
