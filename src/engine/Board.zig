@@ -178,6 +178,23 @@ pub const Position = struct {
         }
     }
 
+    fn popEnPas(self: *Position) void {
+        if (self.en_pas) |ep| {
+            self.en_pas = null;
+            self.key ^= zobrist.enp(ep);
+        }
+    }
+
+    fn setEnPas(self: *Position, ep: types.Square) FenError!void {
+        if (self.en_pas) |_| {
+            return error.InvalidEnPassant;
+        } else {
+            // TODO: check for (pseudo-)legality
+            self.en_pas = ep;
+            self.key ^= zobrist.enp(ep);
+        }
+    }
+
     fn setChecks(self: *Position) void {
         const stm = self.stm;
         const kb = self.pieceOcc(types.Piece.init(.king, stm));
@@ -344,12 +361,12 @@ pub const Position = struct {
                 if (enp_token[0] != '-') {
                     return error.InvalidEnPassant;
                 }
-                self.en_pas = null;
+                self.popEnPas();
             },
             2 => {
                 const r = types.Rank.fromChar(enp_token[1]) orelse return error.InvalidEnPassant;
                 const f = types.File.fromChar(enp_token[0]) orelse return error.InvalidEnPassant;
-                self.en_pas = types.Square.init(r, f);
+                try self.setEnPas(.init(r, f));
             },
             else => return error.InvalidFen,
         }
@@ -361,7 +378,6 @@ pub const Position = struct {
         _ = std.fmt.parseUnsigned(usize, move_token, 10) catch return error.InvalidMoveClock;
 
         self.setChecks();
-        self.key ^= zobrist.enp(self.en_pas);
     }
 
     fn tryMove(self: *const Position, move: movegen.Move) MoveError!Position {
@@ -412,7 +428,48 @@ pub const Position = struct {
 
         const atkers = pos.squareAtkers(ks);
         const them = pos.colorOcc(stm.flip());
-        return if (atkers.bwa(them) == .none) pos else error.InvalidMove;
+        if (atkers.bwa(them) != .none) {
+            return error.InvalidMove;
+        }
+
+        pos.excluded = .{};
+        pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
+        pos.stm = stm.flip();
+        pos.key ^= zobrist.stm();
+
+        pos.setChecks();
+        pos.popEnPas();
+
+        if (sp.ptype() == .pawn and move.flag == .torped) {
+            pos.setEnPas(d.shift(stm.forward().flip(), 1)) catch {};
+        } else if (sp.ptype() == .rook) {
+            var iter = pos.castles.iterator();
+            while (iter.next()) |entry| {
+                const k = entry.key;
+                const v = entry.value;
+                if (s == v.rs) {
+                    pos.popCastle(k);
+                    break;
+                }
+            }
+        } else if (sp.ptype() == .king) {
+            pos.popCastle(if (stm == .white) .wk else .bk);
+            pos.popCastle(if (stm == .white) .wq else .bq);
+        }
+
+        if (dp != .none and dp.ptype() == .rook) {
+            var iter = pos.castles.iterator();
+            while (iter.next()) |entry| {
+                const k = entry.key;
+                const v = entry.value;
+                if (d == v.rs) {
+                    pos.popCastle(k);
+                    break;
+                }
+            }
+        }
+
+        return pos;
     }
 
     pub fn before(
@@ -679,7 +736,6 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
 }
 
 pub fn doMove(self: *Board, move: movegen.Move) void {
-    const stm = self.positions.last().stm;
     const s = move.src;
     const d = move.dst;
     const sp = self.positions.last().getSquare(s);
@@ -691,48 +747,9 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
 
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).tryMove(move) catch std.debug.panic("unchecked move", .{});
-    pos.en_pas = null;
-    pos.excluded = .{};
-    pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
 
     const perspective = self.perspectives.addOneUnchecked();
     perspective.dirty = .initFill(true);
-
-    if (sp.ptype() == .pawn) {
-        // TODO: check en passant (pseudo-)legality
-        if (move.flag == .torped) {
-            pos.en_pas = d.shift(stm.forward().flip(), 1);
-        }
-    } else if (sp.ptype() == .rook) {
-        var iter = pos.castles.iterator();
-        while (iter.next()) |entry| {
-            const k = entry.key;
-            const v = entry.value;
-            if (s == v.rs) {
-                pos.popCastle(k);
-                break;
-            }
-        }
-    } else if (sp.ptype() == .king) {
-        pos.popCastle(if (stm == .white) .wk else .bk);
-        pos.popCastle(if (stm == .white) .wq else .bq);
-    }
-
-    if (dp != .none and dp.ptype() == .rook) {
-        var iter = pos.castles.iterator();
-        while (iter.next()) |entry| {
-            const k = entry.key;
-            const v = entry.value;
-            if (d == v.rs) {
-                pos.popCastle(k);
-                break;
-            }
-        }
-    }
-
-    pos.stm = stm.flip();
-    pos.setChecks();
-    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
 }
 
 pub fn doNull(self: *Board) void {
@@ -740,18 +757,17 @@ pub fn doNull(self: *Board) void {
     self.positions.last().src_piece = .none;
     self.positions.last().dst_piece = .none;
 
-    const perspective = self.perspectives.addOneUnchecked();
-    perspective.dirty = .initFill(true);
-
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).*;
-    pos.en_pas = null;
+    pos.checks = .full;
     pos.excluded = .{};
     pos.rule50 = 0;
-
     pos.stm = pos.stm.flip();
-    pos.checks = .full;
-    pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
+    pos.key ^= zobrist.stm();
+    pos.popEnPas();
+
+    const perspective = self.perspectives.addOneUnchecked();
+    perspective.dirty = .initFill(true);
 }
 
 pub fn undoMove(self: *Board) void {

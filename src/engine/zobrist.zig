@@ -44,8 +44,8 @@ pub fn cas(c: types.Castle) Int {
     return Keys.default.castle.getPtrConst(c).*;
 }
 
-pub fn enp(e: ?types.Square) Int {
-    return if (e) |s| Keys.default.en_pas.getPtrConst(s.file()).* else 0;
+pub fn enp(s: types.Square) Int {
+    return Keys.default.en_pas.getPtrConst(s.file()).*;
 }
 
 pub fn stm() Int {
