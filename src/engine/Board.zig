@@ -189,7 +189,42 @@ pub const Position = struct {
         if (self.en_pas) |_| {
             return error.InvalidEnPassant;
         } else {
-            // TODO: check for (pseudo-)legality
+            const stm = self.stm;
+            const ntm = stm.flip();
+
+            const capt = bitboard.pPush1(ep.toSet(), .none, ntm);
+            const pawns = self.pieceOcc(.init(.pawn, stm));
+            const ks = self.pieceOcc(.init(.king, stm)).lowSquare() orelse
+                std.debug.panic("king not found", .{});
+
+            var atkers = bitboard.pAtk(ep.toSet(), ntm).bwa(pawns);
+            const legal = loop: while (atkers.lowSquare()) |s| : (atkers.popLow()) {
+                const occ = self.bothOcc()
+                    .bwx(s.toSet())
+                    .bwx(ep.toSet())
+                    .bwx(capt);
+
+                const diag = types.Square.Set.none
+                    .bwo(self.pieceOcc(.init(.bishop, ntm)))
+                    .bwo(self.pieceOcc(.init(.queen, ntm)));
+                if (bitboard.bAtk(ks, occ).bwa(diag) != .none) {
+                    continue;
+                }
+
+                const orth = types.Square.Set.none
+                    .bwo(self.pieceOcc(.init(.rook, ntm)))
+                    .bwo(self.pieceOcc(.init(.queen, ntm)));
+                if (bitboard.rAtk(ks, occ).bwa(orth) != .none) {
+                    continue;
+                }
+
+                break :loop true;
+            } else false;
+
+            if (!legal) {
+                return error.InvalidEnPassant;
+            }
+
             self.en_pas = ep;
             self.key ^= zobrist.enp(ep);
         }
