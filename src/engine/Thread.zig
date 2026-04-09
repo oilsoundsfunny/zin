@@ -441,7 +441,7 @@ fn quietHistPtr(
     self: anytype,
     move: movegen.Move,
 ) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
-    const sp = self.board.positions.last().getSquare(move.src);
+    const sp = self.board.positions.last().getSq(move.src);
     return &self.quiethist[sp.color().int()][sp.ptype().int()][move.dst.int()];
 }
 
@@ -450,8 +450,8 @@ fn noisyHistPtr(
     move: movegen.Move,
 ) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
     const pos = self.board.positions.last();
-    const sp = pos.getSquare(move.src);
-    const dp = switch (pos.getSquare(move.dst)) {
+    const sp = pos.getSq(move.src);
+    const dp = switch (pos.getSq(move.dst)) {
         .none => types.Ptype.num,
         else => |p| p.ptype().int(),
     };
@@ -465,7 +465,7 @@ fn contHistPtr(
     ply: usize,
 ) ?types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
     const pos: *const Board.Position = self.board.positions.last();
-    const this_p = pos.getSquare(move.src).ptype().int();
+    const this_p = pos.getSq(move.src).ptype().int();
     const this_d = move.dst.int();
 
     const hist_pos = if (self.board.positions.len > ply) pos.before(ply) else return null;

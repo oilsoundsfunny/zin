@@ -268,7 +268,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !
     } else return .position;
 }
 
-pub fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
+fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
     var tokens = std.mem.tokenizeAny(u8, command, &std.ascii.whitespace);
     const first = tokens.next() orelse return error.UnknownCommand;
 
@@ -276,6 +276,15 @@ pub fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
         if (tokens.peek()) |_| {
             return error.UnknownCommand;
         }
+
+        var board_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
+        const board = try pool.threads.items[0].board.printSelf(board_buf[0..]);
+
+        pool.mtx.lock();
+        defer pool.mtx.unlock();
+
+        try pool.io.writer().print("{s}", .{board});
+        try pool.io.writer().flush();
 
         return .debug;
     } else if (std.mem.eql(u8, first, "go")) {
@@ -332,7 +341,7 @@ pub fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
         try pool.io.writer().print("option name {s} type {s}\n", .{ "Clear Hash", "button" });
         try pool.io.writer().print(
             "option name {s} type {s} default {d} min {d} max {d}\n",
-            .{ "Hash", "spin", 64, 1, 1 << 30 },
+            .{ "Hash", "spin", 64, 1, 64 * 1024 * 1024 },
         );
         try pool.io.writer().print(
             "option name {s} type {s} default {d} min {d} max {d}\n",

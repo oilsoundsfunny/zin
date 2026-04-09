@@ -420,8 +420,8 @@ pub const Position = struct {
         const stm = pos.stm;
         const s = move.src;
         const d = move.dst;
-        const sp = pos.getSquare(s);
-        const dp = pos.getSquare(d);
+        const sp = pos.getSq(s);
+        const dp = pos.getSq(d);
 
         switch (move.flag) {
             .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
@@ -544,7 +544,7 @@ pub const Position = struct {
         return @TypeOf(co, to).bwa(co, to);
     }
 
-    pub fn getSquare(self: *const Position, s: types.Square) types.Piece {
+    pub fn getSq(self: *const Position, s: types.Square) types.Piece {
         return self.by_square.getPtrConst(s).*;
     }
 
@@ -587,7 +587,7 @@ pub const Position = struct {
         const kb = self.pieceOcc(.init(.king, stm.flip()));
         const ks = kb.lowSquare() orelse std.debug.panic("king not found", .{});
 
-        return switch (self.getSquare(s).ptype()) {
+        return switch (self.getSq(s).ptype()) {
             // zig fmt: off
             .pawn   => bitboard.pAtk(kb, stm.flip()).get(d),
             .knight => bitboard.nAtk(ks).get(d),
@@ -615,8 +615,8 @@ pub const Position = struct {
             return false;
         }
 
-        const sp = self.getSquare(s);
-        const dp = self.getSquare(d);
+        const sp = self.getSq(s);
+        const dp = self.getSq(d);
 
         const atk, const push1, const push2 = switch (sp.ptype()) {
             .pawn => .{
@@ -719,7 +719,7 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
 
         for (files) |f| {
             const s = types.Square.init(r, f);
-            const p = pos.getSquare(s);
+            const p = pos.getSq(s);
             const c = p.char() orelse {
                 empty += 1;
                 continue;
@@ -770,11 +770,47 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
     return list.items;
 }
 
+pub fn printSelf(self: *Board, buffer: []u8) ![]const u8 {
+    const pos = self.positions.last();
+    var list: std.ArrayList(u8) = .initBuffer(buffer);
+
+    const ranks: [types.Rank.num]types.Rank = .{
+        .rank_8, .rank_7, .rank_6, .rank_5, .rank_4, .rank_3, .rank_2, .rank_1,
+    };
+    const files: [types.File.num]types.File = .{
+        .file_a, .file_b, .file_c, .file_d, .file_e, .file_f, .file_g, .file_h,
+    };
+
+    for (ranks) |r| {
+        try list.printBounded("\t{c}", .{r.char()});
+        for (files) |f| {
+            try list.printBounded(" {c}", .{pos.getSq(.init(r, f)).char() orelse '.'});
+        }
+        try list.appendBounded('\n');
+    }
+    try list.appendSliceBounded("\t  a b c d e f g h\n");
+
+    var fen_buf: [128]u8 align(std.atomic.cache_line) = undefined;
+    const fen = try self.printFen(fen_buf[0..]);
+    try list.printBounded("fen: {s}\n", .{fen});
+
+    try list.printBounded("key: {x:016}\n", .{pos.key});
+
+    const mat = pos.material();
+    const eval = self.evaluate();
+    const norm = evaluation.score.normalize(eval, mat);
+    const w, const d, const l = evaluation.score.wdl(eval, mat);
+    try list.printBounded("wdl: {d:.2} {d:.2} {d:.2}\n", .{w * 100.0, d * 100.0, l * 100.0});
+    try list.printBounded("eval: {} cp\n", .{norm});
+
+    return list.items;
+}
+
 pub fn doMove(self: *Board, move: movegen.Move) void {
     const s = move.src;
     const d = move.dst;
-    const sp = self.positions.last().getSquare(s);
-    const dp = self.positions.last().getSquare(d);
+    const sp = self.positions.last().getSq(s);
+    const dp = self.positions.last().getSq(d);
 
     self.positions.last().move = move;
     self.positions.last().src_piece = sp;
