@@ -47,12 +47,13 @@ pub const Castle = struct {
     rd: types.Square,
 
     fn init(ks: types.Square, kd: types.Square, rs: types.Square, rd: types.Square) Castle {
-        const kb = bitboard.rays.rRayIncl(ks, kd);
-        const rb = bitboard.rays.rRayIncl(rs, rd);
+        const kb = bitboard.rays.orthIncl(ks, kd);
+        const rb = bitboard.rays.orthIncl(rs, rd);
 
-        var occ = kb.bwo(rb);
-        occ.pop(ks);
-        occ.pop(rs);
+        const occ = types.Square.Set
+            .bwo(kb, rb)
+            .bwx(ks.toSet())
+            .bwx(rs.toSet());
 
         return .{ .ks = ks, .kd = kd, .rs = rs, .rd = rd, .atk = kb, .occ = occ };
     }
@@ -178,32 +179,33 @@ pub const Position = struct {
     }
 
     fn genCheckMask(self: *const Position) types.Square.Set {
-        const occ = self.bothOcc();
         const stm = self.stm;
-
         const kb = self.pieceOcc(types.Piece.init(.king, stm));
         const ks = kb.lowSquare() orelse std.debug.panic("invalid position", .{});
-        const atkers = self.squareAtkers(ks).bwa(self.colorOcc(stm.flip()));
+
+        const occ = self.bothOcc();
+        const them = self.colorOcc(stm.flip());
+        const atkers = self.squareAtkers(ks).bwa(them);
         var ka = atkers;
 
-        const kba = bitboard.bAtk(ks, occ);
-        const diag = types.Square.Set
-            .none
+        const diag = types.Square.Set.none
             .bwo(self.ptypeOcc(.bishop))
             .bwo(self.ptypeOcc(.queen))
             .bwa(atkers);
         if (diag.lowSquare()) |s| {
-            ka.setOther(bitboard.bAtk(s, occ).bwa(kba));
+            const diag_k = bitboard.bAtk(ks, occ);
+            const diag_s = bitboard.bAtk(s, occ);
+            ka.setOther(.bwa(diag_k, diag_s));
         }
 
-        const kra = bitboard.rAtk(ks, occ);
-        const line = types.Square.Set
-            .none
+        const orth = types.Square.Set.none
             .bwo(self.ptypeOcc(.rook))
             .bwo(self.ptypeOcc(.queen))
             .bwa(atkers);
-        if (line.lowSquare()) |s| {
-            ka.setOther(bitboard.rAtk(s, occ).bwa(kra));
+        if (orth.lowSquare()) |s| {
+            const orth_k = bitboard.rAtk(ks, occ);
+            const orth_s = bitboard.rAtk(s, occ);
+            ka.setOther(.bwa(orth_k, orth_s));
         }
 
         return if (ka != .none) ka else .full;
@@ -214,7 +216,7 @@ pub const Position = struct {
         self.* = .{};
         errdefer self.* = backup;
 
-        const sa = [types.Square.num]types.Square{
+        const sa: [types.Square.num]types.Square = .{
             .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
             .a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
             .a6, .b6, .c6, .d6, .e6, .f6, .g6, .h6,
