@@ -517,7 +517,7 @@ pub const Picker = struct {
         return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
             const mvv = if (move.flag == .en_passant)
                 params.values.see_ordering_pawn
-            else switch (self.board.positions.last().getSquare(move.dst).ptype()) {
+            else switch (self.board.positions.last().getSq(move.dst).ptype()) {
                 .pawn => params.values.see_ordering_pawn,
                 .knight => params.values.see_ordering_knight,
                 .bishop => params.values.see_ordering_bishop,

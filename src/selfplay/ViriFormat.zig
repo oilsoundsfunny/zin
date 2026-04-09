@@ -29,7 +29,7 @@ const Piece = enum(u4) {
     fn init(pos: *const engine.Board.Position, s: types.Square) Piece {
         var iter = @constCast(pos).castles.iterator();
 
-        return switch (pos.getSquare(s)) {
+        return switch (pos.getSq(s)) {
             .w_rook => loop: while (iter.next()) |entry| {
                 const k = entry.key;
                 const v = entry.value;
