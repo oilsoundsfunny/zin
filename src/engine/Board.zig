@@ -178,7 +178,7 @@ pub const Position = struct {
         }
     }
 
-    fn genCheckMask(self: *const Position) types.Square.Set {
+    fn setChecks(self: *Position) void {
         const stm = self.stm;
         const kb = self.pieceOcc(types.Piece.init(.king, stm));
         const ks = kb.lowSquare() orelse std.debug.panic("invalid position", .{});
@@ -208,7 +208,7 @@ pub const Position = struct {
             ka.setOther(.bwa(orth_k, orth_s));
         }
 
-        return if (ka != .none) ka else .full;
+        self.checks = if (ka != .none) ka else .full;
     }
 
     fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
@@ -360,7 +360,7 @@ pub const Position = struct {
         const move_token = tokens.next() orelse return error.InvalidFen;
         _ = std.fmt.parseUnsigned(usize, move_token, 10) catch return error.InvalidMoveClock;
 
-        self.checks = self.genCheckMask();
+        self.setChecks();
         self.key ^= zobrist.enp(self.en_pas);
     }
 
@@ -731,9 +731,8 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
     }
 
     pos.stm = stm.flip();
-    pos.checks = pos.genCheckMask();
+    pos.setChecks();
     pos.key ^= zobrist.stm() ^ zobrist.enp(pos.before(1).en_pas) ^ zobrist.enp(pos.en_pas);
-    pos.excluded = .{};
 }
 
 pub fn doNull(self: *Board) void {
