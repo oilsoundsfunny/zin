@@ -415,103 +415,13 @@ pub const Position = struct {
         self.setChecks();
     }
 
-    fn tryMove(self: *const Position, move: movegen.Move) MoveError!Position {
-        var pos = self.*;
-        const stm = pos.stm;
-        const s = move.src;
-        const d = move.dst;
-        const sp = pos.getSq(s);
-        const dp = pos.getSq(d);
-
-        switch (move.flag) {
-            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-                pos.popSq(s, sp);
-                pos.setSq(d, add_p);
-            },
-
-            .castle_q, .castle_k => |f| {
-                const right = f.castle(stm) orelse unreachable;
-                const castle = pos.castles.getAssertContains(right);
-
-                const rook = types.Piece.init(.rook, stm);
-                const king = types.Piece.init(.king, stm);
-
-                pos.popSq(castle.ks, king);
-                pos.popSq(castle.rs, rook);
-
-                pos.setSq(castle.kd, king);
-                pos.setSq(castle.rd, rook);
-            },
-
-            else => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
-                const del_p, const del_s = if (f == .en_passant)
-                    .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
-                else
-                    .{ dp, d };
-
-                pos.popSq(del_s, del_p);
-                pos.setSq(d, add_p);
-                pos.popSq(s, sp);
-            },
-        }
-
-        const king = types.Piece.init(.king, stm);
-        const kb = pos.pieceOcc(king);
-        const ks = kb.lowSquare() orelse return error.InvalidMove;
-
-        const atkers = pos.squareAtkers(ks);
-        const them = pos.colorOcc(stm.flip());
-        if (atkers.bwa(them) != .none) {
-            return error.InvalidMove;
-        }
-
-        pos.excluded = .{};
-        pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
-        pos.stm = stm.flip();
-        pos.key ^= zobrist.stm();
-
-        pos.setChecks();
-        pos.popEnPas();
-
-        if (sp.ptype() == .pawn and move.flag == .torped) {
-            pos.setEnPas(.midpoint(d, s)) catch {};
-        } else if (sp.ptype() == .rook) {
-            var iter = pos.castles.iterator();
-            while (iter.next()) |entry| {
-                const k = entry.key;
-                const v = entry.value;
-                if (s == v.rs) {
-                    pos.popCastle(k);
-                    break;
-                }
-            }
-        } else if (sp.ptype() == .king) {
-            pos.popCastle(if (stm == .white) .wk else .bk);
-            pos.popCastle(if (stm == .white) .wq else .bq);
-        }
-
-        if (dp != .none and dp.ptype() == .rook) {
-            var iter = pos.castles.iterator();
-            while (iter.next()) |entry| {
-                const k = entry.key;
-                const v = entry.value;
-                if (d == v.rs) {
-                    pos.popCastle(k);
-                    break;
-                }
-            }
-        }
-
-        return pos;
-    }
-
-    pub fn before(
-        self: anytype,
-        dist: usize,
-    ) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
-        return &(self[0..1].ptr - dist)[0];
+    pub fn see(
+        self: *const Position,
+        comptime mode: @import("see.zig").Mode,
+        move: movegen.Move,
+        min: evaluation.score.Int,
+    ) bool {
+        return @import("see.zig").func(mode, self, move, min);
     }
 
     pub fn after(
@@ -519,6 +429,13 @@ pub const Position = struct {
         dist: usize,
     ) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
         return &(self[0..1].ptr + dist)[0];
+    }
+
+    pub fn before(
+        self: anytype,
+        dist: usize,
+    ) types.SameMutPtr(@TypeOf(self), *Position, *Position) {
+        return &(self[0..1].ptr - dist)[0];
     }
 
     pub fn bothOcc(self: *const Position) types.Square.Set {
@@ -678,13 +595,96 @@ pub const Position = struct {
         };
     }
 
-    pub fn see(
-        self: *const Position,
-        comptime mode: @import("see.zig").Mode,
-        move: movegen.Move,
-        min: evaluation.score.Int,
-    ) bool {
-        return @import("see.zig").func(mode, self, move, min);
+    pub fn tryMove(self: *const Position, move: movegen.Move) MoveError!Position {
+        var pos = self.*;
+        const stm = pos.stm;
+        const s = move.src;
+        const d = move.dst;
+        const sp = pos.getSq(s);
+        const dp = pos.getSq(d);
+
+        switch (move.flag) {
+            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
+                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+                pos.popSq(s, sp);
+                pos.setSq(d, add_p);
+            },
+
+            .castle_q, .castle_k => |f| {
+                const right = f.castle(stm) orelse unreachable;
+                const castle = pos.castles.getAssertContains(right);
+
+                const rook = types.Piece.init(.rook, stm);
+                const king = types.Piece.init(.king, stm);
+
+                pos.popSq(castle.ks, king);
+                pos.popSq(castle.rs, rook);
+
+                pos.setSq(castle.kd, king);
+                pos.setSq(castle.rd, rook);
+            },
+
+            else => |f| {
+                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+                const del_p, const del_s = if (f == .en_passant)
+                    .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
+                else
+                    .{ dp, d };
+
+                pos.popSq(del_s, del_p);
+                pos.setSq(d, add_p);
+                pos.popSq(s, sp);
+            },
+        }
+
+        const king = types.Piece.init(.king, stm);
+        const kb = pos.pieceOcc(king);
+        const ks = kb.lowSquare() orelse return error.InvalidMove;
+
+        const atkers = pos.squareAtkers(ks);
+        const them = pos.colorOcc(stm.flip());
+        if (atkers.bwa(them) != .none) {
+            return error.InvalidMove;
+        }
+
+        pos.excluded = .{};
+        pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
+        pos.stm = stm.flip();
+        pos.key ^= zobrist.stm();
+
+        pos.setChecks();
+        pos.popEnPas();
+
+        if (sp.ptype() == .pawn and move.flag == .torped) {
+            pos.setEnPas(.midpoint(d, s)) catch {};
+        } else if (sp.ptype() == .rook) {
+            var iter = pos.castles.iterator();
+            while (iter.next()) |entry| {
+                const k = entry.key;
+                const v = entry.value;
+                if (s == v.rs) {
+                    pos.popCastle(k);
+                    break;
+                }
+            }
+        } else if (sp.ptype() == .king) {
+            pos.popCastle(if (stm == .white) .wk else .bk);
+            pos.popCastle(if (stm == .white) .wq else .bq);
+        }
+
+        if (dp != .none and dp.ptype() == .rook) {
+            var iter = pos.castles.iterator();
+            while (iter.next()) |entry| {
+                const k = entry.key;
+                const v = entry.value;
+                if (d == v.rs) {
+                    pos.popCastle(k);
+                    break;
+                }
+            }
+        }
+
+        return pos;
     }
 };
 
