@@ -800,7 +800,7 @@ pub fn printSelf(self: *Board, buffer: []u8) ![]const u8 {
     const eval = self.evaluate();
     const norm = evaluation.score.normalize(eval, mat);
     const w, const d, const l = evaluation.score.wdl(eval, mat);
-    try list.printBounded("wdl: {d:.2} {d:.2} {d:.2}\n", .{w * 100.0, d * 100.0, l * 100.0});
+    try list.printBounded("wdl: {d:.2} {d:.2} {d:.2}\n", .{ w * 100.0, d * 100.0, l * 100.0 });
     try list.printBounded("eval: {} cp\n", .{norm});
 
     return list.items;
