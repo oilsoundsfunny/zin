@@ -1342,7 +1342,7 @@ fn qs(
     pos.stat_eval = stat_eval;
     pos.corr_eval = corr_eval;
 
-    a = @max(a, corr_eval);
+    a = @max(a, stat_eval);
     if (a >= b) {
         return a;
     }
