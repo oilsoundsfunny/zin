@@ -832,7 +832,10 @@ fn ab(
         const has_tteval = tth and
             tte.eval > evaluation.score.loss and
             tte.eval < evaluation.score.win;
-        const stat_eval = if (has_tteval) tte.eval else board.evaluate();
+        const stat_eval = if (has_tteval) tte.eval else if (is_checked)
+            evaluation.score.none
+        else
+            board.evaluate();
 
         const is_ttscore_correct = tth and
             ttscore > evaluation.score.loss and
@@ -1327,7 +1330,10 @@ fn qs(
     const has_tteval = tth and
         tte.eval > evaluation.score.loss and
         tte.eval < evaluation.score.win;
-    const stat_eval = if (has_tteval) tte.eval else board.evaluate();
+    const stat_eval = if (has_tteval) tte.eval else if (is_checked)
+        evaluation.score.none
+    else
+        board.evaluate();
 
     const is_ttscore_correct = tth and
         ttscore > evaluation.score.loss and
