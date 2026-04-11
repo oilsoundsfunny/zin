@@ -1031,7 +1031,7 @@ fn ab(
                 !is_noisy and
                 !is_checked and
                 a < evaluation.score.win and
-                stat_eval + fp_margin <= a)
+                corr_eval + fp_margin <= a)
             {
                 continue :move_loop;
             }

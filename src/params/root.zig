@@ -67,7 +67,7 @@ const tunables = blk: {
     const Zon = @TypeOf(zon);
 
     const fields = std.meta.fields(Zon);
-    const ini: [fields.len]Tunable.Init = .{
+    const inis: [fields.len]Tunable.Init = .{
         .{ .name = "nodetm1", .min = 8, .max = 4096, .c_end = 24.0 },
         .{ .name = "nodetm0", .min = 1024, .max = 2048, .c_end = 48.0 },
 
@@ -194,15 +194,14 @@ const tunables = blk: {
     };
     var tbl: [fields.len]Tunable = undefined;
 
-    for (tbl[0..], ini[0..]) |*tunable, i| {
-        const name = i.name;
-        tunable.* = .init(i, @field(zon, name));
+    for (tbl[0..], inis[0..]) |*tunable, ini| {
+        tunable.* = .init(ini, @field(zon, ini.name));
     }
 
     break :blk tbl;
 };
 
-pub const tuning = false;
+pub const tuning = true;
 
 pub var values: Values = .{};
 
