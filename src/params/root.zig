@@ -104,12 +104,14 @@ const tunables = blk: {
         .{ .name = "corr_pawn_w", .min = 256, .max = 4096, .c_end = 128.0 },
         .{ .name = "corr_minor_w", .min = 256, .max = 4096, .c_end = 128.0 },
         .{ .name = "corr_major_w", .min = 256, .max = 4096, .c_end = 128.0 },
-        .{ .name = "corr_nonpawn_w", .min = 256, .max = 4096, .c_end = 128.0 },
+        .{ .name = "corr_nonpawn_stm_w", .min = 256, .max = 4096, .c_end = 128.0 },
+        .{ .name = "corr_nonpawn_ntm_w", .min = 256, .max = 4096, .c_end = 128.0 },
 
         .{ .name = "corr_pawn_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
         .{ .name = "corr_minor_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
         .{ .name = "corr_major_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
-        .{ .name = "corr_nonpawn_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
+        .{ .name = "corr_nonpawn_update_stm_w", .min = 512, .max = 8192, .c_end = 256.0 },
+        .{ .name = "corr_nonpawn_update_ntm_w", .min = 512, .max = 8192, .c_end = 256.0 },
 
         .{ .name = "asp_window", .min = 2, .max = 32, .c_end = 2.0 },
         .{ .name = "asp_window_mul", .min = 4, .max = 256, .c_end = 32.0 },

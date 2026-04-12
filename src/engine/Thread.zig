@@ -39,10 +39,10 @@ pub const Pool = struct {
     allocator: std.mem.Allocator,
     threads: std.ArrayList(Thread),
 
-    pawn_corrhist: []align(std.atomic.cache_line) [types.Color.num]hist.Int,
-    minor_corrhist: []align(std.atomic.cache_line) [types.Color.num]hist.Int,
-    major_corrhist: []align(std.atomic.cache_line) [types.Color.num]hist.Int,
-    nonpawn_corrhist: []align(std.atomic.cache_line) [types.Color.num]hist.Int,
+    pawn_corrhist: []align(hist.Corr.page_size) hist.Corr.Pawn,
+    minor_corrhist: []align(hist.Corr.page_size) hist.Corr.Minor,
+    major_corrhist: []align(hist.Corr.page_size) hist.Corr.Major,
+    nonpawn_corrhist: []align(hist.Corr.page_size) hist.Corr.NonPawn,
 
     searching: bool align(std.atomic.cache_line),
     sleeping: bool align(std.atomic.cache_line),
@@ -119,26 +119,26 @@ pub const Pool = struct {
             .threads = try .initCapacity(allocator, threads),
 
             .pawn_corrhist = try allocator.alignedAlloc(
-                [types.Color.num]hist.Int,
-                .fromByteUnits(std.atomic.cache_line),
+                hist.Corr.Pawn,
+                .fromByteUnits(hist.Corr.page_size),
                 hist.Corr.size * threads,
             ),
 
             .major_corrhist = try allocator.alignedAlloc(
-                [types.Color.num]hist.Int,
-                .fromByteUnits(std.atomic.cache_line),
+                hist.Corr.Major,
+                .fromByteUnits(hist.Corr.page_size),
                 hist.Corr.size * threads,
             ),
 
             .minor_corrhist = try allocator.alignedAlloc(
-                [types.Color.num]hist.Int,
-                .fromByteUnits(std.atomic.cache_line),
+                hist.Corr.Minor,
+                .fromByteUnits(hist.Corr.page_size),
                 hist.Corr.size * threads,
             ),
 
             .nonpawn_corrhist = try allocator.alignedAlloc(
-                [types.Color.num]hist.Int,
-                .fromByteUnits(std.atomic.cache_line),
+                hist.Corr.NonPawn,
+                .fromByteUnits(hist.Corr.page_size),
                 hist.Corr.size * threads,
             ),
 
@@ -375,14 +375,19 @@ pub const hist = struct {
         major,
         nonpawn,
 
+        const Pawn = [color_n]Int;
+        const Minor = Pawn;
+        const Major = Pawn;
+        const NonPawn = [color_n][color_n]Int;
+
         const size = 1 << 16;
+        const page_size = std.heap.pageSize();
         const values = std.enums.values(Corr);
     };
 
     const color_n = 1 << types.Color.int_info.bits;
     const ptype_n = 1 << types.Ptype.int_info.bits;
     const square_n = 1 << types.Square.int_info.bits;
-    const corrhist_size = 1 << 16;
 
     pub const Int = i16;
 
@@ -483,30 +488,49 @@ fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score
     const pos = self.board.positions.last();
     const stm = pos.stm;
 
-    var corr: @TypeOf(eval) = 0;
-    for (hist.Corr.values) |t| {
-        const k = switch (t) {
-            .pawn => pos.pawn_key,
-            .minor => pos.minor_key,
-            .major => pos.major_key,
-            .nonpawn => pos.nonpawn_keys.getPtrConst(stm).*,
-        };
-        const l = hist.Corr.size * self.pool.threads.items.len;
-        const i = zobrist.index(k, l);
+    var correction: @TypeOf(eval) = evaluation.score.draw;
+    inline for (hist.Corr.values) |t| {
+        correction += switch (t) {
+            .nonpawn => blk: {
+                const len = hist.Corr.size * self.pool.threads.items.len;
+                const keys = pos.nonpawn_keys;
 
-        const h: @TypeOf(eval), const w: @TypeOf(eval) = switch (t) {
-            .pawn => .{ self.pool.pawn_corrhist[i][stm.int()], params.values.corr_pawn_w },
-            .minor => .{ self.pool.minor_corrhist[i][stm.int()], params.values.corr_minor_w },
-            .major => .{ self.pool.major_corrhist[i][stm.int()], params.values.corr_major_w },
-            .nonpawn => .{ self.pool.nonpawn_corrhist[i][stm.int()], params.values.corr_nonpawn_w },
-        };
+                const stm_i = zobrist.index(keys.getPtrConst(stm).*, len);
+                const stm_c = self.pool.nonpawn_corrhist[stm_i][stm.int()][stm.int()] *
+                    params.values.corr_nonpawn_stm_w;
 
-        corr += h * w;
+                const ntm = stm.flip();
+                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, len);
+                const ntm_c = self.pool.nonpawn_corrhist[ntm_i][stm.int()][ntm.int()] *
+                    params.values.corr_nonpawn_ntm_w;
+
+                break :blk stm_c + ntm_c;
+            },
+
+            else => blk: {
+                const key = switch (t) {
+                    .pawn => pos.pawn_key,
+                    .minor => pos.minor_key,
+                    .major => pos.major_key,
+                    else => unreachable,
+                };
+                const len = hist.Corr.size * self.pool.threads.items.len;
+                const idx = zobrist.index(key, len);
+
+                break :blk switch (t) {
+                    .pawn => params.values.corr_pawn_w * self.pool.pawn_corrhist[idx][stm.int()],
+                    .minor => params.values.corr_minor_w * self.pool.minor_corrhist[idx][stm.int()],
+                    .major => params.values.corr_major_w * self.pool.major_corrhist[idx][stm.int()],
+                    else => unreachable,
+                };
+            },
+        };
     }
-    corr = @divTrunc(corr, 1 << 18);
 
-    const corrected = eval + @as(evaluation.score.Int, @intCast(corr));
-    return std.math.clamp(corrected, evaluation.score.loss + 1, evaluation.score.win - 1);
+    const corrected = eval + @as(evaluation.score.Int, @intCast(@divTrunc(correction, 1 << 18)));
+    const min = evaluation.score.loss + 1;
+    const max = evaluation.score.win - 1;
+    return std.math.clamp(corrected, min, max);
 }
 
 fn updateCorrHists(
@@ -516,38 +540,58 @@ fn updateCorrHists(
 ) void {
     const pos = self.board.positions.last();
     const stm = pos.stm;
+
     const weight = @min(depth + 1, 16);
+    const bonus = diff * weight;
 
-    for (hist.Corr.values) |t| {
-        const k = switch (t) {
-            .pawn => pos.pawn_key,
-            .minor => pos.minor_key,
-            .major => pos.major_key,
-            .nonpawn => pos.nonpawn_keys.getPtrConst(stm).*,
-        };
-        const l = hist.Corr.size * self.pool.threads.items.len;
-        const i = zobrist.index(k, l);
+    inline for (hist.Corr.values) |t| {
+        switch (t) {
+            .nonpawn => {
+                const len = hist.Corr.size * self.pool.threads.items.len;
+                const keys = pos.nonpawn_keys;
 
-        const p: *hist.Int, const w: evaluation.score.Int = switch (t) {
-            .pawn => .{ &self.pool.pawn_corrhist[i][stm.int()], params.values.corr_pawn_update_w },
-            .minor => .{
-                &self.pool.minor_corrhist[i][stm.int()],
-                params.values.corr_minor_update_w,
-            },
-            .major => .{
-                &self.pool.major_corrhist[i][stm.int()],
-                params.values.corr_major_update_w,
-            },
-            .nonpawn => .{
-                &self.pool.nonpawn_corrhist[i][stm.int()],
-                params.values.corr_nonpawn_update_w,
-            },
-        };
+                const ntm = stm.flip();
+                const stm_i = zobrist.index(keys.getPtrConst(stm).*, len);
+                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, len);
 
-        const bonus = diff * weight;
-        const scaled = @divTrunc(bonus * w, 1024);
-        const clamped = std.math.clamp(scaled, -16000, 16000);
-        hist.gravity(p, clamped);
+                const stm_scaled = @divTrunc(bonus * params.values.corr_nonpawn_stm_w, 1024);
+                const stm_clamped = std.math.clamp(stm_scaled, -16000, 16000);
+
+                const ntm_scaled = @divTrunc(bonus * params.values.corr_nonpawn_ntm_w, 1024);
+                const ntm_clamped = std.math.clamp(ntm_scaled, -16000, 16000);
+
+                hist.gravity(&self.pool.nonpawn_corrhist[stm_i][stm.int()][stm.int()], stm_clamped);
+                hist.gravity(&self.pool.nonpawn_corrhist[ntm_i][stm.int()][ntm.int()], ntm_clamped);
+            },
+
+            else => {
+                const w = switch (t) {
+                    .pawn => params.values.corr_pawn_update_w,
+                    .minor => params.values.corr_minor_update_w,
+                    .major => params.values.corr_major_update_w,
+                    else => unreachable,
+                };
+                const scaled = @divTrunc(bonus * w, 1024);
+                const clamped = std.math.clamp(scaled, -16000, 16000);
+
+                const key = switch (t) {
+                    .pawn => pos.pawn_key,
+                    .minor => pos.minor_key,
+                    .major => pos.major_key,
+                    else => unreachable,
+                };
+                const len = hist.Corr.size * self.pool.threads.items.len;
+                const idx = zobrist.index(key, len);
+
+                const p = switch (t) {
+                    .pawn => &self.pool.pawn_corrhist[idx][stm.int()],
+                    .minor => &self.pool.minor_corrhist[idx][stm.int()],
+                    .major => &self.pool.major_corrhist[idx][stm.int()],
+                    else => unreachable,
+                };
+                hist.gravity(p, clamped);
+            },
+        }
     }
 }
 
@@ -1523,7 +1567,8 @@ fn clearHash(self: *Thread) void {
     self.pool.pawn_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
     self.pool.minor_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
     self.pool.major_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
-    self.pool.nonpawn_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
+    self.pool.nonpawn_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* =
+        @splat(@splat(@splat(0)));
 }
 
 fn datagen(self: *Thread) !void {
