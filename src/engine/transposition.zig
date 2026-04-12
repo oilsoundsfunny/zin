@@ -98,10 +98,19 @@ pub const Table = struct {
     pub fn init(allocator: std.mem.Allocator, mb: ?usize) !Table {
         const options: Thread.Options = .{};
         const len = (mb orelse options.hash) * (1 << 20) / @sizeOf(Cluster);
-        return .{
-            .slice = try allocator.alloc(Cluster, len),
-            .age = 0,
+
+        const page_size = std.heap.pageSize();
+        const slice = try allocator.alignedAlloc(Cluster, .fromByteUnits(page_size), len);
+
+        std.posix.madvise(
+            @ptrCast(slice.ptr),
+            slice.len * @sizeOf(Cluster),
+            std.c.MADV.HUGEPAGE,
+        ) catch |err| switch (err) {
+            error.MadviseUnavailable => {},
+            else => return err,
         };
+        return .{ .slice = slice, .age = 0 };
     }
 
     pub fn realloc(self: *Table, allocator: std.mem.Allocator, mb: usize) !void {

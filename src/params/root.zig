@@ -196,12 +196,19 @@ const tunables = blk: {
 
     for (tbl[0..], inis[0..]) |*tunable, ini| {
         tunable.* = .init(ini, @field(zon, ini.name));
+        if (tunable.value != std.math.clamp(tunable.value, tunable.min, tunable.max)) {
+            const msg = std.fmt.comptimePrint(
+                "tunable {s} has value {} outside of [{}, {}]",
+                .{ ini.name, tunable.value, tunable.min, tunable.max },
+            );
+            @compileError(msg);
+        }
     }
 
     break :blk tbl;
 };
 
-pub const tuning = true;
+pub const tuning = false;
 
 pub var values: Values = .{};
 

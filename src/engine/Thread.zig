@@ -479,7 +479,7 @@ fn contHistPtr(
     return &self.conthist[ply / 2][stm][hist_p][hist_d][this_p][this_d];
 }
 
-fn correctedEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score.Int {
+fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score.Int {
     const pos = self.board.positions.last();
     const stm = pos.stm;
 
@@ -845,7 +845,7 @@ fn ab(
         const corr_eval = if (is_ttscore_correct) ttscore else if (is_checked)
             evaluation.score.none
         else
-            self.correctedEval(stat_eval);
+            self.correctEval(stat_eval);
 
         pos.stat_eval = stat_eval;
         pos.corr_eval = corr_eval;
@@ -1343,7 +1343,7 @@ fn qs(
     const corr_eval = if (is_ttscore_correct) ttscore else if (is_checked)
         evaluation.score.none
     else
-        self.correctedEval(stat_eval);
+        self.correctEval(stat_eval);
 
     pos.stat_eval = stat_eval;
     pos.corr_eval = corr_eval;

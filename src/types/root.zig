@@ -201,15 +201,6 @@ pub const Ptype = enum(u3) {
     queen,
     king,
 
-    const char_array = std.EnumArray(Ptype, u8).init(.{
-        .pawn = 'p',
-        .knight = 'n',
-        .bishop = 'b',
-        .rook = 'r',
-        .queen = 'q',
-        .king = 'k',
-    });
-
     pub const Int = std.meta.Tag(Ptype);
     pub const int_info = @typeInfo(Int).int;
 
@@ -225,7 +216,14 @@ pub const Ptype = enum(u3) {
     }
 
     pub fn char(self: Ptype) u8 {
-        return char_array.getPtrConst(self).*;
+        return switch (self) {
+            .pawn => 'p',
+            .knight => 'n',
+            .bishop => 'b',
+            .rook => 'r',
+            .queen => 'q',
+            .king => 'k',
+        };
     }
 
     pub fn fromChar(c: u8) ?Ptype {
@@ -242,11 +240,6 @@ pub const Color = enum(u1) {
     white,
     black,
 
-    const char_array = std.EnumArray(Color, u8).init(.{
-        .white = 'w',
-        .black = 'b',
-    });
-
     pub const Int = std.meta.Tag(Color);
     pub const int_info = @typeInfo(Int).int;
 
@@ -262,7 +255,10 @@ pub const Color = enum(u1) {
     }
 
     pub fn char(self: Color) u8 {
-        return char_array.getPtrConst(self).*;
+        return switch (self) {
+            .white => 'w',
+            .black => 'b',
+        };
     }
 
     pub fn flip(self: Color) Color {
@@ -328,22 +324,6 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
 
     none,
 
-    const char_map = std.EnumMap(Piece, u8).init(.{
-        .w_pawn = 'P',
-        .w_knight = 'N',
-        .w_bishop = 'B',
-        .w_rook = 'R',
-        .w_queen = 'Q',
-        .w_king = 'K',
-
-        .b_pawn = 'p',
-        .b_knight = 'n',
-        .b_bishop = 'b',
-        .b_rook = 'r',
-        .b_queen = 'q',
-        .b_king = 'k',
-    });
-
     pub const Int = std.meta.Tag(Piece);
     pub const int_info = @typeInfo(Int).int;
 
@@ -382,7 +362,10 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
     }
 
     pub fn char(self: Piece) ?u8 {
-        return char_map.get(self);
+        return if (self == .none) null else switch (self.color()) {
+            .white => std.ascii.toUpper(self.ptype().char()),
+            .black => std.ascii.toLower(self.ptype().char()),
+        };
     }
 
     pub fn color(self: Piece) Color {

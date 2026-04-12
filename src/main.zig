@@ -73,9 +73,8 @@ pub fn main() !void {
     };
 
     const pool = try engine.Thread.Pool.create(
-        // zig fmt: off
-        allocator, null,
-        // zig fmt: on
+        allocator,
+        null,
         try .init(allocator, null, 16384, null, 16384),
         try .init(allocator, null),
     );

@@ -415,6 +415,90 @@ pub const Position = struct {
         self.setChecks();
     }
 
+    // TODO: less crine
+    fn printMailbox(self: *const Position, buf: []u8) ![]const u8 {
+        const top =
+            \\    ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐  
+            \\    │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ 8
+            \\    ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤  
+            \\    │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ 7
+            \\    ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤  
+            \\    │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ 6
+            \\    ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤  
+            \\    │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ 5
+            \\    ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤  
+            \\
+        ;
+
+        const bottom =
+            \\    │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ 4
+            \\    ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤  
+            \\    │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ 3
+            \\    ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤  
+            \\    │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ 2
+            \\    ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤  
+            \\    │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ {s} │ 1
+            \\    └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘  
+            \\       a     b     c     d     e     f     g     h     
+            \\
+        ;
+
+        const sa: [types.Square.num]types.Square = .{
+            .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
+            .a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
+            .a6, .b6, .c6, .d6, .e6, .f6, .g6, .h6,
+            .a5, .b5, .c5, .d5, .e5, .f5, .g5, .h5,
+            .a4, .b4, .c4, .d4, .e4, .f4, .g4, .h4,
+            .a3, .b3, .c3, .d3, .e3, .f3, .g3, .h3,
+            .a2, .b2, .c2, .d2, .e2, .f2, .g2, .h2,
+            .a1, .b1, .c1, .d1, .e1, .f1, .g1, .h1,
+        };
+
+        var args: [64][16]u8 = @splat(@splat(0));
+        var list: std.ArrayList(u8) = .initBuffer(buf);
+
+        for (sa, 0..) |s, i| {
+            const p = self.getSq(s);
+            var w = std.Io.Writer.fixed(args[i][0..]);
+
+            try w.print(" {s}{c}{s} ", .{
+                if (p == .none) "\x1b[0m" else switch (p.color()) {
+                    .white => "\x1b[31m",
+                    .black => "\x1b[34m",
+                },
+                p.char() orelse ' ',
+                "\x1b[0m",
+            });
+            try w.flush();
+        }
+
+        // zig fmt: off
+        try list.printBounded(top, .{
+            args[0x00][0..], args[0x01][0..], args[0x02][0..], args[0x03][0..],
+            args[0x04][0..], args[0x05][0..], args[0x06][0..], args[0x07][0..],
+            args[0x08][0..], args[0x09][0..], args[0x0a][0..], args[0x0b][0..],
+            args[0x0c][0..], args[0x0d][0..], args[0x0e][0..], args[0x0f][0..],
+            args[0x10][0..], args[0x11][0..], args[0x12][0..], args[0x13][0..],
+            args[0x14][0..], args[0x15][0..], args[0x16][0..], args[0x17][0..],
+            args[0x18][0..], args[0x19][0..], args[0x1a][0..], args[0x1b][0..],
+            args[0x1c][0..], args[0x1d][0..], args[0x1e][0..], args[0x1f][0..],
+        });
+
+        try list.printBounded(bottom, .{
+            args[0x20][0..], args[0x21][0..], args[0x22][0..], args[0x23][0..],
+            args[0x24][0..], args[0x25][0..], args[0x26][0..], args[0x27][0..],
+            args[0x28][0..], args[0x29][0..], args[0x2a][0..], args[0x2b][0..],
+            args[0x2c][0..], args[0x2d][0..], args[0x2e][0..], args[0x2f][0..],
+            args[0x30][0..], args[0x31][0..], args[0x32][0..], args[0x33][0..],
+            args[0x34][0..], args[0x35][0..], args[0x36][0..], args[0x37][0..],
+            args[0x38][0..], args[0x39][0..], args[0x3a][0..], args[0x3b][0..],
+            args[0x3c][0..], args[0x3d][0..], args[0x3e][0..], args[0x3f][0..],
+        });
+        // zig fmt: on
+
+        return list.items;
+    }
+
     pub fn see(
         self: *const Position,
         comptime mode: @import("see.zig").Mode,
@@ -774,21 +858,9 @@ pub fn printSelf(self: *Board, buffer: []u8) ![]const u8 {
     const pos = self.positions.last();
     var list: std.ArrayList(u8) = .initBuffer(buffer);
 
-    const ranks: [types.Rank.num]types.Rank = .{
-        .rank_8, .rank_7, .rank_6, .rank_5, .rank_4, .rank_3, .rank_2, .rank_1,
-    };
-    const files: [types.File.num]types.File = .{
-        .file_a, .file_b, .file_c, .file_d, .file_e, .file_f, .file_g, .file_h,
-    };
-
-    for (ranks) |r| {
-        try list.printBounded("\t{c}", .{r.char()});
-        for (files) |f| {
-            try list.printBounded(" {c}", .{pos.getSq(.init(r, f)).char() orelse '.'});
-        }
-        try list.appendBounded('\n');
-    }
-    try list.appendSliceBounded("\t  a b c d e f g h\n");
+    var mailbox_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
+    const mailbox = try pos.printMailbox(mailbox_buf[0..]);
+    try list.printBounded("{s}\n", .{mailbox});
 
     var fen_buf: [128]u8 align(std.atomic.cache_line) = undefined;
     const fen = try self.printFen(fen_buf[0..]);
