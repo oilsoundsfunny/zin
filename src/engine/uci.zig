@@ -277,7 +277,7 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
             return error.UnknownCommand;
         }
 
-        var board_buf: [4096]u8 align(std.atomic.cache_line) = undefined;
+        var board_buf: [8192]u8 align(std.atomic.cache_line) = undefined;
         const board = try pool.threads.items[0].board.printSelf(board_buf[0..]);
 
         pool.mtx.lock();

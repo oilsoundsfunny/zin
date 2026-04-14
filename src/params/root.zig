@@ -67,7 +67,7 @@ const tunables = blk: {
     const Zon = @TypeOf(zon);
 
     const fields = std.meta.fields(Zon);
-    const ini: [fields.len]Tunable.Init = .{
+    const inis: [fields.len]Tunable.Init = .{
         .{ .name = "nodetm1", .min = 8, .max = 4096, .c_end = 24.0 },
         .{ .name = "nodetm0", .min = 1024, .max = 2048, .c_end = 48.0 },
 
@@ -104,12 +104,14 @@ const tunables = blk: {
         .{ .name = "corr_pawn_w", .min = 256, .max = 4096, .c_end = 128.0 },
         .{ .name = "corr_minor_w", .min = 256, .max = 4096, .c_end = 128.0 },
         .{ .name = "corr_major_w", .min = 256, .max = 4096, .c_end = 128.0 },
-        .{ .name = "corr_nonpawn_w", .min = 256, .max = 4096, .c_end = 128.0 },
+        .{ .name = "corr_nonpawn_stm_w", .min = 256, .max = 4096, .c_end = 128.0 },
+        .{ .name = "corr_nonpawn_ntm_w", .min = 256, .max = 4096, .c_end = 128.0 },
 
         .{ .name = "corr_pawn_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
         .{ .name = "corr_minor_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
         .{ .name = "corr_major_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
-        .{ .name = "corr_nonpawn_update_w", .min = 512, .max = 8192, .c_end = 256.0 },
+        .{ .name = "corr_nonpawn_update_stm_w", .min = 512, .max = 8192, .c_end = 256.0 },
+        .{ .name = "corr_nonpawn_update_ntm_w", .min = 512, .max = 8192, .c_end = 256.0 },
 
         .{ .name = "asp_window", .min = 2, .max = 32, .c_end = 2.0 },
         .{ .name = "asp_window_mul", .min = 4, .max = 256, .c_end = 32.0 },
@@ -194,9 +196,15 @@ const tunables = blk: {
     };
     var tbl: [fields.len]Tunable = undefined;
 
-    for (tbl[0..], ini[0..]) |*tunable, i| {
-        const name = i.name;
-        tunable.* = .init(i, @field(zon, name));
+    for (tbl[0..], inis[0..]) |*tunable, ini| {
+        tunable.* = .init(ini, @field(zon, ini.name));
+        if (tunable.value != std.math.clamp(tunable.value, tunable.min, tunable.max)) {
+            const msg = std.fmt.comptimePrint(
+                "tunable {s} has value {} outside of [{}, {}]",
+                .{ ini.name, tunable.value, tunable.min, tunable.max },
+            );
+            @compileError(msg);
+        }
     }
 
     break :blk tbl;
