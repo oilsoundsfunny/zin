@@ -55,6 +55,8 @@
     .nmp_improving_r = 251,
     .nmp_deval_mul = 665,
     .nmp_deval_max_r = 1268,
+    .probcut_margin = 287,
+    .probcut_improving = 54,
     .razoring_mul = 301,
     .fp_margin0 = 356,
     .fp_margin1 = 134,

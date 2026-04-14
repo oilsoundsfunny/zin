@@ -1000,6 +1000,70 @@ fn ab(
         }
     }
 
+    // probcut
+    if (!is_pv and
+        !is_singular and
+        !is_checked and
+        d > 4 and
+        b > evaluation.score.loss and
+        b < evaluation.score.win)
+    probcut: {
+        const pb = b +
+            params.values.probcut_margin -
+            params.values.probcut_improving * @intFromBool(improving);
+        const pd = d - 4;
+
+        if (tth and ttscore < pb and tte.depth > pd) {
+            break :probcut;
+        }
+
+        var mp: movegen.Picker = .init(self, if (is_singular) pos.excluded else tte.move);
+        move_loop: while (mp.next()) |sm| {
+            const m = sm.move;
+
+            const is_legal = m == mp.ttm or check: {
+                const next_pos = pos.tryMove(m) catch break :check false;
+                tt.prefetch(next_pos.key);
+                break :check true;
+            };
+            const threshold = pb - corr_eval;
+            if (!is_legal or !pos.see(m, threshold)) {
+                continue :move_loop;
+            }
+
+            const s = blk: {
+                board.doMove(m);
+                defer board.undoMove();
+
+                var score = -self.qs(ply + 1, -pb, 1 - pb);
+                if (score >= pb) {
+                    score = -self.ab(node.flip(), ply + 1, -pb, 1 - pb, pd);
+                }
+                break :blk score;
+            };
+
+            const datagen_stop = is_datagen and self.datagenStop(.hard);
+            const go_stop = !is_datagen and self.pool.stopped;
+            if (datagen_stop or go_stop) {
+                return a;
+            }
+
+            if (s >= pb) {
+                tt.write(key, .{
+                    .was_pv = was_pv,
+                    .flag = .lowerbound,
+                    .age = @truncate(tt.age),
+                    .depth = @intCast(pd),
+                    .key = @truncate(key),
+                    .eval = @intCast(stat_eval),
+                    .score = @intCast(evaluation.score.toTT(s, ply)),
+                    .move = m,
+                });
+                return s;
+            }
+        }
+    }
+
     // razoring
     if (!is_pv and
         !is_singular and
@@ -1022,7 +1086,7 @@ fn ab(
     var searched: usize = 0;
     var bad_noisy_moves: movegen.Move.List = .{};
     var bad_quiet_moves: movegen.Move.List = .{};
-    var mp = movegen.Picker.init(self, if (is_singular) pos.excluded else tte.move);
+    var mp: movegen.Picker = .init(self, if (is_singular) pos.excluded else tte.move);
 
     const is_ttm_noisy = !mp.ttm.isNone() and mp.ttm.flag.isNoisy();
     const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
@@ -1107,7 +1171,7 @@ fn ab(
                 const max = params.values.pvs_see_max_capthist * d;
                 break :noisy base - std.math.clamp(@divTrunc(sm.score * mul, 1024), -max, max);
             };
-            if (!pos.see(.pruning, m, see_margin)) {
+            if (!pos.see(m, see_margin)) {
                 continue :move_loop;
             }
         }
@@ -1429,7 +1493,7 @@ fn qs(
 
             // qs see pruning
             // 10.0+0.1: 206.81 +- 35.91
-            if (!pos.see(.pruning, m, draw)) {
+            if (!pos.see(m, draw)) {
                 continue :move_loop;
             }
         }
@@ -1438,7 +1502,7 @@ fn qs(
             // qs futility pruning
             // 10.0+0.1: 65.37 +- 17.63
             const margin = params.values.qs_fp_margin;
-            if (corr_eval + margin <= a and !pos.see(.pruning, m, draw + 1)) {
+            if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
                 best.score = @intCast(@max(best.score, corr_eval + margin));
                 continue :move_loop;
             }

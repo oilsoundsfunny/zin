@@ -137,6 +137,9 @@ const tunables = blk: {
         .{ .name = "nmp_deval_mul", .min = 512, .max = 2048, .c_end = 32.0 },
         .{ .name = "nmp_deval_max_r", .min = 512, .max = 2048, .c_end = 64.0 },
 
+        .{ .name = "probcut_margin", .min = 128, .max = 512, .c_end = 16.0 },
+        .{ .name = "probcut_improving", .min = -128, .max = 128, .c_end = 8.0 },
+
         .{ .name = "razoring_mul", .min = 256, .max = 1024, .c_end = 16.0 },
 
         .{ .name = "fp_margin0", .min = 128, .max = 512, .c_end = 16.0 },

@@ -18,24 +18,18 @@ const Board = @import("Board.zig");
 const evaluation = @import("evaluation.zig");
 const movegen = @import("movegen.zig");
 
-pub const Mode = enum {
-    ordering,
-    pruning,
-};
-
-fn ptypeValue(comptime mode: Mode, p: types.Ptype) evaluation.score.Int {
+fn ptypeValue(p: types.Ptype) evaluation.score.Int {
     return switch (p) {
         .king => evaluation.score.draw,
-        inline else => |e| @field(params.values, "see_" ++ @tagName(mode) ++ "_" ++ @tagName(e)),
+        inline else => |e| @field(params.values, "see_pruning_" ++ @tagName(e)),
     };
 }
 
-fn pieceValue(comptime mode: Mode, p: types.Piece) evaluation.score.Int {
-    return if (p != .none) ptypeValue(mode, p.ptype()) else evaluation.score.draw;
+fn pieceValue(p: types.Piece) evaluation.score.Int {
+    return if (p != .none) ptypeValue(p.ptype()) else evaluation.score.draw;
 }
 
 pub fn func(
-    comptime mode: Mode,
     pos: *const Board.Position,
     move: movegen.Move,
     min: evaluation.score.Int,
@@ -52,12 +46,12 @@ pub fn func(
     const sp = pos.getSq(s);
     const dp = pos.getSq(d);
 
-    var v = pieceValue(mode, dp) - min;
+    var v = pieceValue(dp) - min;
     if (v < 0) {
         return false;
     }
 
-    v = pieceValue(mode, sp) - v;
+    v = pieceValue(sp) - v;
     if (v <= 0) {
         return true;
     }
@@ -87,7 +81,7 @@ pub fn func(
 
         var least = ours.bwa(pos.ptypeOcc(.pawn));
         if (least != .none) {
-            v = ptypeValue(mode, .pawn) - v;
+            v = ptypeValue(.pawn) - v;
             if (v < @intFromBool(ret)) {
                 break;
             }
@@ -99,7 +93,7 @@ pub fn func(
 
         least = ours.bwa(pos.ptypeOcc(.knight));
         if (least != .none) {
-            v = ptypeValue(mode, .knight) - v;
+            v = ptypeValue(.knight) - v;
             if (v < @intFromBool(ret)) {
                 break;
             }
@@ -110,7 +104,7 @@ pub fn func(
 
         least = ours.bwa(pos.ptypeOcc(.bishop));
         if (least != .none) {
-            v = ptypeValue(mode, .bishop) - v;
+            v = ptypeValue(.bishop) - v;
             if (v < @intFromBool(ret)) {
                 break;
             }
@@ -122,7 +116,7 @@ pub fn func(
 
         least = ours.bwa(pos.ptypeOcc(.rook));
         if (least != .none) {
-            v = ptypeValue(mode, .rook) - v;
+            v = ptypeValue(.rook) - v;
             if (v < @intFromBool(ret)) {
                 break;
             }
@@ -134,7 +128,7 @@ pub fn func(
 
         least = ours.bwa(pos.ptypeOcc(.queen));
         if (least != .none) {
-            v = ptypeValue(mode, .queen) - v;
+            v = ptypeValue(.queen) - v;
             if (v < @intFromBool(ret)) {
                 break;
             }

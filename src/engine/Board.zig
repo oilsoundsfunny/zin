@@ -501,11 +501,10 @@ pub const Position = struct {
 
     pub fn see(
         self: *const Position,
-        comptime mode: @import("see.zig").Mode,
         move: movegen.Move,
         min: evaluation.score.Int,
     ) bool {
-        return @import("see.zig").func(mode, self, move, min);
+        return @import("see.zig").func(self, move, min);
     }
 
     pub fn after(
