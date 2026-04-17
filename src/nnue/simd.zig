@@ -1,22 +1,23 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
+const dwords = @min(std.simd.suggestVectorLength(u32) orelse 1, 8);
+
 pub const has_avx2 = builtin.cpu.has(.x86, .avx2);
+pub const bytes = dwords * @sizeOf(u32) / @sizeOf(u8);
 
 pub fn Vec(comptime T: type) switch (T) {
     i8, u8, i16, u16, i32, u32 => type,
-    else => @compileError("unsupported type"),
+    else => @compileError("expected 8, 16 or 32-bit integer type, found " ++ @typeName(T)),
 } {
     return struct {
         v: Inner,
         const Self = @This();
 
-        const alignment = @alignOf(Inner);
-        const dwords = std.simd.suggestVectorLength(u32) orelse
-            @compileError("cpu doesn't support vectors with 32bit elements");
-
         pub const Inner = @Vector(len, T);
-        pub const bytes = dwords * @sizeOf(u32) / @sizeOf(u8);
+        pub const ConstSlice = []align(bytes) const T;
+        pub const Slice = []align(bytes) T;
+
         pub const len = bytes * @sizeOf(u8) / @sizeOf(T);
 
         pub fn bitCast(vec: anytype) Self {
@@ -90,8 +91,13 @@ pub fn Vec(comptime T: type) switch (T) {
                 *const Self => p.v,
                 else => |P| {
                     const msg = std.fmt.comptimePrint(
-                        "expected aligned slice of {s}s or ref to {s}, found {s}",
-                        .{ @typeName(T), @typeName(Inner), @typeName(P) },
+                        "expected {s} or {s} or {s}, found {s}",
+                        .{
+                            @typeName(ConstSlice),
+                            @typeName(*const Inner),
+                            @typeName(*const Self),
+                            @typeName(P),
+                        },
                     );
                     @compileError(msg);
                 },
@@ -102,11 +108,11 @@ pub fn Vec(comptime T: type) switch (T) {
             switch (@TypeOf(p)) {
                 []align(bytes) T => p[0..len].* = @bitCast(self.v),
                 *Inner => p.* = self.v,
-                *Self => p.* = self,
+                *Self => p.* = self.*,
                 else => |P| {
                     const msg = std.fmt.comptimePrint(
-                        "expected aligned slice of mut {s}s or mut ref to {s}, found {s}",
-                        .{ @typeName(T), @typeName(Inner), @typeName(P) },
+                        "expected {s} or {s} or {s}, found {s}",
+                        .{ @typeName(Slice), @typeName(*Inner), @typeName(*Self), @typeName(P) },
                     );
                     @compileError(msg);
                 },
