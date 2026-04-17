@@ -33,33 +33,36 @@ const Request = union(Tag) {
     };
 };
 
+const page_size = std.heap.pageSize();
+
 pub const Depth = evaluation.score.Int;
 
 pub const Pool = struct {
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
+    stdio: std.Io,
     threads: std.ArrayList(Thread),
 
-    pawn_corrhist: []align(hist.Corr.page_size) hist.Corr.Pawn,
-    minor_corrhist: []align(hist.Corr.page_size) hist.Corr.Minor,
-    major_corrhist: []align(hist.Corr.page_size) hist.Corr.Major,
-    nonpawn_corrhist: []align(hist.Corr.page_size) hist.Corr.NonPawn,
+    pawn_corrhist: []align(page_size) hist.Corr.Pawn,
+    minor_corrhist: []align(page_size) hist.Corr.Minor,
+    major_corrhist: []align(page_size) hist.Corr.Major,
+    nonpawn_corrhist: []align(page_size) hist.Corr.NonPawn,
 
     searching: bool align(std.atomic.cache_line),
     sleeping: bool align(std.atomic.cache_line),
     stopped: bool align(std.atomic.cache_line),
 
-    cond: std.Thread.Condition align(std.atomic.cache_line),
-    mtx: std.Thread.Mutex align(std.atomic.cache_line),
+    cond: std.Io.Condition align(std.atomic.cache_line),
+    mtx: std.Io.Mutex align(std.atomic.cache_line),
 
     limits: Limits align(std.atomic.cache_line),
-    opts: Options,
-    timer: std.time.Timer,
+    opts: Options align(std.atomic.cache_line),
 
+    now: std.Io.Timestamp,
     io: types.IO,
     tt: transposition.Table,
 
     fn spawn(self: *Pool) !void {
-        const config: std.Thread.SpawnConfig = .{ .allocator = self.allocator };
+        const config: std.Thread.SpawnConfig = .{ .allocator = self.gpa };
         for (self.threads.items) |*thread| {
             thread.handle = try std.Thread.spawn(config, Thread.loop, .{thread});
         }
@@ -91,73 +94,49 @@ pub const Pool = struct {
 
     pub fn destroy(self: *Pool) void {
         self.join();
-        self.threads.deinit(self.allocator);
+        self.threads.deinit(self.gpa);
 
-        self.allocator.free(self.pawn_corrhist);
-        self.allocator.free(self.minor_corrhist);
-        self.allocator.free(self.major_corrhist);
-        self.allocator.free(self.nonpawn_corrhist);
+        self.gpa.free(self.pawn_corrhist);
+        self.gpa.free(self.minor_corrhist);
+        self.gpa.free(self.major_corrhist);
+        self.gpa.free(self.nonpawn_corrhist);
 
-        self.io.deinit(self.allocator);
-        self.tt.deinit(self.allocator);
+        self.io.deinit(self.gpa, self.stdio);
+        self.tt.deinit(self.gpa);
 
-        self.allocator.destroy(self);
+        self.gpa.destroy(self);
     }
 
-    pub fn create(
-        allocator: std.mem.Allocator,
-        opt_threads: ?usize,
-        io: types.IO,
-        tt: transposition.Table,
-    ) !*Pool {
+    pub fn create(gpa: std.mem.Allocator, stdio: std.Io) !*Pool {
         const options: Options = .{};
-        const threads = opt_threads orelse options.threads;
+        const pool = try gpa.create(Pool);
 
-        const pool = try allocator.create(Pool);
         pool.* = .{
-            .allocator = allocator,
-            .threads = try .initCapacity(allocator, threads),
+            .gpa = gpa,
+            .stdio = stdio,
+            .threads = try .initCapacity(gpa, 1),
 
-            .pawn_corrhist = try allocator.alignedAlloc(
-                hist.Corr.Pawn,
-                .fromByteUnits(hist.Corr.page_size),
-                hist.Corr.size * threads,
-            ),
-
-            .major_corrhist = try allocator.alignedAlloc(
-                hist.Corr.Major,
-                .fromByteUnits(hist.Corr.page_size),
-                hist.Corr.size * threads,
-            ),
-
-            .minor_corrhist = try allocator.alignedAlloc(
-                hist.Corr.Minor,
-                .fromByteUnits(hist.Corr.page_size),
-                hist.Corr.size * threads,
-            ),
-
-            .nonpawn_corrhist = try allocator.alignedAlloc(
-                hist.Corr.NonPawn,
-                .fromByteUnits(hist.Corr.page_size),
-                hist.Corr.size * threads,
-            ),
-
-            .cond = .{},
-            .mtx = .{},
-
-            .limits = .{},
-            .opts = options,
-            .timer = try std.time.Timer.start(),
+            .pawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Pawn, 1),
+            .minor_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Minor, 1),
+            .major_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Major, 1),
+            .nonpawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.NonPawn, 1),
 
             .searching = false,
             .sleeping = false,
             .stopped = true,
 
-            .io = io,
-            .tt = tt,
+            .cond = .init,
+            .mtx = .init,
+
+            .limits = .{},
+            .opts = options,
+
+            .now = .now(stdio, .real),
+            .io = try .init(gpa, stdio, null, 65536, null, 65536),
+            .tt = try .init(gpa, null),
         };
 
-        _ = try pool.threads.addManyAsSliceBounded(threads);
+        _ = try pool.threads.addManyAsSliceBounded(1);
         try pool.reset();
         try pool.spawn();
 
@@ -174,43 +153,43 @@ pub const Pool = struct {
     }
 
     pub fn realloc(self: *Pool, num: usize) !void {
-        const board = try self.allocator.create(Board);
+        const board = try self.gpa.create(Board);
         board.* = self.threads.items[0].board;
-        defer self.allocator.destroy(board);
+        defer self.gpa.destroy(board);
 
-        const prev_len = self.threads.items.len;
-        if (prev_len == num) {
+        const prev_num = self.threads.items.len;
+        if (prev_num == num) {
             return;
         }
 
         self.stopSearch();
         self.join();
 
-        if (prev_len < num) {
-            const add_n = num - prev_len;
-            _ = try self.threads.addManyAsSlice(self.allocator, add_n);
+        if (prev_num < num) {
+            const add_n = num - prev_num;
+            _ = try self.threads.addManyAsSlice(self.gpa, add_n);
         } else {
-            self.threads.items.len -= prev_len - num;
+            self.threads.items.len -= prev_num - num;
         }
 
-        self.pawn_corrhist = try self.allocator.realloc(
+        self.pawn_corrhist = try self.gpa.realloc(
             self.pawn_corrhist,
-            num * hist.Corr.size,
+            hist.Corr.per_thread * num,
         );
 
-        self.minor_corrhist = try self.allocator.realloc(
+        self.minor_corrhist = try self.gpa.realloc(
             self.minor_corrhist,
-            num * hist.Corr.size,
+            hist.Corr.per_thread * num,
         );
 
-        self.major_corrhist = try self.allocator.realloc(
+        self.major_corrhist = try self.gpa.realloc(
             self.major_corrhist,
-            num * hist.Corr.size,
+            hist.Corr.per_thread * num,
         );
 
-        self.nonpawn_corrhist = try self.allocator.realloc(
+        self.nonpawn_corrhist = try self.gpa.realloc(
             self.nonpawn_corrhist,
-            num * hist.Corr.size,
+            hist.Corr.per_thread * num,
         );
 
         for (self.threads.items, 0..) |*thread, i| {
@@ -231,7 +210,7 @@ pub const Pool = struct {
 
         self.limits = .{};
         self.opts = .{};
-        self.timer.reset();
+        self.now = .now(self.stdio, .real);
 
         for (self.threads.items, 0..) |*thread, i| {
             thread.* = .{
@@ -241,8 +220,8 @@ pub const Pool = struct {
             };
         }
 
-        const board = try self.allocator.create(Board);
-        defer self.allocator.destroy(board);
+        const board = try self.gpa.create(Board);
+        defer self.gpa.destroy(board);
 
         try board.parseFen(Board.Position.startpos);
         self.setBoard(board, false);
@@ -270,7 +249,7 @@ pub const Pool = struct {
         }
     }
 
-    pub fn bench(self: *Pool) void {
+    pub fn bench(self: *Pool) u64 {
         self.stopSearch();
         self.tt.doAge();
 
@@ -278,6 +257,7 @@ pub const Pool = struct {
         self.searching = true;
         self.wakeMain(.bench);
         self.waitMain();
+        return self.nodes();
     }
 
     pub fn clearHash(self: *Pool) void {
@@ -290,7 +270,7 @@ pub const Pool = struct {
     pub fn datagen(self: *Pool, rq: selfplay.Request) void {
         self.stopSearch();
         self.tt.doAge();
-        self.timer.reset();
+        self.now = .now(self.stdio, .real);
 
         self.stopped = false;
         self.searching = true;
@@ -319,6 +299,11 @@ pub const Pool = struct {
         self.waitMain();
         self.waitHelpers();
     }
+
+    pub fn elapsedNanosecs(self: *const Pool) u64 {
+        const now = std.Io.Clock.real.now(self.stdio);
+        return @intCast(self.now.durationTo(now).toNanoseconds());
+    }
 };
 
 pub const Limits = struct {
@@ -340,8 +325,8 @@ pub const Limits = struct {
             const incr = self.incr.get(stm).?;
             const time = self.time.get(stm).?;
 
-            const im: u64 = @intCast(params.values.base_incr_mul);
-            const tm: u64 = @intCast(params.values.base_time_mul);
+            const im: u64 = @intCast(params.values.tm_incr_mult);
+            const tm: u64 = @intCast(params.values.tm_time_mult);
 
             break :blk @divTrunc(time * tm + incr * im, 1024) -| overhead;
         };
@@ -380,9 +365,17 @@ pub const hist = struct {
         const Major = Pawn;
         const NonPawn = [color_n][color_n]Int;
 
-        const size = 1 << 16;
-        const page_size = std.heap.pageSize();
+        const per_thread = 65536;
+
         const values = std.enums.values(Corr);
+
+        fn alloc(gpa: std.mem.Allocator, comptime T: type, threads: usize) ![]align(page_size) T {
+            return gpa.alignedAlloc(T, .fromByteUnits(page_size), per_thread * threads);
+        }
+
+        fn realloc(gpa: std.mem.Allocator, old_mem: anytype, threads: usize) !@TypeOf(old_mem) {
+            return gpa.realloc(old_mem, per_thread * threads);
+        }
     };
 
     const color_n = 1 << types.Color.int_info.bits;
@@ -394,20 +387,36 @@ pub const hist = struct {
     pub const min = std.math.minInt(Int) / 2;
     pub const max = -min;
 
-    fn bonus(d: Depth) evaluation.score.Int {
-        const x: evaluation.score.Int =
-            params.values.hist_bonus2 * d * d +
-            params.values.hist_bonus1 * d +
-            params.values.hist_bonus0;
-        return @min(x, params.values.max_hist_bonus);
+    fn quietBonus(d: Depth) evaluation.score.Int {
+        const v =
+            params.values.quiethist_bonus_quad * d * d +
+            params.values.quiethist_bonus_mult * d +
+            params.values.quiethist_bonus_bias;
+        return @min(v, params.values.quiethist_max_bonus);
     }
 
-    fn malus(d: Depth) evaluation.score.Int {
-        const x: evaluation.score.Int =
-            params.values.hist_malus2 * d * d +
-            params.values.hist_malus1 * d +
-            params.values.hist_malus0;
-        return -@min(x, params.values.max_hist_malus);
+    fn quietMalus(d: Depth) evaluation.score.Int {
+        const v =
+            params.values.quiethist_malus_quad * d * d +
+            params.values.quiethist_malus_mult * d +
+            params.values.quiethist_malus_bias;
+        return @min(v, params.values.quiethist_max_malus);
+    }
+
+    fn noisyBonus(d: Depth) evaluation.score.Int {
+        const v =
+            params.values.noisyhist_bonus_quad * d * d +
+            params.values.noisyhist_bonus_mult * d +
+            params.values.noisyhist_bonus_bias;
+        return @min(v, params.values.noisyhist_max_bonus);
+    }
+
+    fn noisyMalus(d: Depth) evaluation.score.Int {
+        const v =
+            params.values.noisyhist_malus_quad * d * d +
+            params.values.noisyhist_malus_mult * d +
+            params.values.noisyhist_malus_bias;
+        return @min(v, params.values.noisyhist_max_malus);
     }
 
     fn gravity(p: *Int, dx: evaluation.score.Int) void {
@@ -492,7 +501,7 @@ fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score
     inline for (hist.Corr.values) |t| {
         correction += switch (t) {
             .nonpawn => blk: {
-                const len = hist.Corr.size * self.pool.threads.items.len;
+                const len = hist.Corr.per_thread * self.pool.threads.items.len;
                 const keys = pos.nonpawn_keys;
 
                 const stm_i = zobrist.index(keys.getPtrConst(stm).*, len);
@@ -514,7 +523,7 @@ fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score
                     .major => pos.major_key,
                     else => unreachable,
                 };
-                const len = hist.Corr.size * self.pool.threads.items.len;
+                const len = hist.Corr.per_thread * self.pool.threads.items.len;
                 const idx = zobrist.index(key, len);
 
                 break :blk switch (t) {
@@ -547,7 +556,7 @@ fn updateCorrHists(
     inline for (hist.Corr.values) |t| {
         switch (t) {
             .nonpawn => {
-                const len = hist.Corr.size * self.pool.threads.items.len;
+                const len = hist.Corr.per_thread * self.pool.threads.items.len;
                 const keys = pos.nonpawn_keys;
 
                 const ntm = stm.flip();
@@ -580,7 +589,7 @@ fn updateCorrHists(
                     .major => pos.major_key,
                     else => unreachable,
                 };
-                const len = hist.Corr.size * self.pool.threads.items.len;
+                const len = hist.Corr.per_thread * self.pool.threads.items.len;
                 const idx = zobrist.index(key, len);
 
                 const p = switch (t) {
@@ -602,14 +611,14 @@ fn updateHist(
     bad_noisy_moves: []const movegen.Move,
     bad_quiet_moves: []const movegen.Move,
 ) void {
-    const bonus = hist.bonus(depth);
-    const malus = hist.malus(depth);
-
     const is_quiet = move.flag.isQuiet();
     if (is_quiet) {
+        const bonus = hist.quietBonus(depth);
+        const malus = hist.quietMalus(depth);
+
         hist.gravity(self.quietHistPtr(move), bonus);
         for (bad_quiet_moves) |qm| {
-            hist.gravity(self.quietHistPtr(qm), malus);
+            hist.gravity(self.quietHistPtr(qm), -malus);
         }
 
         const cont_plies = [_]usize{ 1, 2, 4, 6 };
@@ -617,36 +626,42 @@ fn updateHist(
             if (self.contHistPtr(move, ply)) |p| {
                 hist.gravity(p, bonus);
                 for (bad_quiet_moves) |qm| {
-                    hist.gravity(self.contHistPtr(qm, ply).?, malus);
+                    hist.gravity(self.contHistPtr(qm, ply).?, -malus);
                 }
             } else break;
         }
     } else {
+        const bonus = hist.noisyBonus(depth);
         hist.gravity(self.noisyHistPtr(move), bonus);
     }
 
+    const malus = hist.noisyMalus(depth);
     for (bad_noisy_moves) |nm| {
-        hist.gravity(self.noisyHistPtr(nm), malus);
+        hist.gravity(self.noisyHistPtr(nm), -malus);
     }
 }
 
 fn printInfo(
     self: *const Thread,
-    pv: *const movegen.RootMove,
+    opt_pv: ?*const movegen.RootMove,
     depth: Depth,
     seldepth: Depth,
 ) !void {
     const io = &self.pool.io;
     const tt = &self.pool.tt;
 
-    self.pool.mtx.lock();
-    defer self.pool.mtx.unlock();
+    self.pool.mtx.lockUncancelable(self.pool.stdio);
+    defer self.pool.mtx.unlock(self.pool.stdio);
 
     const writer = io.writer();
-    const timer = &self.pool.timer;
+    const pv = opt_pv orelse {
+        try writer.print("info depth 1 seldepth 1 nodes 1 time 1 nps 1000\n", .{});
+        try writer.flush();
+        return;
+    };
 
     const nodes = self.pool.nodes();
-    const ntime = timer.read();
+    const ntime = self.pool.elapsedNanosecs();
     const mtime = ntime / std.time.ns_per_ms;
 
     try writer.print("info", .{});
@@ -698,15 +713,15 @@ fn printInfo(
     try writer.flush();
 }
 
-fn printBest(self: *const Thread, pv: *const movegen.RootMove) !void {
-    self.pool.mtx.lock();
-    defer self.pool.mtx.unlock();
+fn printBest(self: *const Thread, opt_pv: ?*const movegen.RootMove) !void {
+    self.pool.mtx.lockUncancelable(self.pool.stdio);
+    defer self.pool.mtx.unlock(self.pool.stdio);
 
-    if (pv.constSlice().len == 0) {
+    const pv = opt_pv orelse {
         try self.pool.io.writer().print("bestmove 0000\n", .{});
         try self.pool.io.writer().flush();
         return;
-    }
+    };
 
     const m = pv.constSlice()[0];
     const s = m.toString(&self.board);
@@ -731,25 +746,20 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
     const nodes_lim = if (which == .hard) limits.hard_nodes else limits.soft_nodes;
     if (nodes_lim != null and nodes >= nodes_lim.?) {
         return true;
-    } else if (nodes % 2048 != 0) {
-        return false;
     }
 
-    const movetime = blk: {
+    return nodes % 2048 == 0 and self.pool.elapsedNanosecs() >= blk: {
         const mlim = limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
 
-        const node0: u64 = @intCast(params.values.nodetm0);
-        const node1: u64 = @intCast(params.values.nodetm1);
-        const node_n = self.root_moves.constSlice()[0].nodes;
-        const node_d = @max(self.nodes, 1);
-        const nodetm = node1 * (node0 - node_n * 1024 / node_d);
+        const mult: u64 = @intCast(params.values.nodetm_mult);
+        const bias: u64 = @intCast(params.values.nodetm_bias);
+        const n = self.root_moves.constSlice()[0].nodes;
+        const d = @max(self.nodes, 1);
+        const nodetm = mult * (bias - n * 1024 / d);
 
         break :blk if (which == .hard) nlim else std.math.shr(u64, nlim * nodetm, 20);
     };
-
-    const timer = &self.pool.timer;
-    return timer.read() >= movetime;
 }
 
 fn asp(self: *Thread) void {
@@ -768,7 +778,7 @@ fn asp(self: *Thread) void {
     }
 
     while (true) : ({
-        w = w + @divTrunc(w * params.values.asp_window_mul, 256);
+        w = w + @divTrunc(w * params.values.asp_window_mult, 256);
         w = std.math.clamp(w, evaluation.score.mated, evaluation.score.mate);
     }) {
         s = self.ab(.exact, 0, a, b, d);
@@ -781,10 +791,10 @@ fn asp(self: *Thread) void {
 
         if (s <= a) {
             b = @divTrunc(a + b, 2);
-            a = std.math.clamp(a - w, evaluation.score.mated, evaluation.score.mate);
+            a = @max(a - w, evaluation.score.mated);
         } else if (s >= b) {
             a = @divTrunc(a + b, 2);
-            b = std.math.clamp(b + w, evaluation.score.mated, evaluation.score.mate);
+            b = @min(b + w, evaluation.score.mate);
         } else break;
     }
 }
@@ -859,11 +869,7 @@ fn ab(
     const is_singular = !pos.excluded.isNone();
 
     const tt = self.pool.tt;
-    const tte, const tth = if (!is_singular) blk: {
-        var entry: transposition.Entry = .{};
-        const hit = tt.read(key, &entry);
-        break :blk .{ entry, hit };
-    } else .{ @as(transposition.Entry, .{}), false };
+    const tte: transposition.Entry, const tth = if (!is_singular) tt.read(key) else .{ .{}, false };
 
     const was_pv = tth and tte.was_pv;
     const ttscore = evaluation.score.fromTT(tte.score, ply);
@@ -933,11 +939,14 @@ fn ab(
         d <= 7 and
         corr_eval >= b + 6)
     rfp: {
-        var margin = params.values.rfp_depth2 * d * d +
-            params.values.rfp_depth1 * d +
-            params.values.rfp_depth0;
-        margin = @divTrunc(margin, 1024);
-        margin = margin - params.values.rfp_ntm_worsening * @intFromBool(ntm_worsening);
+        const margin = blk: {
+            const by_d =
+                params.values.rfp_depth_quad * d * d +
+                params.values.rfp_depth_mult * d +
+                params.values.rfp_depth_bias;
+            const ntm = params.values.rfp_ntm_worsening * @intFromBool(ntm_worsening);
+            break :blk @divTrunc(by_d, 1024) - ntm;
+        };
 
         if (corr_eval < b + margin) {
             break :rfp;
@@ -964,14 +973,14 @@ fn ab(
             break :nmp;
         }
 
-        const base_r = params.values.nmp_base_reduction;
-        const depth_r = params.values.nmp_depth_mul * d;
+        const base_r = params.values.nmp_base_r;
+        const depth_r = params.values.nmp_depth_mult * d;
         const improving_r = params.values.nmp_improving_r * @intFromBool(improving);
         const deval_r = blk: {
             const diff = corr_eval - b;
+            const mult = params.values.nmp_deval_mult;
             const max_r = params.values.nmp_deval_max_r;
-            const mul = params.values.nmp_deval_mul;
-            break :blk @min(@divTrunc(diff * mul, 1024), max_r);
+            break :blk @min(@divTrunc(diff * mult, 1024), max_r);
         };
         const r = @divTrunc(base_r + depth_r + deval_r + improving_r, 256);
 
@@ -1005,7 +1014,7 @@ fn ab(
         !is_singular and
         !is_checked and
         d <= 7 and
-        corr_eval + params.values.razoring_mul * d <= a)
+        corr_eval + params.values.razoring_mult * d <= a)
     {
         const rs = self.qs(ply + 1, a, b);
         if (rs <= a) {
@@ -1040,6 +1049,7 @@ fn ab(
             continue :move_loop;
         }
 
+        const is_direct_check = pos.isDirectCheck(m);
         const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
         const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
 
@@ -1050,16 +1060,16 @@ fn ab(
             // history pruning
             // 10.0+0.1: 16.91 +- 8.41
             // 40.0+0.4: 3.77 +- 8.30
-            const hp_lim, const hp0, const hp1 = if (is_quiet) .{
-                params.values.quiet_hist_pruning_lim,
-                params.values.quiet_hist_pruning0,
-                params.values.quiet_hist_pruning1,
+            const hp_lim, const hp_mult, const hp_bias = if (is_quiet) .{
+                params.values.quiethist_pruning_lim,
+                params.values.quiethist_pruning_mult,
+                params.values.quiethist_pruning_bias,
             } else .{
-                params.values.noisy_hist_pruning_lim,
-                params.values.noisy_hist_pruning0,
-                params.values.noisy_hist_pruning1,
+                params.values.noisyhist_pruning_lim,
+                params.values.noisyhist_pruning_mult,
+                params.values.noisyhist_pruning_bias,
             };
-            if (lmr_d <= hp_lim and sm.score < hp0 + hp1 * d) {
+            if (lmr_d <= hp_lim and sm.score < hp_mult * d + hp_bias) {
                 mp.skipQuiets();
                 continue :move_loop;
             }
@@ -1068,9 +1078,9 @@ fn ab(
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
             const fp_margin =
-                @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
-                params.values.fp_margin1 * fp_d +
-                params.values.fp_margin0;
+                @divTrunc(sm.score * params.values.fp_hist_mult, 16384) +
+                params.values.fp_margin_mult * fp_d +
+                params.values.fp_margin_bias;
             if (fp_d <= 8 and
                 !is_noisy and
                 !is_checked and
@@ -1084,15 +1094,15 @@ fn ab(
             // 10.0+0.1: 21.30 +- 9.80
             const lmp_lim = blk: {
                 const base = if (improving)
-                    params.values.lmp_improving2 * d * d +
-                        params.values.lmp_improving1 * d +
-                        params.values.lmp_improving0
+                    params.values.lmp_improving_quad * d * d +
+                        params.values.lmp_improving_mult * d +
+                        params.values.lmp_improving_bias
                 else
-                    params.values.lmp_nonimproving2 * d * d +
-                        params.values.lmp_nonimproving1 * d +
-                        params.values.lmp_nonimproving0;
+                    params.values.lmp_nonimproving_quad * d * d +
+                        params.values.lmp_nonimproving_mult * d +
+                        params.values.lmp_nonimproving_bias;
                 const div: usize = @intCast(@divTrunc(base, 1024));
-                break :blk @max(div + @intFromBool(pos.isDirectCheck(m)), 1);
+                break :blk @max(div + @intFromBool(is_direct_check), 1);
             };
             if (searched > lmp_lim) {
                 break :move_loop;
@@ -1100,14 +1110,14 @@ fn ab(
 
             // pvs see
             const see_margin = if (is_quiet)
-                d * params.values.pvs_see_quiet_mul
+                params.values.pvs_see_quiet_mult * d
             else noisy: {
-                const base = params.values.pvs_see_noisy_mul * d;
-                const mul = params.values.pvs_see_capthist_mul;
+                const base = params.values.pvs_see_noisy_mult * d;
+                const mult = params.values.pvs_see_capthist_mult;
                 const max = params.values.pvs_see_max_capthist * d;
-                break :noisy base - std.math.clamp(@divTrunc(sm.score * mul, 1024), -max, max);
+                break :noisy base - std.math.clamp(@divTrunc(sm.score * mult, 1024), -max, max);
             };
-            if (!pos.see(.pruning, m, see_margin)) {
+            if (!pos.see(m, see_margin)) {
                 continue :move_loop;
             }
         }
@@ -1124,11 +1134,14 @@ fn ab(
             pos.excluded = m;
             defer pos.excluded = .{};
 
-            const bmul = params.values.se_bmul -
-                params.values.se_bmul_pv * @intFromBool(is_pv) +
-                params.values.se_bmul_was_pv * @intFromBool(was_pv);
+            const bmul =
+                params.values.se_beta_mult -
+                params.values.se_beta_mult_pv * @intFromBool(is_pv) +
+                params.values.se_beta_mult_was_pv * @intFromBool(was_pv);
             const raw_sb = @divTrunc(ttscore * 1024 - d * bmul, 1024);
-            const raw_sd = params.values.se_d1 * d + params.values.se_d0;
+            const raw_sd =
+                params.values.se_depth_mult * d +
+                params.values.se_depth_bias;
 
             const sb = @max(raw_sb, evaluation.score.loss + 1);
             const sd = @divTrunc(raw_sd, 1024);
@@ -1192,21 +1205,19 @@ fn ab(
                 // 10.0+0.1: 48.29 +- 15.89
                 r += base_lmr;
 
-                r += @as(@TypeOf(d), @intFromBool(!improving)) * params.values.lmr_non_improving;
-                r += @as(@TypeOf(d), @intFromBool(node == .lowerbound)) * params.values.lmr_cutnode;
-                r += @as(@TypeOf(d), @intFromBool(is_ttm_noisy)) * params.values.lmr_noisy_ttm;
+                r += params.values.lmr_non_improving * @intFromBool(!improving);
+                r += params.values.lmr_cutnode * @intFromBool(node == .lowerbound);
+                r += params.values.lmr_noisy_ttm * @intFromBool(is_ttm_noisy);
+                r += params.values.lmr_found_pv * @intFromBool(flag == .exact);
 
-                r -= @as(@TypeOf(d), @intFromBool(board.positions.last().isChecked())) *
-                    params.values.lmr_gave_check;
-                r -= @as(@TypeOf(d), @intFromBool(is_checked)) *
-                    params.values.lmr_is_checked;
-                r -= @as(@TypeOf(d), @intFromBool(is_pv)) *
-                    params.values.lmr_is_pv;
+                r -= params.values.lmr_gave_check *
+                    @intFromBool(board.positions.last().isChecked());
+                r -= params.values.lmr_is_checked * @intFromBool(is_checked);
+                r -= params.values.lmr_is_pv * @intFromBool(is_pv);
 
-                r -= @as(@TypeOf(d), @intFromBool(was_pv)) *
-                    params.values.lmr_was_pv;
-                r -= @as(@TypeOf(d), @intFromBool(was_pv and ttscore > a)) *
-                    params.values.lmr_was_pv_non_fail_low;
+                r -= params.values.lmr_was_pv * @intFromBool(was_pv);
+                r -= params.values.lmr_was_pv_non_fail_low *
+                    @intFromBool(was_pv and ttscore > a);
 
                 r = @divTrunc(r, 1024);
                 const rd = std.math.clamp(recur_d - r, 1, recur_d);
@@ -1214,13 +1225,13 @@ fn ab(
 
                 if (rs > a and rd < recur_d) {
                     const deeper_margin =
-                        params.values.deeper_margin1 * recur_d +
-                        params.values.deeper_margin0;
+                        params.values.deeper_margin_mult * recur_d +
+                        params.values.deeper_margin_bias;
                     recur_d += @intFromBool(rs > best.score + @divTrunc(deeper_margin, 1024));
 
                     const shallower_margin =
-                        params.values.shallower_margin1 * recur_d +
-                        params.values.shallower_margin0;
+                        params.values.shallower_margin_mult * recur_d +
+                        params.values.shallower_margin_bias;
                     recur_d -= @intFromBool(rs < best.score + @divTrunc(shallower_margin, 1024));
 
                     rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
@@ -1300,7 +1311,6 @@ fn ab(
             .flag = flag,
             .age = @truncate(tt.age),
             .depth = @intCast(depth),
-            .key = @truncate(key),
             .eval = @intCast(stat_eval),
             .score = @intCast(evaluation.score.toTT(best.score, ply)),
             .move = best.move,
@@ -1362,9 +1372,8 @@ fn qs(
     const key = pos.key;
     const is_checked = pos.isChecked();
 
-    var tte: transposition.Entry = .{};
     const tt = self.pool.tt;
-    const tth = tt.read(key, &tte);
+    const tte, const tth = tt.read(key);
     const ttscore = evaluation.score.fromTT(tte.score, ply);
 
     if (tth and tte.shouldTrust(a, b, 0)) {
@@ -1429,7 +1438,7 @@ fn qs(
 
             // qs see pruning
             // 10.0+0.1: 206.81 +- 35.91
-            if (!pos.see(.pruning, m, draw)) {
+            if (!pos.see(m, draw)) {
                 continue :move_loop;
             }
         }
@@ -1438,7 +1447,7 @@ fn qs(
             // qs futility pruning
             // 10.0+0.1: 65.37 +- 17.63
             const margin = params.values.qs_fp_margin;
-            if (corr_eval + margin <= a and !pos.see(.pruning, m, draw + 1)) {
+            if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
                 best.score = @intCast(@max(best.score, corr_eval + margin));
                 continue :move_loop;
             }
@@ -1478,29 +1487,31 @@ fn qs(
         return loss;
     }
 
-    tte = .{
+    tt.write(key, .{
         .was_pv = tte.was_pv,
         .flag = flag,
         .age = @truncate(tt.age),
         .depth = 0,
-        .key = @truncate(key),
         .eval = @intCast(stat_eval),
         .score = @intCast(evaluation.score.toTT(best.score, ply)),
         .move = best.move,
-    };
-    tt.write(key, tte);
+    });
 
     return best.score;
 }
 
 fn loop(self: *Thread) !void {
+    const io = self.pool.stdio;
+    const cond = &self.pool.cond;
+    const mtx = &self.pool.mtx;
+
     idle: while (true) {
-        self.pool.mtx.lock();
+        mtx.lockUncancelable(io);
         while (self.request == .sleep) {
-            self.pool.cond.signal();
-            self.pool.cond.wait(&self.pool.mtx);
+            cond.signal(io);
+            cond.waitUncancelable(io, mtx);
         }
-        self.pool.mtx.unlock();
+        mtx.unlock(io);
 
         defer self.request = .sleep;
         switch (self.request) {
@@ -1513,22 +1524,29 @@ fn loop(self: *Thread) !void {
     }
 }
 
-fn waitBool(self: *Thread, cond: *bool) void {
-    self.pool.mtx.lock();
-    defer self.pool.mtx.unlock();
+fn waitBool(self: *Thread, sleep_cond: *bool) void {
+    const io = self.pool.stdio;
+    const cond = &self.pool.cond;
+    const mtx = &self.pool.mtx;
 
-    while (!cond.*) {
-        self.pool.cond.wait(&self.pool.mtx);
+    mtx.lockUncancelable(io);
+    defer mtx.unlock(io);
+    while (!sleep_cond.*) {
+        cond.waitUncancelable(io, mtx);
     }
 }
 
 fn waitSleep(self: *Thread) void {
-    self.pool.mtx.lock();
+    const io = self.pool.stdio;
+    const cond = &self.pool.cond;
+    const mtx = &self.pool.mtx;
+
+    mtx.lockUncancelable(io);
     while (self.request != .sleep) {
-        self.pool.cond.signal();
-        self.pool.cond.wait(&self.pool.mtx);
+        cond.signal(io);
+        cond.waitUncancelable(io, mtx);
     }
-    self.pool.mtx.unlock();
+    mtx.unlock(io);
 
     if (self.idx == 0) {
         self.pool.searching = false;
@@ -1536,24 +1554,27 @@ fn waitSleep(self: *Thread) void {
 }
 
 fn wake(self: *Thread, request: Request) void {
-    self.pool.mtx.lock();
-    defer self.pool.mtx.unlock();
+    const io = self.pool.stdio;
+    const cond = &self.pool.cond;
+    const mtx = &self.pool.mtx;
 
+    mtx.lockUncancelable(io);
+    defer mtx.unlock(io);
     self.request = request;
-    self.pool.cond.signal();
+    cond.signal(io);
 }
 
 fn clearHash(self: *Thread) void {
-    const tt = self.pool.tt.slice;
-    if (tt.len == 0) {
-        return;
-    }
-
+    const tt = self.pool.tt.clusters;
     const i = self.idx;
     const n = self.cnt;
     const d = tt.len / n;
     const m = tt.len % n;
     var p = tt.ptr;
+
+    if (d == 0 and m == 0) {
+        return;
+    }
 
     for (0..i) |it| {
         p += if (it < m) d + 1 else d;
@@ -1564,10 +1585,13 @@ fn clearHash(self: *Thread) void {
         c.* = .{};
     }
 
-    self.pool.pawn_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
-    self.pool.minor_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
-    self.pool.major_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
-    self.pool.nonpawn_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* =
+    self.pool.pawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+        @splat(@splat(0));
+    self.pool.minor_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+        @splat(@splat(0));
+    self.pool.major_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+        @splat(@splat(0));
+    self.pool.nonpawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
         @splat(@splat(@splat(0)));
 }
 
@@ -1591,49 +1615,50 @@ pub fn search(self: *Thread) !void {
     const is_go = rq == .go;
     const should_print = is_go and is_main;
 
+    // TODO: might(?) shit itself if self.board overflows
+    if (self.root_moves.constSlice().len == 0) {
+        if (should_print) {
+            try self.printInfo(null, 0, 0);
+            try self.printBest(null);
+        }
+        return;
+    }
+
     if (is_go and is_main and is_threaded) {
         for (pool.threads.items[1..]) |*thread| {
             thread.wake(.go);
         }
     }
 
-    var last_depth: Depth = 0;
-    var last_seldepth: Depth = 0;
-    var last_pv: movegen.RootMove = .{};
-
-    const no_moves = self.root_moves.constSlice().len == 0 or self.board.isTerminal();
-    last_pv = if (no_moves) {
-        if (!should_print) {
-            return;
-        }
-
-        try self.printInfo(&last_pv, last_depth, last_seldepth);
-        try self.printBest(&last_pv);
-        return;
-    } else self.root_moves.constSlice()[0];
-
     const max_depth = pool.limits.depth orelse movegen.RootMove.capacity;
     const min_depth = 1;
+
     var depth: Depth = min_depth;
+    var last_depth: Depth = 0;
+    var last_seldepth: Depth = 0;
+    var last_pv = self.root_moves.constSlice()[0];
 
     while (depth <= max_depth) : (depth += 1) {
         self.depth = depth;
         self.seldepth = 0;
         self.asp();
-        movegen.RootMove.sortSlice(self.root_moves.slice());
 
-        const datagen_stop = is_datagen and self.datagenStop(.soft);
-        const go_stop = is_go and self.searchStop(.soft);
-        const stopped = is_go and self.pool.stopped;
-        if (datagen_stop or go_stop or stopped) {
+        if (is_go and self.pool.stopped) {
             break;
         }
 
+        movegen.RootMove.sortSlice(self.root_moves.slice());
         if (should_print) {
             last_depth = self.depth;
             last_seldepth = self.seldepth;
             last_pv = self.root_moves.constSlice()[0];
             try self.printInfo(&last_pv, last_depth, last_seldepth);
+        }
+
+        const datagen_soft_stopped = is_datagen and self.datagenStop(.soft);
+        const go_soft_stopped = is_go and self.searchStop(.soft);
+        if (datagen_soft_stopped or go_soft_stopped) {
+            break;
         }
     }
 

@@ -9,8 +9,6 @@ test {
     try std.testing.expectEqual(@sizeOf(u16) * 256, @sizeOf(engine.movegen.Move.List));
 
     try std.testing.expectEqual(@sizeOf(u32), @sizeOf(engine.movegen.Move.Scored));
-    try std.testing.expectEqual(@sizeOf(u32) * 256, @sizeOf(engine.movegen.Move.Scored.List));
-
     try std.testing.expectEqual(@sizeOf(u16) * 256, @sizeOf(engine.movegen.Move.Root));
 }
 
@@ -24,32 +22,12 @@ test {
     try engine.init();
     defer engine.deinit();
 
-    var board: engine.Board = .{};
-    try board.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-
-    var list: engine.movegen.Move.Scored.List = .{};
-    var cnt: usize = 0;
-
-    cnt += list.genNoisy(board.positions.last());
-    cnt += list.genQuiet(board.positions.last());
-    try std.testing.expectEqual(20, cnt);
-}
-
-test {
-    try bitboard.init();
-    defer bitboard.deinit();
-
-    try params.init();
-    defer params.deinit();
-
-    try engine.init();
-    defer engine.deinit();
-
-    const thread = try std.testing.allocator.create(engine.Thread);
-    defer std.testing.allocator.destroy(thread);
+    const allocator = std.testing.allocator;
+    const thread = try allocator.create(engine.Thread);
+    defer allocator.destroy(thread);
 
     thread.board = .{};
-    try thread.board.parseFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    try thread.board.parseFen(engine.Board.Position.startpos);
 
     const seq = [_]engine.movegen.Move{
         .{ .flag = .none, .src = .a2, .dst = .a3 },
@@ -75,6 +53,13 @@ test {
         .{ .flag = .none, .src = .g1, .dst = .f3 },
         .{ .flag = .none, .src = .g1, .dst = .h3 },
     };
+
+    var map: std.AutoHashMap(engine.movegen.Move, bool) = .init(allocator);
+    defer map.deinit();
+    for (seq) |m| {
+        try map.put(m, true);
+    }
+
     var nmp = engine.movegen.Picker.init(thread, .{});
     var qmp = engine.movegen.Picker.init(thread, .{});
 
@@ -83,10 +68,10 @@ test {
         return error.TestExpectedEqual;
     }
 
-    for (seq) |m| {
+    for (seq) |_| {
         const sm = qmp.next() orelse return error.TestExpectedEqual;
-        try std.testing.expectEqual(m.flag, sm.move.flag);
-        try std.testing.expectEqual(m.src, sm.move.src);
-        try std.testing.expectEqual(m.dst, sm.move.dst);
+        try std.testing.expectEqual(map.get(sm.move), true);
+    } else if (qmp.next()) |_| {
+        return error.TestExpectedEqual;
     }
 }

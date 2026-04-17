@@ -10,7 +10,7 @@ const Options = struct {
 
 fn parseArgs(args: []const u8) !Options {
     var opts: Options = undefined;
-    var tokens = std.mem.tokenizeAny(u8, args, &.{ '\n', '\r', '\t', ' ' });
+    var tokens = std.mem.tokenizeScalar(u8, args, ' ');
 
     const first = tokens.next() orelse std.process.fatal("missing arg '{s}'", .{"genfens"});
     opts.num = if (std.mem.eql(u8, first, "genfens"))
@@ -73,15 +73,15 @@ pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
     const opts = try parseArgs(args);
 
     var rng: std.Random.Xoroshiro128 = .init(opts.seed);
-    var book: selfplay.Book = try .init(pool.allocator, opts.book);
-    defer book.deinit(pool.allocator);
+    var book: selfplay.Book = try .init(pool.gpa, pool.stdio, opts.book);
+    defer book.deinit(pool.gpa);
 
     pool.setFRC(true);
-    const board = try pool.allocator.create(engine.Board);
-    defer pool.allocator.destroy(board);
+    const board = try pool.gpa.create(engine.Board);
+    defer pool.gpa.destroy(board);
 
     var buffer: [65536]u8 = undefined;
-    var writer = std.fs.File.stdout().writer(buffer[0..]);
+    var writer = std.Io.File.stdout().writer(pool.stdio, buffer[0..]);
 
     for (0..opts.num) |_| {
         const fen = book.getRandom(rng.random());

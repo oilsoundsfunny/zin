@@ -14,19 +14,13 @@ pub const RootMove = struct {
     nodes: usize = 0,
 
     pub const List = struct {
-        array: types.BoundedArray(RootMove, null, capacity) = .{
-            .buffer = .{@as(RootMove, .{})} ** capacity,
-            .len = 0,
-        },
+        array: types.BoundedArray(RootMove, null, capacity) = .{},
 
         pub fn constSlice(self: *const List) []const RootMove {
             return self.slice();
         }
 
-        pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
-            []RootMove, []const RootMove => |T| T,
-            else => |T| @compileError("unexpected type " ++ @typeName(T)),
-        } {
+        pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *List, []RootMove) {
             return self.array.slice();
         }
 
@@ -70,10 +64,7 @@ pub const RootMove = struct {
         return self.slice();
     }
 
-    pub fn slice(self: anytype) switch (@TypeOf(self.line.slice())) {
-        []Move, []const Move => |T| T,
-        else => |T| @compileError("unexpected type " ++ @typeName(T)),
-    } {
+    pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *RootMove, []Move) {
         return self.line.slice();
     }
 
@@ -377,10 +368,7 @@ pub const Move = packed struct(u16) {
             return self.slice();
         }
 
-        pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
-            []Move, []const Move => |T| T,
-            else => |T| @compileError("unexpected type " ++ @typeName(T)),
-        } {
+        pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *List, []Move) {
             return self.array.slice();
         }
 
@@ -516,13 +504,13 @@ pub const Picker = struct {
     fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
         return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
             const mvv = if (move.flag == .en_passant)
-                params.values.see_ordering_pawn
+                params.values.ordering_pawn
             else switch (self.board.positions.last().getSq(move.dst).ptype()) {
-                .pawn => params.values.see_ordering_pawn,
-                .knight => params.values.see_ordering_knight,
-                .bishop => params.values.see_ordering_bishop,
-                .rook => params.values.see_ordering_rook,
-                .queen => params.values.see_ordering_queen,
+                .pawn => params.values.ordering_pawn,
+                .knight => params.values.ordering_knight,
+                .bishop => params.values.ordering_bishop,
+                .rook => params.values.ordering_rook,
+                .queen => params.values.ordering_queen,
                 .king => std.debug.panic("found king capture", .{}),
             };
 

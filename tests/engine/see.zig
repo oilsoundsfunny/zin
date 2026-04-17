@@ -22,8 +22,8 @@ test {
         .src = .e1,
         .dst = .e5,
     };
-    const pawn = params.values.see_pruning_pawn;
-    try std.testing.expect(board.positions.last().see(.pruning, move, pawn));
+    const pawn = params.values.see_pawn;
+    try std.testing.expect(board.positions.last().see(move, pawn));
 }
 
 test {
@@ -46,12 +46,12 @@ test {
     };
 
     const draw = engine.evaluation.score.draw;
-    const pawn = params.values.see_pruning_pawn;
-    const knight = params.values.see_pruning_knight;
+    const pawn = params.values.see_pawn;
+    const knight = params.values.see_knight;
 
-    try std.testing.expect(board.positions.last().see(.pruning, move, draw - knight));
-    try std.testing.expect(board.positions.last().see(.pruning, move, pawn - knight));
+    try std.testing.expect(board.positions.last().see(move, draw - knight));
+    try std.testing.expect(board.positions.last().see(move, pawn - knight));
 
-    // try std.testing.expect(!board.positions.last().see(.pruning, move, -draw));
-    // try std.testing.expect(!board.positions.last().see(.pruning, move, -pawn));
+    try std.testing.expect(!board.positions.last().see(move, -draw));
+    try std.testing.expect(!board.positions.last().see(move, -pawn));
 }

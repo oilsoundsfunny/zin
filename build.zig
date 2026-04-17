@@ -45,6 +45,25 @@ const Modules = enum {
     });
 
     const values = std.enums.values(Modules);
+
+    const Options = struct {
+        omit_frame_pointer: bool,
+        stack_check: bool,
+        strip: bool,
+        valgrind: bool,
+
+        fn init(bld: *std.Build) Options {
+            const optimize = bld.standardOptimizeOption(.{});
+            const is_debug = optimize == .Debug;
+            const has_debuginfo = is_debug or optimize == .ReleaseSafe;
+            return .{
+                .omit_frame_pointer = bld.option(bool, "omit-fp", "") orelse !has_debuginfo,
+                .stack_check = bld.option(bool, "stack-check", "") orelse is_debug,
+                .strip = bld.option(bool, "strip", "Strip executable(s)") orelse !has_debuginfo,
+                .valgrind = bld.option(bool, "valgrind", "") orelse false,
+            };
+        }
+    };
 };
 
 const Steps = enum {
@@ -69,6 +88,16 @@ const Steps = enum {
 
     const values = std.enums.values(Steps);
 };
+
+fn createModule(
+    bld: *std.Build,
+    root_source_file: []const u8,
+    defaults: std.Build.Module.CreateOptions,
+) *std.Build.Module {
+    var opts = defaults;
+    opts.root_source_file = bld.path(root_source_file);
+    return bld.createModule(opts);
+}
 
 fn releaseTargets(bld: *std.Build) !std.ArrayList(std.Build.ResolvedTarget) {
     const triples: [2][]const u8 = .{
@@ -113,14 +142,13 @@ pub fn build(bld: *std.Build) !void {
     const omit_frame_pointer = bld.option(bool, "omit-fp", "") orelse !has_debuginfo;
     const stack_check = bld.option(bool, "stack-check", "") orelse is_debug;
     const strip = bld.option(bool, "strip", "Strip executable(s)") orelse !has_debuginfo;
-    const use_llvm = bld.option(bool, "use-llvm", "Use the LLVM code backend") orelse !is_debug;
     const valgrind = bld.option(bool, "valgrind", "") orelse false;
 
     const Unwind = std.builtin.UnwindTables;
     const unwind_tables: Unwind = bld.option(Unwind, "unwind-tables", "") orelse
         if (has_debuginfo) .async else .none;
 
-    const module_opts: std.Build.Module.CreateOptions = .{
+    const module_defaults: std.Build.Module.CreateOptions = .{
         .target = target,
         .optimize = optimize,
         .link_libc = false,
@@ -144,11 +172,7 @@ pub fn build(bld: *std.Build) !void {
 
     for (Modules.values) |m| {
         const src = Modules.srcs.get(m);
-
-        var options = module_opts;
-        options.root_source_file = bld.path(src);
-
-        const module = bld.createModule(options);
+        const module = createModule(bld, src, module_defaults);
         modules.set(m, module);
 
         const name = Modules.names.get(m);
@@ -159,7 +183,7 @@ pub fn build(bld: *std.Build) !void {
     const network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
-        bld.dependency("networks", .{}).path("1024hl-16b-8ob-100426.nnue");
+        bld.dependency("nets", .{}).path("1024hl-16b-8ob-100426.nnue");
 
     for (Modules.values) |m| {
         const deps = Modules.dependencies.get(m);
@@ -173,10 +197,16 @@ pub fn build(bld: *std.Build) !void {
 
         if (m == .nnue) {
             module.addAnonymousImport("embed.nnue", .{ .root_source_file = network });
+        } else if (m == .params) {
+            const tuning = bld.option(bool, "tuning", "") orelse false;
+            const options = bld.addOptions();
+            options.addOption(bool, "tuning", tuning);
+            module.addOptions("options", options);
         }
     }
 
-    const lto = bld.option(bool, "lto", "") orelse !has_debuginfo;
+    const lto: std.zig.LtoMode = bld.option(std.zig.LtoMode, "lto", "") orelse
+        if (has_debuginfo) .none else .thin;
     const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
     const version = @import("src/root.zig").version;
 
@@ -189,7 +219,7 @@ pub fn build(bld: *std.Build) !void {
         );
 
     for (Steps.values) |s| {
-        var options = module_opts;
+        var options = module_defaults;
         options.root_source_file = bld.path(Steps.srcs.get(s));
 
         if (s == .releases) {
@@ -203,19 +233,20 @@ pub fn build(bld: *std.Build) !void {
                     module.addImport(dep_name, dep_module);
                 }
 
-                const is_linux = release_target.result.os.tag == .linux;
+                // TODO: ts lowkirkuinely leaks memory
                 const name = try std.mem.concat(bld.allocator, u8, &.{
                     exe_name, "-", version_string, "-", release_target.result.cpu.model.name,
                 });
+
                 const comp = add_exe: {
                     const exe = bld.addExecutable(.{
                         .root_module = module,
                         .name = name,
                         .version = version,
-                        .use_lld = use_llvm,
-                        .use_llvm = use_llvm,
+                        .use_lld = true,
+                        .use_llvm = true,
                     });
-                    exe.want_lto = if (is_linux) lto else false;
+                    exe.lto = if (release_target.result.os.tag != .windows) lto else .none;
                     break :add_exe exe;
                 };
                 const sub_step = &bld.addInstallArtifact(comp, .{}).step;
@@ -235,16 +266,16 @@ pub fn build(bld: *std.Build) !void {
                     .root_module = module,
                     .name = exe_name,
                     .version = version,
-                    .use_lld = use_llvm,
-                    .use_llvm = use_llvm,
+                    .use_lld = true,
+                    .use_llvm = true,
                 });
-                exe.want_lto = lto;
+                exe.lto = if (target.result.os.tag != .windows) lto else .none;
                 break :add_exe exe;
             } else bld.addTest(.{
                 .root_module = module,
                 .name = if (s == .perft) "perft" else "test",
-                .use_lld = use_llvm,
-                .use_llvm = use_llvm,
+                .use_lld = true,
+                .use_llvm = true,
             });
 
             const sub_step = if (s == .install)

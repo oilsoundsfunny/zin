@@ -49,30 +49,33 @@ test {
     try engine.init();
     defer engine.deinit();
 
-    for (suite[0..0]) |result| {
-        var board: engine.Board = .{};
-        try board.parseFen(result.fen);
+    const seed = std.math.mulWide(u32, std.testing.random_seed, std.testing.random_seed);
+    var rng: std.Random.Sfc64 = .init(seed);
+    const result = suite[rng.random().uintLessThan(usize, suite.len)];
 
-        for (result.moves) |ms| {
-            var list: engine.movegen.Move.Scored.List = .{};
-            _ = list.genNoisy(board.top());
-            _ = list.genQuiet(board.top());
+    var board: engine.Board = .{};
+    try board.parseFen(result.fen);
 
-            const m = find_move: for (list.constSlice()) |sm| {
-                const s = sm.move.toString(&board);
-                const l = sm.move.toStringLen();
-                if (std.mem.eql(u8, s[0..l], ms)) {
-                    break :find_move sm.move;
-                }
-            } else return error.NotFound;
+    for (result.moves) |ms| {
+        const pos = board.positions.last();
+        var list: engine.movegen.Move.List = .{};
+        _ = list.genNoisy(pos);
+        _ = list.genQuiet(pos);
 
-            try std.testing.expect(board.top().isMoveLegal(m));
-            board.doMove(m);
-        }
+        const move = find_move: for (list.constSlice()) |m| {
+            const s = m.toString(&board);
+            const l = m.toStringLen();
+            if (std.mem.eql(u8, s[0..l], ms)) {
+                break :find_move m;
+            }
+        } else return error.NotFound;
 
-        for (result.nodes, 1..) |expected, depth| {
-            const actual = try root.perft(&board, @intCast(depth));
-            try std.testing.expectEqual(expected, actual);
-        }
+        try std.testing.expect(pos.isMoveLegal(move));
+        board.doMove(move);
+    }
+
+    for (result.nodes, 1..) |expected, depth| {
+        const actual = try root.perft(&board, @intCast(depth));
+        try std.testing.expectEqual(expected, actual);
     }
 }

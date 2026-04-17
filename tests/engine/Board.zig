@@ -104,14 +104,12 @@ test {
 
         const pos = board.positions.last();
         var rma: [1 << 16]bool = @splat(false);
-        var list: engine.movegen.Move.Scored.List = .{};
+        var list: engine.movegen.Move.List = .{};
         _ = list.genNoisy(pos);
         _ = list.genQuiet(pos);
 
-        for (list.constSlice()) |sm| {
-            const m = sm.move;
+        for (list.constSlice()) |m| {
             const i = @as(u16, @bitCast(m));
-
             rma[i] = true;
             try std.testing.expect(pos.isMovePseudoLegal(m));
         }
@@ -124,7 +122,6 @@ test {
                     .dst = .fromInt(@truncate(idx % types.Square.num)),
                 };
                 const i: u16 = @bitCast(m);
-
                 std.testing.expectEqual(rma[i], pos.isMovePseudoLegal(m)) catch |err| {
                     std.debug.print("fen: {s}\n", .{fen});
                     std.debug.print("flag: {t}\n", .{f});

@@ -1,14 +1,7 @@
-# mostly yoinked from pawnocchio
-# https://github.com/JonathanHallstrom/pawnocchio/blob/main/Makefile
+# from: https://github.com/JonathanHallstrom/pawnocchio/blob/dev/Makefile
 
 ifndef EXE
 EXE = zin
-endif
-
-ifdef ARCH
-CPU = -Dcpu=$(ARCH)
-else
-CPU =
 endif
 
 ifeq ($(OS), Windows_NT)
@@ -24,5 +17,5 @@ NETWORK =
 endif
 
 default:
-	-zig build $(CPU) $(NETWORK) --release=fast
+	-zig build --release=fast $(NETWORK)
 	@$(MV)

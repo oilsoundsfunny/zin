@@ -3,8 +3,10 @@
 ## features
 - uci-compatible
 - evaluation:
-	- (768hmx16->512pw)x2->1x8 neural net
+	- (768hmx16->1024pw)x2->(16x2->32->1)x8 neural net
 	- fused+lazy updates
+	- sparse matmul
+	- dual activation on l2 (crelu+csrelu)
 - search:
 	- iterative deepening
 	- aspiration windows
