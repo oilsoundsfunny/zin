@@ -70,6 +70,16 @@ const Steps = enum {
     const values = std.enums.values(Steps);
 };
 
+fn createModule(
+    bld: *std.Build,
+    root_source_file: []const u8,
+    defaults: std.Build.Module.CreateOptions,
+) *std.Build.Module {
+    var opts = defaults;
+    opts.root_source_file = bld.path(root_source_file);
+    return bld.createModule(opts);
+}
+
 fn releaseTargets(bld: *std.Build) !std.ArrayList(std.Build.ResolvedTarget) {
     const triples: [2][]const u8 = .{
         "x86_64-linux-musl",
@@ -120,7 +130,7 @@ pub fn build(bld: *std.Build) !void {
     const unwind_tables: Unwind = bld.option(Unwind, "unwind-tables", "") orelse
         if (has_debuginfo) .async else .none;
 
-    const module_opts: std.Build.Module.CreateOptions = .{
+    const module_defaults: std.Build.Module.CreateOptions = .{
         .target = target,
         .optimize = optimize,
         .link_libc = false,
@@ -144,11 +154,7 @@ pub fn build(bld: *std.Build) !void {
 
     for (Modules.values) |m| {
         const src = Modules.srcs.get(m);
-
-        var options = module_opts;
-        options.root_source_file = bld.path(src);
-
-        const module = bld.createModule(options);
+        const module = createModule(bld, src, module_defaults);
         modules.set(m, module);
 
         const name = Modules.names.get(m);
@@ -156,10 +162,44 @@ pub fn build(bld: *std.Build) !void {
     }
 
     const evalfile = bld.option([]const u8, "evalfile", "");
-    const network: std.Build.LazyPath = if (evalfile) |path|
+    const raw_network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
         bld.dependency("networks", .{}).path("1024hl-16b-8ob-100426.nnue");
+
+    // TODO: idk clean this (and the one above)
+    const avx512f_network, const avx2_network, const scalar_network = blk: {
+        const transformer = bld.addExecutable(.{
+            .root_module = bld.createModule(.{
+                .root_source_file = bld.path("tools/nn.zig"),
+                .target = target,
+            }),
+            .name = "transformer",
+        });
+
+        const avx512f = inner: {
+            const run = bld.addRunArtifact(transformer);
+            run.addFileArg(raw_network);
+            run.addArg("x86-64-v4");
+            break :inner run.addOutputFileArg("avx512f.nnue");
+        };
+
+        const avx2 = inner: {
+            const run = bld.addRunArtifact(transformer);
+            run.addFileArg(raw_network);
+            run.addArg("x86-64-v3");
+            break :inner run.addOutputFileArg("avx2.nnue");
+        };
+
+        const scalar = inner: {
+            const run = bld.addRunArtifact(transformer);
+            run.addFileArg(raw_network);
+            run.addArg("x86-64-v2");
+            break :inner run.addOutputFileArg("scalar.nnue");
+        };
+
+        break :blk .{ avx512f, avx2, scalar };
+    };
 
     for (Modules.values) |m| {
         const deps = Modules.dependencies.get(m);
@@ -172,7 +212,9 @@ pub fn build(bld: *std.Build) !void {
         }
 
         if (m == .nnue) {
-            module.addAnonymousImport("embed.nnue", .{ .root_source_file = network });
+            module.addAnonymousImport("avx512f.nnue", .{ .root_source_file = avx512f_network });
+            module.addAnonymousImport("avx2.nnue", .{ .root_source_file = avx2_network });
+            module.addAnonymousImport("scalar.nnue", .{ .root_source_file = scalar_network });
         }
     }
 
@@ -189,7 +231,7 @@ pub fn build(bld: *std.Build) !void {
         );
 
     for (Steps.values) |s| {
-        var options = module_opts;
+        var options = module_defaults;
         options.root_source_file = bld.path(Steps.srcs.get(s));
 
         if (s == .releases) {
