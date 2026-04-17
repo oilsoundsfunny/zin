@@ -226,7 +226,7 @@ pub fn Network(comptime opts: Options) type {
             return @min(lhs / 225, 7);
         }
 
-        fn activateFt(
+        fn activateL1(
             self: *const Self,
             stm_inputs: *align(64) const [l1s]i16,
             ntm_inputs: *align(64) const [l1s]i16,
@@ -281,38 +281,25 @@ pub fn Network(comptime opts: Options) type {
         fn forwardL1(
             self: *const Self,
             ob: usize,
-            l1: *align(64) const [l1s]u8,
-            l2: *align(64) [l2s]i32,
+            l1: *align(page_size) const [l1s]u8,
+            l2: *align(page_size) [l2s]i32,
         ) void {
-            const l1b: []const Vec(i32) = &self.l1b[ob];
-            const unactivated: []const Vec(i32) = @ptrCast(l1);
-
-            for (0..l2s / vecLen(i32)) |i| {
-                var sum: Vec(i32) = l1b[i];
-                for (unactivated) |*v| {
-                    sum +%= v.*;
-                }
-
-                const shift: comptime_int = q0.bits() * 2 - 9 + q1.bits() - q.bits();
-                const shifted = sum >> @splat(shift);
-
-                const lo: Vec(i32) = @splat(0);
-                const hi: Vec(i32) = @splat(q);
-                const hi_sq: Vec(i32) = @splat(q * q);
-                const crelu = std.math.clamp(shifted, lo, hi) << @splat(shift);
-                const csrelu = std.math.clamp(shifted *% shifted, lo, hi_sq);
-            }
         }
 
         fn forwardL2(
             self: *const Self,
             ob: usize,
-            l2: *align(64) const [l2s]i32,
-            l3: *align(64) [l3s]i32,
+            l2: *align(page_size) const [l2s]i32,
+            l3: *align(page_size) [l3s]i32,
         ) void {
         }
 
-        fn forwardL3(self: *const Self, ob: usize, l3: *align(64) const [l3s]i32, out: *i32) void {
+        fn forwardL3(
+            self: *const Self,
+            ob: usize,
+            l3: *align(page_size) const [l3s]i32,
+            out: *i32,
+        ) void {
         }
 
         pub fn infer(
@@ -331,7 +318,7 @@ pub fn Network(comptime opts: Options) type {
             var l3: [l3s]i32 align(page_size) = @splat(0);
             var out: i32 = 0;
 
-            self.activateFt(stm_inputs, ntm_inputs, &l1);
+            self.activateL1(stm_inputs, ntm_inputs, &l1);
             self.forwardL1(ob, &l1, &l2);
             self.forwardL1(ob, &l2, &l3);
             self.forwardL1(ob, &l3, &out);
