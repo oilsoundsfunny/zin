@@ -2,9 +2,9 @@
     .name = .zin,
     .version = "0.15.2",
     .dependencies = .{
-        .networks = .{
-            .url = "git+https://codeberg.org/oilsoundsfunny/zin-nets.git#bfda9c6c6eb03ee06039bd3b61fcb121b984a052",
-            .hash = "N-V-__8AAN1MgAFSz7EvF7EGq4EsXwwBpMctnRyd6Z7aeo1P",
+        .nets = .{
+            .url = "git+https://codeberg.org/oilsoundsfunny/zin-nets.git#759d1d38d4fbfb3a0493d6256bcd9b6f850348bc",
+            .hash = "N-V-__8AAN0UIgGUKBfD9xpPKFbZfsz_FkBTf6sAsBs2yxBG",
         },
     },
     .paths = .{""},

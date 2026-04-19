@@ -1,29 +1,29 @@
 const std = @import("std");
 
 const Network = extern struct {
-    l0w: [ib][ft][l1]i16 align(64),
-    l0b: [l1]i16 align(64),
+    l0w: [ib][ft][l1]i16,
+    l0b: [l1]i16,
 
-    l1w: [ob][l1 / 4][l2 * 4]i8 align(64),
-    l1b: [ob][l2]i32 align(64),
+    l1w: [ob][l1 / 4][l2 * 4]i8,
+    l1b: [ob][l2]i32,
 
-    l2w: [ob][l2 * 2][l3]i32 align(64),
-    l2b: [ob][l3]i32 align(64),
+    l2w: [ob][l2 * 2][l3]i32,
+    l2b: [ob][l3]i32,
 
-    l3w: [ob][l3]i32 align(64),
+    l3w: [ob][l3]i32,
     l3b: [ob]i32 align(64),
 
     const Raw = extern struct {
-        l0w: [ib][ft][l1]i16 align(64),
-        l0b: [l1]i16 align(64),
+        l0w: [ib][ft][l1]i16,
+        l0b: [l1]i16,
 
-        l1w: [l1][ob][l2]i8 align(64),
-        l1b: [ob][l2]i32 align(64),
+        l1w: [l1][ob][l2]i8,
+        l1b: [ob][l2]i32,
 
-        l2w: [l2 * 2][ob][l3]i32 align(64),
-        l2b: [ob][l3]i32 align(64),
+        l2w: [l2 * 2][ob][l3]i32,
+        l2b: [ob][l3]i32,
 
-        l3w: [l3][ob]i32 align(64),
+        l3w: [l3][ob]i32,
         l3b: [ob]i32 align(64),
     };
 

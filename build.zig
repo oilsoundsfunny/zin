@@ -165,7 +165,7 @@ pub fn build(bld: *std.Build) !void {
     const raw_network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
-        bld.dependency("networks", .{}).path("1024hl-16b-8ob-100426.nnue");
+        bld.dependency("nets", .{}).path("apr19.nnue");
 
     // TODO: idk clean this (and the one above)
     const avx512f_network, const avx2_network, const scalar_network = blk: {

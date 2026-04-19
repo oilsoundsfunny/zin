@@ -4,6 +4,8 @@ const std = @import("std");
 const types = @import("types");
 
 const Accumulator = @import("Accumulator.zig");
+const simd = @import("simd.zig");
+const sparse = @import("sparse.zig");
 
 const Options = struct {
     input_buckets: [types.Square.num / 2]u8,
@@ -78,99 +80,6 @@ else {
     @compileError(msg);
 };
 
-fn vecLen(comptime T: type) comptime_int {
-    return std.simd.suggestVectorLength(T) orelse switch (T) {
-        i32, u32 => 1,
-        else => vecLen(u32) * @sizeOf(u32) / @sizeOf(T),
-    };
-}
-
-fn Vec(comptime T: type) type {
-    return @Vector(vecLen(T), T);
-}
-
-fn maddubs(u: Vec(u8), i: Vec(i8)) Vec(i16) {
-    return if (has_avx512f or has_avx2)
-        asm (
-            "vpmaddubsw %[i], %[u], %[dst]"
-            : [dst] "=x" (-> Vec(i16)),
-            : [i] "x" (i),
-              [u] "x" (u),
-        )
-    else blk: {
-        const u_ditl = std.simd.deinterlace(2, u);
-        const i_ditl = std.simd.deinterlace(2, i);
-        const prod0 = @as(Vec(i16), u_ditl[0]) * @as(Vec(i16), i_ditl[0]);
-        const prod1 = @as(Vec(i16), u_ditl[1]) * @as(Vec(i16), i_ditl[1]);
-        break :blk prod0 +| prod1;
-    };
-}
-
-fn maddwd(a: Vec(i16), b: Vec(i16)) Vec(i32) {
-    return if (has_avx512f or has_avx2)
-        asm (
-            "vpmaddwd %[b], %[a], %[dst]"
-            : [dst] "=x" (-> Vec(i32)),
-            : [a] "x" (a),
-              [b] "x" (b),
-        )
-    else blk: {
-        const a_ditl = std.simd.deinterlace(2, a);
-        const b_ditl = std.simd.deinterlace(2, b);
-        const prod0 = @as(Vec(i32), a_ditl[0]) * @as(Vec(i32), b_ditl[0]);
-        const prod1 = @as(Vec(i32), a_ditl[1]) * @as(Vec(i32), b_ditl[1]);
-        break :blk prod0 + prod1;
-    };
-}
-
-fn mulhi(a: Vec(i16), b: Vec(i16)) Vec(i16) {
-    return if (has_avx512f or has_avx2)
-        asm (
-            "vpmulhw %[b], %[a], %[dst]"
-            : [dst] "=x" (-> Vec(i16)),
-            : [a] "x" (a),
-              [b] "x" (b),
-        )
-    else blk: {
-        const Wide = @Vector(vecLen(i16), i32);
-        const mul = @as(Wide, a) * @as(Wide, b);
-        break :blk @intCast(mul >> @splat(16));
-    };
-}
-
-fn packus(a: Vec(i16), b: Vec(i16)) Vec(u8) {
-    return if (has_avx512f or has_avx2)
-        asm (
-            "vpackuswb %[b], %[a], %[dst]"
-            : [dst] "=x" (-> Vec(u8)),
-            : [a] "x" (a),
-              [b] "x" (b),
-        )
-    else blk: {
-        const zeroes: Vec(i16) = @splat(0);
-        const packed_a: @Vector(vecLen(i16), u8) = @intCast(@max(a, zeroes));
-        const packed_b: @Vector(vecLen(i16), u8) = @intCast(@max(b, zeroes));
-        const halves: [2]@Vector(vecLen(i16), u8) = .{ packed_a, packed_b };
-        break :blk @bitCast(halves);
-    };
-}
-
-fn dpbusd(u: Vec(u8), i: Vec(i8), s: Vec(i32)) Vec(i32) {
-    return if (has_avx512vnni)
-        asm (
-            "vpdpbusd %[i], %[u], %[s]"
-            : [s] "+x" (s),
-            : [u] "x" (u),
-              [i] "x" (i),
-        )
-    else blk: {
-        const partial = maddubs(u, i);
-        const ones: Vec(i16) = @splat(1);
-        const dotprod = maddwd(partial, ones);
-        break :blk s + dotprod;
-    };
-}
-
 pub fn Network(comptime opts: Options) type {
     return extern struct {
         l0w: [ibn][inp][l1s]i16,
@@ -235,152 +144,109 @@ pub fn Network(comptime opts: Options) type {
             return @min(lhs / 225, 7);
         }
 
-        fn findNonZeroes(
-            l1: *align(page_size) const [l1s]u8,
-        ) types.BoundedArray(u16, null, l1s / 4) {
-            const nnz_indices = comptime blk: {
-                @setEvalBranchQuota(5000);
-                var a: [256]@Vector(8, u16) = @splat(@splat(0));
-                for (0..256) |i| {
-                    var n: usize = 0;
-                    for (0..8) |k| {
-                        if (i & (1 << k) != 0) {
-                            a[i][n] = k;
-                            n += 1;
-                        }
-                    }
-                }
-                break :blk a;
-            };
-
-            var array: types.BoundedArray(u16, null, l1s / 4) = .{};
-            var base: @Vector(8, u16) = @splat(0);
-            var i: usize = 0;
-
-            const vecMask = struct {
-                fn inner(v: Vec(u8)) std.meta.Int(.unsigned, vecLen(i32)) {
-                    const v32: Vec(i32) = @bitCast(v);
-                    const z32: Vec(i32) = @splat(0);
-                    return @bitCast(v32 != z32);
-                }
-            }.inner;
-
-            while (i < l1s) {
-                const unroll = @max(1, 8 / vecLen(i32));
-                var mask: u64 = 0;
-                for (0..unroll) |k| {
-                    const l1_mask = vecMask(l1[i..][0..vecLen(i8)].*);
-                    mask |= @as(u64, l1_mask) << @truncate(k * vecLen(i32));
-                    i += vecLen(i8);
-                }
-
-                for (0..unroll * vecLen(i32) / 8) |k| {
-                    const byte = std.math.shr(u64, mask, 8 * k) % 256;
-                    const indices = nnz_indices[byte];
-                    array.buffer[array.len..][0..8].* = indices + base;
-
-                    _ = array.addManyUnchecked(@popCount(byte));
-                    base += @splat(8);
-                }
-            }
-
-            return array;
-        }
-
         fn activateL1(
             self: *const Self,
             stm_inputs: *align(64) const [l1s]i16,
             ntm_inputs: *align(64) const [l1s]i16,
             l1: []align(page_size) u8,
         ) void {
-            const lo: Vec(i16) = @splat(0);
-            const hi: Vec(i16) = @splat(q0.v);
-            var i: usize = 0;
-
             _ = self;
-            while (i < l1s / 2) : (i += vecLen(i8)) {
-                var stm_loads: [4]Vec(i16) = .{
-                    stm_inputs[i + l1s / 2 * 0..][0..vecLen(i16)].*,
-                    stm_inputs[i + l1s / 2 * 1..][0..vecLen(i16)].*,
-                    stm_inputs[i + l1s / 2 * 0 + vecLen(i16)..][0..vecLen(i16)].*,
-                    stm_inputs[i + l1s / 2 * 1 + vecLen(i16)..][0..vecLen(i16)].*,
-                };
+            const inputs: [types.Color.num][]align(64) const i16 = .{ stm_inputs, ntm_inputs };
 
-                stm_loads[0] = std.math.clamp(stm_loads[0], lo, hi);
-                stm_loads[2] = std.math.clamp(stm_loads[2], lo, hi);
-                stm_loads[1] = @min(stm_loads[1], hi);
-                stm_loads[3] = @min(stm_loads[3], hi);
+            for (inputs, 0..) |input, which| {
+                const half = l1s / 2;
+                const offset = which * half;
+                var i: usize = 0;
 
-                const stm_prods: [2]Vec(i16) = .{
-                    mulhi(stm_loads[0] << @splat(7), stm_loads[1]),
-                    mulhi(stm_loads[2] << @splat(7), stm_loads[3]),
-                };
-                const stm_part = packus(stm_prods[0], stm_prods[1]);
-                const stm_dst: *Vec(u8) = @alignCast(l1[i + l1s / 2 * 0..][0..vecLen(u8)]);
-                stm_dst.* = stm_part;
+                while (i < half) : (i += simd.Vec(i8).len) {
+                    const crelu = struct {
+                        fn inner(v: simd.Vec(i16)) simd.Vec(i16) {
+                            const lo: simd.Vec(i16) = .splat(0);
+                            const hi: simd.Vec(i16) = .splat(q0.v);
+                            return .clamp(v, lo, hi);
+                        }
+                    }.inner;
+                    const shift = 16 - q0.bits();
 
-                var ntm_loads: [4]Vec(i16) = .{
-                    ntm_inputs[i + l1s / 2 * 0..][0..vecLen(i16)].*,
-                    ntm_inputs[i + l1s / 2 * 1..][0..vecLen(i16)].*,
-                    ntm_inputs[i + l1s / 2 * 0 + vecLen(i16)..][0..vecLen(i16)].*,
-                    ntm_inputs[i + l1s / 2 * 1 + vecLen(i16)..][0..vecLen(i16)].*,
-                };
-
-                ntm_loads[0] = std.math.clamp(ntm_loads[0], lo, hi);
-                ntm_loads[2] = std.math.clamp(ntm_loads[2], lo, hi);
-                ntm_loads[1] = @min(ntm_loads[1], hi);
-                ntm_loads[3] = @min(ntm_loads[3], hi);
-
-                const ntm_prods: [2]Vec(i16) = .{
-                    mulhi(ntm_loads[0] << @splat(7), ntm_loads[1]),
-                    mulhi(ntm_loads[2] << @splat(7), ntm_loads[3]),
-                };
-                const ntm_part = packus(ntm_prods[0], ntm_prods[1]);
-                const ntm_dst: *Vec(u8) = @alignCast(l1[i + l1s / 2 * 1..][0..vecLen(u8)]);
-                ntm_dst.* = ntm_part;
+                    const loads: [4]simd.Vec(i16) = .{
+                        .load(input[half * 0 + i ..]),
+                        .load(input[half * 1 + i ..]),
+                        .load(input[half * 0 + i + simd.Vec(i16).len ..]),
+                        .load(input[half * 1 + i + simd.Vec(i16).len ..]),
+                    };
+                    const prods: [2]simd.Vec(i16) = .{
+                        simd.mulhi(crelu(loads[0]).shl(shift), crelu(loads[2])),
+                        simd.mulhi(crelu(loads[1]).shl(shift), crelu(loads[3])),
+                    };
+                    simd.packus(prods[0], prods[1]).store(l1[offset + i ..]);
+                }
             }
         }
 
         fn forwardL1(
             self: *const Self,
             ob: usize,
-            l1: *align(page_size) const [l1s]u8,
-            l2: *align(page_size) [l2s * 2]i32,
+            l1: []align(page_size) const u8,
+            l2: []align(page_size) i32,
         ) void {
-            const outs: []align(page_size) Vec(i32) = @ptrCast(l2);
+            const unroll = @sizeOf(i32) / @sizeOf(u8);
+            const stride = simd.Vec(i32).len * unroll;
+            const acc_lanes = l2s / simd.Vec(i32).len;
 
-            const nnz = findNonZeroes(l1);
-            var intermediate: [l2s / vecLen(i32)]Vec(i32) = @splat(@splat(0));
+            const l1_i32: []align(page_size) const i32 = @ptrCast(l1);
+            const wgts: [*]align(64) const i8 = @ptrCast(&self.l1w[ob]);
+
+            const nnz = sparse.findNonZeroes(l1);
+            var acc: [acc_lanes][unroll]simd.Vec(i32) = @splat(@splat(.splat(0)));
             var i: usize = 0;
 
-            while (i < nnz.constSlice().len) : (i += 1) {
-                for (0..l2s / vecLen(i32)) |j| {
-                    const l1_i32: []align(page_size) const i32 = @ptrCast(l1);
-                    const wgts: []align(64) const i8 = @ptrCast(&self.l1w[ob]);
-
-                    const idx = nnz.constSlice()[i];
-                    const v_i32: Vec(i32) = @splat(l1_i32[idx]);
-                    const v: Vec(u8) = @bitCast(v_i32);
-                    const w: Vec(i8) =
-                        wgts[idx * l2s * 4 + j * vecLen(i8) ..][0..vecLen(i8)].*;
-
-                    intermediate[j] = dpbusd(v, w, intermediate[j]);
+            while (i + unroll * 2 <= nnz.slice().len) : (i += unroll * 2) {
+                for (acc[0..], 0..) |*rolled_lanes, j| {
+                    const offset = j * stride;
+                    for (rolled_lanes[0..], 0..) |*lane, k| {
+                        const indices: [2]u16 = .{
+                            nnz.slice()[i + k * 2],
+                            nnz.slice()[i + k * 2 + 1],
+                        };
+                        const vs: [2]simd.Vec(u8) = .{
+                            .bitCast(simd.Vec(i32).splat(l1_i32[indices[0]])),
+                            .bitCast(simd.Vec(i32).splat(l1_i32[indices[1]])),
+                        };
+                        const ws: [2]simd.Vec(i8) = .{
+                            .load(wgts[indices[0] * acc_lanes * stride + offset..]),
+                            .load(wgts[indices[1] * acc_lanes * stride + offset..]),
+                        };
+                        lane.* = simd.dpbusd2(lane.*, vs[0], ws[0], vs[1], ws[1]);
+                    }
+                }
+            } else while (i < nnz.slice().len) : (i += 1) {
+                for (acc[0..], 0..) |*lane, j| {
+                    const offset = j * stride;
+                    const idx = nnz.slice()[i];
+                    const v: simd.Vec(u8) = .bitCast(simd.Vec(i32).splat(l1_i32[idx]));
+                    const w: simd.Vec(i8) = .load(wgts[idx * acc_lanes * stride + offset..]);
+                    lane[0] = simd.dpbusd(lane[0], v, w);
                 }
             }
 
-            for (0..l2s / vecLen(i32)) |j| {
-                const bias: Vec(i32) = self.l1b[ob][j * vecLen(i32) ..][0..vecLen(i32)].*;
-                const sum = intermediate[j];
+            const out_vecs: []simd.Vec(i32) = @ptrCast(l2);
+            for (acc[0..], 0..) |*lane, k| {
+                var sum: simd.Vec(i32) = .splat(0);
+                for (lane) |v| {
+                    sum = sum.add(v);
+                }
 
-                const shift = q0.bits() * 2 - 9 + q1.bits() - q.bits();
-                const shifted = sum + bias >> @splat(shift);
+                const bias: simd.Vec(i32) = .load(self.l2b[ob][k * simd.Vec(i32).len ..]);
+                const shifted = sum.add(bias).shr(q0.bits() * 2 - 9 + q1.bits() - q.bits());
 
-                const lo: Vec(i32) = @splat(0);
-                const hi: Vec(i32) = @splat(q.v);
-                const hi_sq: Vec(i32) = @splat(q.pow(2));
+                const lo: simd.Vec(i32) = .splat(0);
+                const hi: simd.Vec(i32) = .splat(q.v);
+                const hi_sq: simd.Vec(i32) = .splat(q.pow(2));
+                const crelu = shifted.clamp(lo, hi).shl(q.bits());
+                const csrelu = shifted.mul(shifted).clamp(lo, hi_sq);
 
-                outs[j] = std.math.clamp(shifted, lo, hi) << @splat(q.bits());
-                outs[j + l2s / vecLen(i32)] = std.math.clamp(shifted * shifted, lo, hi_sq * hi_sq);
+                out_vecs[k] = crelu;
+                out_vecs[k + acc_lanes] = csrelu;
             }
         }
 
@@ -390,23 +256,26 @@ pub fn Network(comptime opts: Options) type {
             l2: []align(page_size) const i32,
             l3: []align(page_size) i32,
         ) void {
-            const vecs: []align(page_size) const Vec(i32) = @ptrCast(l2);
-            const outs: []align(page_size) Vec(i32) = @ptrCast(l3);
+            const acc: []simd.Vec(i32) = @ptrCast(l3);
+            const wgts = &self.l2w[ob];
+            const bias = &self.l2b[ob];
+            for (acc[0..], 0..) |*lane, i| {
+                lane.* = .load(bias[i * simd.Vec(i32).len..]);
+            }
 
-            const bias: []const Vec(i32) = @ptrCast(&self.l2b[ob]);
-            @memcpy(outs, bias);
-
-            for (vecs, 0..) |v, i| {
-                const wgts: []const Vec(i32) = @ptrCast(&self.l2w[ob][i * vecLen(i32)]);
-                for (wgts, outs) |w, *o| {
-                    o.* += v * w;
+            for (l2, wgts) |scalar, *row| {
+                for (acc[0..], 0..) |*lane, i| {
+                    const offset = i * simd.Vec(i32).len;
+                    const w: simd.Vec(i32) = .load(row[offset..]);
+                    const v: simd.Vec(i32) = .splat(scalar);
+                    lane.* = w.mul(v).add(lane.*);
                 }
             }
 
-            for (outs) |*o| {
-                const lo: Vec(i32) = @splat(0);
-                const hi: Vec(i32) = @splat(q.pow(3));
-                o.* = std.math.clamp(o.*, lo, hi);
+            for (acc[0..]) |*lane| {
+                const lo: simd.Vec(i32) = .splat(0);
+                const hi: simd.Vec(i32) = .splat(q.pow(3));
+                lane.* = lane.clamp(lo, hi);
             }
         }
 
@@ -416,14 +285,15 @@ pub fn Network(comptime opts: Options) type {
             l3: []align(page_size) const i32,
             out: *i64,
         ) void {
-            const vecs: []align(page_size) const Vec(i32) = @ptrCast(l3);
-            const wgts: []const Vec(i32) = @ptrCast(&self.l3w[ob]);
-            var sum: Vec(i32) = @splat(0);
-            for (vecs, wgts) |v, w| {
-                sum += v * w;
+            const lanes: []align(page_size) const simd.Vec(i32) = @ptrCast(l3);
+            var acc: simd.Vec(i32) = .splat(0);
+            for (lanes, 0..) |v, i| {
+                const offset = i * simd.Vec(i32).len;
+                const w: simd.Vec(i32) = .load(self.l3w[ob][offset..]);
+                acc = w.mul(v).add(acc);
             }
 
-            out.* = @reduce(.Add, sum) + self.l3b[ob];
+            out.* = acc.reduce(.Add) + self.l3b[ob];
             out.* = @divTrunc(out.* * scale, q.pow(4));
         }
 
