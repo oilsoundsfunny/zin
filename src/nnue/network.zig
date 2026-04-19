@@ -56,19 +56,14 @@ pub const Default = Network(.{
     .q0 = .{ .v = 255 },
     .q1 = .{ .v = 128 },
     .q = .{ .v = 64 },
-    .scale = 255,
+    .scale = 320,
 });
 
 const has_avx512vnni = builtin.cpu.has(.x86, .avx512vnni);
 const has_avx512f = builtin.cpu.has(.x86, .avx512f);
 const has_avx2 = builtin.cpu.has(.x86, .avx2);
 const page_size = std.heap.pageSize();
-const embedded align(@alignOf(Default)) = if (has_avx512f)
-        @embedFile("avx512.nnue").*
-    else if (has_avx2)
-        @embedFile("avx2.nnue").*
-    else
-        @embedFile("scalar.nnue").*;
+const embedded align(@alignOf(Default)) = @embedFile("embedded.nnue").*;
 
 pub const verbatim = if (embedded.len == @sizeOf(Default))
     std.mem.bytesAsValue(Default, embedded[0..])
@@ -166,19 +161,24 @@ pub fn Network(comptime opts: Options) type {
                             return .clamp(v, lo, hi);
                         }
                     }.inner;
-                    const shift = 16 - q0.bits();
+                    const shift = q0.bits() * 2 - 9;
 
                     const loads: [4]simd.Vec(i16) = .{
-                        .load(input[half * 0 + i ..]),
-                        .load(input[half * 1 + i ..]),
-                        .load(input[half * 0 + i + simd.Vec(i16).len ..]),
-                        .load(input[half * 1 + i + simd.Vec(i16).len ..]),
+                        .load(input[i + half * 0 ..]),
+                        .load(input[i + half * 1 ..]),
+                        .load(input[i + half * 0 + simd.Vec(i16).len ..]),
+                        .load(input[i + half * 1 + simd.Vec(i16).len ..]),
                     };
+                    const clamped: [4]simd.Vec(i16) = .{
+                        crelu(loads[0]), crelu(loads[1]), crelu(loads[2]), crelu(loads[3]),
+                    };
+
                     const prods: [2]simd.Vec(i16) = .{
-                        simd.mulhi(crelu(loads[0]).shl(shift), crelu(loads[2])),
-                        simd.mulhi(crelu(loads[1]).shl(shift), crelu(loads[3])),
+                        simd.mulhi(clamped[0].shl(shift), clamped[1]),
+                        simd.mulhi(clamped[2].shl(shift), clamped[3]),
                     };
-                    simd.packus(prods[0], prods[1]).store(l1[offset + i ..]);
+                    const packus = simd.packus(prods[0], prods[1]);
+                    packus.store(l1[offset + i ..]);
                 }
             }
         }
@@ -236,7 +236,7 @@ pub fn Network(comptime opts: Options) type {
                     sum = sum.add(v);
                 }
 
-                const bias: simd.Vec(i32) = .load(self.l2b[ob][k * simd.Vec(i32).len ..]);
+                const bias: simd.Vec(i32) = .load(self.l1b[ob][k * simd.Vec(i32).len ..]);
                 const shifted = sum.add(bias).shr(q0.bits() * 2 - 9 + q1.bits() - q.bits());
 
                 const lo: simd.Vec(i32) = .splat(0);

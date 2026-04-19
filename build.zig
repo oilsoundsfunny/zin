@@ -165,7 +165,7 @@ pub fn build(bld: *std.Build) !void {
     const raw_network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
-        bld.dependency("nets", .{}).path("apr19.nnue");
+        bld.dependency("nets", .{}).path("tuned.nnue");
 
     // TODO: idk clean this (and the one above)
     const avx512f_network, const avx2_network, const scalar_network = blk: {
@@ -180,21 +180,21 @@ pub fn build(bld: *std.Build) !void {
         const avx512f = inner: {
             const run = bld.addRunArtifact(transformer);
             run.addFileArg(raw_network);
-            run.addArg("x86-64-v4");
+            run.addArg("x86_64_v4");
             break :inner run.addOutputFileArg("avx512f.nnue");
         };
 
         const avx2 = inner: {
             const run = bld.addRunArtifact(transformer);
             run.addFileArg(raw_network);
-            run.addArg("x86-64-v3");
+            run.addArg("x86_64_v3");
             break :inner run.addOutputFileArg("avx2.nnue");
         };
 
         const scalar = inner: {
             const run = bld.addRunArtifact(transformer);
             run.addFileArg(raw_network);
-            run.addArg("x86-64-v2");
+            run.addArg("x86_64_v2");
             break :inner run.addOutputFileArg("scalar.nnue");
         };
 
@@ -209,12 +209,6 @@ pub fn build(bld: *std.Build) !void {
             const dep_name = Modules.names.get(dep);
             const dep_module = modules.get(dep);
             module.addImport(dep_name, dep_module);
-        }
-
-        if (m == .nnue) {
-            module.addAnonymousImport("avx512f.nnue", .{ .root_source_file = avx512f_network });
-            module.addAnonymousImport("avx2.nnue", .{ .root_source_file = avx2_network });
-            module.addAnonymousImport("scalar.nnue", .{ .root_source_file = scalar_network });
         }
     }
 
@@ -243,6 +237,21 @@ pub fn build(bld: *std.Build) !void {
                     const dep_name = Modules.names.get(dep);
                     const dep_module = modules.get(dep);
                     module.addImport(dep_name, dep_module);
+
+                    if (dep == .nnue) {
+                        const has_avx512f = release_target.result.cpu.has(.x86, .avx512f);
+                        const has_avx2 = release_target.result.cpu.has(.x86, .avx2);
+                        const embedded = if (has_avx512f)
+                            avx512f_network
+                        else if (has_avx2)
+                            avx2_network
+                        else
+                            scalar_network;
+                        dep_module.addAnonymousImport(
+                            "embedded.nnue",
+                            .{ .root_source_file = embedded },
+                        );
+                    }
                 }
 
                 const is_linux = release_target.result.os.tag == .linux;
@@ -270,6 +279,21 @@ pub fn build(bld: *std.Build) !void {
                 const dep_name = Modules.names.get(dep);
                 const dep_module = modules.get(dep);
                 module.addImport(dep_name, dep_module);
+
+                if (dep == .nnue) {
+                    const has_avx512f = target.result.cpu.has(.x86, .avx512f);
+                    const has_avx2 = target.result.cpu.has(.x86, .avx2);
+                    const embedded = if (has_avx512f)
+                        avx512f_network
+                    else if (has_avx2)
+                        avx2_network
+                    else
+                        scalar_network;
+                    dep_module.addAnonymousImport(
+                        "embedded.nnue",
+                        .{ .root_source_file = embedded },
+                    );
+                }
             }
 
             const comp = if (s == .install) add_exe: {

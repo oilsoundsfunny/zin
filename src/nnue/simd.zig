@@ -5,18 +5,25 @@ const has_avx2 = builtin.cpu.has(.x86, .avx2);
 const has_avx512f = builtin.cpu.has(.x86, .avx512f);
 const has_avx512vnni = builtin.cpu.has(.x86, .avx512vnni);
 
+comptime {
+    std.debug.assert(Vec(i32).len * 2 == Vec(i16).len);
+    std.debug.assert(Vec(i16).len * 2 == Vec(i8).len);
+
+    std.debug.assert(Vec(u32).len * 2 == Vec(u16).len);
+    std.debug.assert(Vec(u16).len * 2 == Vec(u8).len);
+}
+
 pub fn Vec(comptime T: type) switch (T) {
     i8, u8, i16, u16, i32, u32 => type,
     else => @compileError("unsupported type"),
 } {
     return struct {
         v: Inner,
-
-        const Inner = @Vector(len, T);
         const Self = @This();
 
         const alignment = @alignOf(Inner);
 
+        pub const Inner = @Vector(len, T);
         pub const len = std.simd.suggestVectorLength(T) orelse @compileError("simd not supported");
 
         pub fn bitCast(vec: anytype) Self {
@@ -57,7 +64,7 @@ pub fn Vec(comptime T: type) switch (T) {
                         .{ @typeName(T), @typeName(Inner), @typeName(A) },
                     );
                     @compileError(msg);
-                }
+                },
             };
         }
 
@@ -71,7 +78,7 @@ pub fn Vec(comptime T: type) switch (T) {
                         .{ @typeName(T), @typeName(Inner), @typeName(A) },
                     );
                     @compileError(msg);
-                }
+                },
             };
         }
 
@@ -116,14 +123,11 @@ pub fn Vec(comptime T: type) switch (T) {
 }
 
 pub fn dpbusd(s: Vec(i32), u: Vec(u8), i: Vec(i8)) Vec(i32) {
-    return if (has_avx512vnni)
-        asm (
-            "vpdpbusd %[i], %[u], %[s]"
-            : [s] "+x" (s),
-            : [u] "x" (u),
-              [i] "x" (i),
-        )
-    else blk: {
+    return if (has_avx512vnni) .{ .v = asm ("vpdpbusd %[i], %[u], %[s]"
+        : [s] "+x" (-> Vec(i32).Inner),
+        : [u] "x" (u.v),
+          [i] "x" (i.v),
+    ) } else blk: {
         const partial = maddubs(u, i);
         const dotprod = maddwd(partial, .splat(1));
         break :blk .add(s, dotprod);
@@ -135,50 +139,39 @@ pub fn dpbusd2(s: Vec(i32), uv0: Vec(u8), iv0: Vec(i8), uv1: Vec(u8), iv1: Vec(i
 }
 
 pub fn maddubs(u: Vec(u8), i: Vec(i8)) Vec(i16) {
-    return if (has_avx512f or has_avx2)
-        asm (
-            "vpmaddubsw %[i], %[u], %[dst]"
-            : [dst] "=x" (-> Vec(i16)),
-            : [i] "x" (i),
-              [u] "x" (u),
-        )
-    else blk: {
-        const Wide = @Vector(Vec(i16).len, i16);
+    return if (has_avx512f or has_avx2) .{ .v = asm ("vpmaddubsw %[i], %[u], %[dst]"
+        : [dst] "=x" (-> Vec(i16).Inner),
+        : [i] "x" (i.v),
+          [u] "x" (u.v),
+    ) } else blk: {
         const u_ditl = std.simd.deinterlace(2, u.v);
         const i_ditl = std.simd.deinterlace(2, i.v);
-        const prod0 = @as(Wide, u_ditl[0]) * @as(Wide, i_ditl[0]);
-        const prod1 = @as(Wide, u_ditl[1]) * @as(Wide, i_ditl[1]);
+        const prod0 = @as(Vec(i16).Inner, u_ditl[0]) * @as(Vec(i16).Inner, i_ditl[0]);
+        const prod1 = @as(Vec(i16).Inner, u_ditl[1]) * @as(Vec(i16).Inner, i_ditl[1]);
         break :blk .{ .v = prod0 +| prod1 };
     };
 }
 
 pub fn maddwd(a: Vec(i16), b: Vec(i16)) Vec(i32) {
-    return if (has_avx512f or has_avx2)
-        asm (
-            "vpmaddwd %[b], %[a], %[dst]"
-            : [dst] "=x" (-> Vec(i32)),
-            : [a] "x" (a),
-              [b] "x" (b),
-        )
-    else blk: {
-        const Wide = @Vector(Vec(i32).len, i32);
+    return if (has_avx512f or has_avx2) .{ .v = asm ("vpmaddwd %[b], %[a], %[dst]"
+        : [dst] "=x" (-> Vec(i32).Inner),
+        : [a] "x" (a.v),
+          [b] "x" (b.v),
+    ) } else blk: {
         const a_ditl = std.simd.deinterlace(2, a.v);
         const b_ditl = std.simd.deinterlace(2, b.v);
-        const prod0 = @as(Wide, a_ditl[0]) * @as(Wide, b_ditl[0]);
-        const prod1 = @as(Wide, a_ditl[1]) * @as(Wide, b_ditl[1]);
+        const prod0 = @as(Vec(i32).Inner, a_ditl[0]) * @as(Vec(i32).Inner, b_ditl[0]);
+        const prod1 = @as(Vec(i32).Inner, a_ditl[1]) * @as(Vec(i32).Inner, b_ditl[1]);
         break :blk .{ .v = prod0 + prod1 };
     };
 }
 
 pub fn mulhi(a: Vec(i16), b: Vec(i16)) Vec(i16) {
-    return if (has_avx512f or has_avx2)
-        asm (
-            "vpmulhw %[b], %[a], %[dst]"
-            : [dst] "=x" (-> Vec(i16)),
-            : [a] "x" (a.v),
-              [b] "x" (b.v),
-        )
-    else blk: {
+    return if (has_avx512f or has_avx2) .{ .v = asm ("vpmulhw %[b], %[a], %[dst]"
+        : [dst] "=x" (-> Vec(i16).Inner),
+        : [a] "x" (a.v),
+          [b] "x" (b.v),
+    ) } else blk: {
         const Wide = @Vector(Vec(i16).len, i32);
         const mul = @as(Wide, a.v) * @as(Wide, b.v);
         break :blk .{ .v = @intCast(mul >> @splat(16)) };
@@ -186,14 +179,11 @@ pub fn mulhi(a: Vec(i16), b: Vec(i16)) Vec(i16) {
 }
 
 pub fn packus(a: Vec(i16), b: Vec(i16)) Vec(u8) {
-    return if (has_avx512f or has_avx2)
-        asm (
-            "vpackuswb %[b], %[a], %[dst]"
-            : [dst] "=x" (-> Vec(u8)),
-            : [a] "x" (a.v),
-              [b] "x" (b.v),
-        )
-    else blk: {
+    return if (has_avx512f or has_avx2) .{ .v = asm ("vpackuswb %[b], %[a], %[dst]"
+        : [dst] "=x" (-> Vec(u8).Inner),
+        : [a] "x" (a.v),
+          [b] "x" (b.v),
+    ) } else blk: {
         const zeroes: Vec(i16) = .splat(0);
         const packed_a: @Vector(Vec(i16).len, u8) = @intCast(@max(a.v, zeroes.v));
         const packed_b: @Vector(Vec(i16).len, u8) = @intCast(@max(b.v, zeroes.v));

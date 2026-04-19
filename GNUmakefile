@@ -5,12 +5,6 @@ ifndef EXE
 EXE = zin
 endif
 
-ifdef ARCH
-CPU = -Dcpu=$(ARCH)
-else
-CPU =
-endif
-
 ifeq ($(OS), Windows_NT)
 MV = move .\zig-out\bin\zin.exe $(EXE).exe
 else
@@ -24,5 +18,5 @@ NETWORK =
 endif
 
 default:
-	-zig build $(CPU) $(NETWORK) --release=fast
+	-zig build --release=fast -Dcpu=x86_64_v3 $(NETWORK)
 	@$(MV)

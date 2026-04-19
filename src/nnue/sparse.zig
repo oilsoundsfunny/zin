@@ -36,8 +36,8 @@ pub fn findNonZeroes(l1: []const u8) types.BoundedArray(u16, null, 512) {
         var mask: u64 = 0;
         for (0..unroll) |k| {
             const nz_mask = nzMask(.load(l1[i..]));
-            mask |= std.math.shr(u64, nz_mask, k * simd.Vec(i32).len);
-            i += simd.Vec(u8).len;
+            mask |= std.math.shl(u64, nz_mask, k * simd.Vec(i32).len);
+            i += simd.Vec(i8).len;
         }
 
         for (0..chunks) |chunk| {
