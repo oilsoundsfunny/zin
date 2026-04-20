@@ -18,5 +18,5 @@ NETWORK =
 endif
 
 default:
-	-zig build --release=fast -Dcpu=x86_64_v3 $(NETWORK)
+	-zig build --release=fast $(NETWORK)
 	@$(MV)

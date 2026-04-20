@@ -22,9 +22,11 @@ pub fn Vec(comptime T: type) switch (T) {
         const Self = @This();
 
         const alignment = @alignOf(Inner);
+        const dwords = std.simd.suggestVectorLength(u32) orelse
+            @compileError("cpu doesn't support vectors with 32bit elements");
 
         pub const Inner = @Vector(len, T);
-        pub const len = std.simd.suggestVectorLength(T) orelse @compileError("simd not supported");
+        pub const len = dwords * @sizeOf(u32) / @sizeOf(T);
 
         pub fn bitCast(vec: anytype) Self {
             if (@bitSizeOf(@TypeOf(vec.v)) != @bitSizeOf(Inner)) {

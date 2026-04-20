@@ -1622,10 +1622,7 @@ pub fn search(self: *Thread) !void {
         self.asp();
         movegen.RootMove.sortSlice(self.root_moves.slice());
 
-        const datagen_stop = is_datagen and self.datagenStop(.soft);
-        const go_stop = is_go and self.searchStop(.soft);
-        const stopped = is_go and self.pool.stopped;
-        if (datagen_stop or go_stop or stopped) {
+        if (is_go and self.pool.stopped) {
             break;
         }
 
@@ -1634,6 +1631,12 @@ pub fn search(self: *Thread) !void {
             last_seldepth = self.seldepth;
             last_pv = self.root_moves.constSlice()[0];
             try self.printInfo(&last_pv, last_depth, last_seldepth);
+        }
+
+        const datagen_soft_stopped = is_datagen and self.datagenStop(.soft);
+        const go_soft_stopped = is_go and self.searchStop(.soft);
+        if (datagen_soft_stopped or go_soft_stopped) {
+            break;
         }
     }
 
