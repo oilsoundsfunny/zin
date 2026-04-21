@@ -8,15 +8,15 @@ const simd = @import("simd.zig");
 const sparse = @import("sparse.zig");
 
 const Options = struct {
-    input_buckets: [types.Square.num / 2]u8,
+    input_buckets: [types.Square.num / 2]comptime_int,
     output_buckets: usize,
-    l1: usize,
-    l2: usize,
-    l3: usize,
+    l1: comptime_int,
+    l2: comptime_int,
+    l3: comptime_int,
     q0: Quantization,
     q1: Quantization,
     q: Quantization,
-    scale: i16,
+    scale: comptime_int,
 
     const Quantization = struct {
         v: comptime_int,
@@ -34,6 +34,10 @@ const Options = struct {
             return e;
         }
     };
+
+    fn numInputBuckets(self: Options) comptime_int {
+        return std.mem.max(comptime_int, self.input_buckets[0..]) + 1;
+    }
 };
 
 pub const Default = Network(.{
@@ -56,7 +60,7 @@ pub const Default = Network(.{
     .q0 = .{ .v = 255 },
     .q1 = .{ .v = 128 },
     .q = .{ .v = 64 },
-    .scale = 477,
+    .scale = 400,
 });
 
 const has_avx512vnni = builtin.cpu.has(.x86, .avx512vnni);
@@ -120,7 +124,7 @@ pub fn Network(comptime opts: Options) type {
         };
 
         pub const inp = types.Piece.num * types.Square.num;
-        pub const ibn = std.mem.max(u8, opts.input_buckets[0..]) + 1;
+        pub const ibn = opts.numInputBuckets();
         pub const obn = switch (opts.output_buckets) {
             1, 8 => |n| n,
             else => @compileError("unsupported output_buckets"),

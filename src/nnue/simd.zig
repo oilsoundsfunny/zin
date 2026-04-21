@@ -5,14 +5,6 @@ const has_avx2 = builtin.cpu.has(.x86, .avx2);
 const has_avx512f = builtin.cpu.has(.x86, .avx512f);
 const has_avx512vnni = builtin.cpu.has(.x86, .avx512vnni);
 
-comptime {
-    std.debug.assert(Vec(i32).len * 2 == Vec(i16).len);
-    std.debug.assert(Vec(i16).len * 2 == Vec(i8).len);
-
-    std.debug.assert(Vec(u32).len * 2 == Vec(u16).len);
-    std.debug.assert(Vec(u16).len * 2 == Vec(u8).len);
-}
-
 pub fn Vec(comptime T: type) switch (T) {
     i8, u8, i16, u16, i32, u32 => type,
     else => @compileError("unsupported type"),
@@ -132,12 +124,17 @@ pub fn dpbusd(s: Vec(i32), u: Vec(u8), i: Vec(i8)) Vec(i32) {
     ) } else blk: {
         const partial = maddubs(u, i);
         const dotprod = maddwd(partial, .splat(1));
-        break :blk .add(s, dotprod);
+        break :blk s.add(dotprod);
     };
 }
 
 pub fn dpbusd2(s: Vec(i32), uv0: Vec(u8), iv0: Vec(i8), uv1: Vec(u8), iv1: Vec(i8)) Vec(i32) {
-    return dpbusd(dpbusd(s, uv0, iv0), uv1, iv1);
+    return if (has_avx512vnni) dpbusd(dpbusd(s, uv0, iv0), uv1, iv1) else blk: {
+        const partials: [2]Vec(i16) = .{ maddubs(uv0, iv0), maddubs(uv1, iv1) };
+        const ones: Vec(i16) = .splat(1);
+        const dotprod = maddwd(.add(partials[0], partials[1]), ones);
+        break :blk s.add(dotprod);
+    };
 }
 
 pub fn maddubs(u: Vec(u8), i: Vec(i8)) Vec(i16) {
