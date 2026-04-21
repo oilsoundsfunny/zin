@@ -165,7 +165,7 @@ pub fn build(bld: *std.Build) !void {
     const raw_network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
-        bld.dependency("nets", .{}).path("tuned.nnue");
+        bld.dependency("nets", .{}).path("wip.bin");
 
     const avx512f_network, const avx2_network, const scalar_network = blk: {
         const transformer = bld.addExecutable(.{
