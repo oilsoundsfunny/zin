@@ -949,7 +949,7 @@ fn ab(
     }
 
     // null move pruning
-    if (!is_pv and
+    if (node == .lowerbound and
         !is_singular and
         !is_checked and
         d >= 2 and
