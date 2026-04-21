@@ -1,6 +1,31 @@
 const std = @import("std");
 
-const Network = extern struct {
+const Args = struct {
+    inp: std.fs.File,
+    out: std.fs.File,
+    cpu: *const std.Target.Cpu.Model,
+
+    const Error = error{NotFound};
+
+    fn init(args: *std.process.ArgIterator) !Args {
+        const inp_arg = args.next() orelse return error.NotFound;
+        const cpu_arg = args.next() orelse return error.NotFound;
+        const out_arg = args.next() orelse return error.NotFound;
+
+        return .{
+            .inp = try std.fs.cwd().openFile(inp_arg, .{}),
+            .cpu = try std.Target.Cpu.Arch.x86_64.parseCpuModel(cpu_arg),
+            .out = try std.fs.cwd().createFile(out_arg, .{}),
+        };
+    }
+
+    fn deinit(self: Args) void {
+        self.inp.close();
+        self.out.close();
+    }
+};
+
+pub const Network = extern struct {
     l0w: [ib][ft][l1]i16,
     l0b: [l1]i16,
 
@@ -27,13 +52,13 @@ const Network = extern struct {
         l3b: [ob]i32 align(64),
     };
 
-    const ft = 768;
-    const ib = 16;
-    const ob = 8;
+    pub const ft = 768;
+    pub const ib = 16;
+    pub const ob = 8;
 
-    const l1 = 768;
-    const l2 = 16;
-    const l3 = 32;
+    pub const l1 = 1024;
+    pub const l2 = 16;
+    pub const l3 = 32;
 };
 
 comptime {
@@ -67,14 +92,14 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     var args = try std.process.argsWithAllocator(allocator);
+    _ = args.skip();
     defer args.deinit();
 
-    _ = args.skip();
-    const input_arg = args.next() orelse std.process.fatal("expected arg", .{});
-    const input_file = try std.fs.cwd().openFile(input_arg, .{});
+    const parsed: Args = try .init(&args);
+    defer parsed.deinit();
 
     const input_bytes: []align(64) const u8 =
-        try input_file.readToEndAllocOptions(allocator, 64 * 1024 * 1024, null, .@"64", null);
+        try parsed.inp.readToEndAllocOptions(allocator, 64 * 1024 * 1024, null, .@"64", null);
     const raw: *const Network.Raw = @ptrCast(input_bytes);
     defer allocator.free(input_bytes);
 
@@ -90,11 +115,8 @@ pub fn main() !void {
         std.process.fatal("mismatched size: {} != {}", .{ output_bytes.len, @sizeOf(Network) });
     }
 
-    const cpu_arg = args.next() orelse std.process.fatal("expected arg", .{});
-    const cpu = try std.Target.Cpu.Arch.x86_64.parseCpuModel(cpu_arg);
-
-    const has_avx512f = cpu.toCpu(.x86_64).has(.x86, .avx512f);
-    const has_avx2 = cpu.toCpu(.x86_64).has(.x86, .avx2);
+    const has_avx512f = parsed.cpu.toCpu(.x86_64).has(.x86, .avx512f);
+    const has_avx2 = parsed.cpu.toCpu(.x86_64).has(.x86, .avx2);
 
     @memcpy(&network.l0w, &raw.l0w);
     @memcpy(&network.l0b, &raw.l0b);
@@ -134,9 +156,5 @@ pub fn main() !void {
     @memcpy(&network.l2b, &raw.l2b);
     @memcpy(&network.l3b, &raw.l3b);
 
-    const output_arg = args.next() orelse std.process.fatal("expected arg", .{});
-    const output_file = try std.fs.cwd().createFile(output_arg, .{});
-    defer output_file.close();
-
-    try output_file.writeAll(output_bytes);
+    try parsed.out.writeAll(output_bytes);
 }

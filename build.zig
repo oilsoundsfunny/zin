@@ -167,7 +167,6 @@ pub fn build(bld: *std.Build) !void {
     else
         bld.dependency("nets", .{}).path("tuned.nnue");
 
-    // TODO: idk clean this (and the one above)
     const avx512f_network, const avx2_network, const scalar_network = blk: {
         const transformer = bld.addExecutable(.{
             .root_module = bld.createModule(.{
@@ -210,6 +209,22 @@ pub fn build(bld: *std.Build) !void {
             const dep_module = modules.get(dep);
             module.addImport(dep_name, dep_module);
         }
+
+        if (m == .nnue) {
+            module.addAnonymousImport("avx512f.nnue", .{ .root_source_file = avx512f_network });
+            module.addAnonymousImport("avx2.nnue", .{ .root_source_file = avx2_network });
+            module.addAnonymousImport("scalar.nnue", .{ .root_source_file = scalar_network });
+
+            const options = bld.addOptions();
+            options.addOption(comptime_int, "l1", @import("tools/nn.zig").Network.l1);
+            options.addOption(comptime_int, "l2", @import("tools/nn.zig").Network.l2);
+            options.addOption(comptime_int, "l3", @import("tools/nn.zig").Network.l3);
+            module.addOptions("options", options);
+        } else if (m == .params) {
+            const options = bld.addOptions();
+            options.addOption(bool, "tuning", bld.option(bool, "tuning", "") orelse false);
+            module.addOptions("options", options);
+        }
     }
 
     const lto = bld.option(bool, "lto", "") orelse !has_debuginfo;
@@ -237,27 +252,14 @@ pub fn build(bld: *std.Build) !void {
                     const dep_name = Modules.names.get(dep);
                     const dep_module = modules.get(dep);
                     module.addImport(dep_name, dep_module);
-
-                    if (dep == .nnue) {
-                        const has_avx512f = release_target.result.cpu.has(.x86, .avx512f);
-                        const has_avx2 = release_target.result.cpu.has(.x86, .avx2);
-                        const embedded = if (has_avx512f)
-                            avx512f_network
-                        else if (has_avx2)
-                            avx2_network
-                        else
-                            scalar_network;
-                        dep_module.addAnonymousImport(
-                            "embedded.nnue",
-                            .{ .root_source_file = embedded },
-                        );
-                    }
                 }
 
                 const is_linux = release_target.result.os.tag == .linux;
+                // TODO: ts lowkirkuinely leaks memory
                 const name = try std.mem.concat(bld.allocator, u8, &.{
                     exe_name, "-", version_string, "-", release_target.result.cpu.model.name,
                 });
+
                 const comp = add_exe: {
                     const exe = bld.addExecutable(.{
                         .root_module = module,
@@ -279,21 +281,6 @@ pub fn build(bld: *std.Build) !void {
                 const dep_name = Modules.names.get(dep);
                 const dep_module = modules.get(dep);
                 module.addImport(dep_name, dep_module);
-
-                if (dep == .nnue) {
-                    const has_avx512f = target.result.cpu.has(.x86, .avx512f);
-                    const has_avx2 = target.result.cpu.has(.x86, .avx2);
-                    const embedded = if (has_avx512f)
-                        avx512f_network
-                    else if (has_avx2)
-                        avx2_network
-                    else
-                        scalar_network;
-                    dep_module.addAnonymousImport(
-                        "embedded.nnue",
-                        .{ .root_source_file = embedded },
-                    );
-                }
             }
 
             const comp = if (s == .install) add_exe: {

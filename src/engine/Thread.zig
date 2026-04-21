@@ -632,7 +632,7 @@ fn updateHist(
 
 fn printInfo(
     self: *const Thread,
-    pv: *const movegen.RootMove,
+    opt_pv: ?*const movegen.RootMove,
     depth: Depth,
     seldepth: Depth,
 ) !void {
@@ -643,8 +643,13 @@ fn printInfo(
     defer self.pool.mtx.unlock();
 
     const writer = io.writer();
-    const timer = &self.pool.timer;
+    const pv = opt_pv orelse {
+        try writer.print("info depth 1 seldepth 1 nodes 1 time 1 nps 1000\n", .{});
+        try writer.flush();
+        return;
+    };
 
+    const timer = &self.pool.timer;
     const nodes = self.pool.nodes();
     const ntime = timer.read();
     const mtime = ntime / std.time.ns_per_ms;
@@ -698,15 +703,15 @@ fn printInfo(
     try writer.flush();
 }
 
-fn printBest(self: *const Thread, pv: *const movegen.RootMove) !void {
+fn printBest(self: *const Thread, opt_pv: ?*const movegen.RootMove) !void {
     self.pool.mtx.lock();
     defer self.pool.mtx.unlock();
 
-    if (pv.constSlice().len == 0) {
+    const pv = opt_pv orelse {
         try self.pool.io.writer().print("bestmove 0000\n", .{});
         try self.pool.io.writer().flush();
         return;
-    }
+    };
 
     const m = pv.constSlice()[0];
     const s = m.toString(&self.board);
@@ -1591,41 +1596,39 @@ pub fn search(self: *Thread) !void {
     const is_go = rq == .go;
     const should_print = is_go and is_main;
 
+    // TODO: might(?) shit itself if self.board overflows
+    if (self.root_moves.constSlice().len == 0) {
+        if (should_print) {
+            try self.printInfo(null, 0, 0);
+            try self.printBest(null);
+        }
+        return;
+    }
+
     if (is_go and is_main and is_threaded) {
         for (pool.threads.items[1..]) |*thread| {
             thread.wake(.go);
         }
     }
 
-    var last_depth: Depth = 0;
-    var last_seldepth: Depth = 0;
-    var last_pv: movegen.RootMove = .{};
-
-    const no_moves = self.root_moves.constSlice().len == 0 or self.board.isTerminal();
-    last_pv = if (no_moves) {
-        if (!should_print) {
-            return;
-        }
-
-        try self.printInfo(&last_pv, last_depth, last_seldepth);
-        try self.printBest(&last_pv);
-        return;
-    } else self.root_moves.constSlice()[0];
-
     const max_depth = pool.limits.depth orelse movegen.RootMove.capacity;
     const min_depth = 1;
+
     var depth: Depth = min_depth;
+    var last_depth: Depth = 0;
+    var last_seldepth: Depth = 0;
+    var last_pv = self.root_moves.constSlice()[0];
 
     while (depth <= max_depth) : (depth += 1) {
         self.depth = depth;
         self.seldepth = 0;
         self.asp();
-        movegen.RootMove.sortSlice(self.root_moves.slice());
 
         if (is_go and self.pool.stopped) {
             break;
         }
 
+        movegen.RootMove.sortSlice(self.root_moves.slice());
         if (should_print) {
             last_depth = self.depth;
             last_seldepth = self.seldepth;

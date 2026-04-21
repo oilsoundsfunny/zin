@@ -50,20 +50,27 @@ pub const Default = Network(.{
         // zig fmt: on
     },
     .output_buckets = 8,
-    .l1 = 768,
-    .l2 = 16,
-    .l3 = 32,
+    .l1 = @import("options").l1,
+    .l2 = @import("options").l2,
+    .l3 = @import("options").l3,
     .q0 = .{ .v = 255 },
     .q1 = .{ .v = 128 },
     .q = .{ .v = 64 },
-    .scale = 320,
+    .scale = 477,
 });
 
 const has_avx512vnni = builtin.cpu.has(.x86, .avx512vnni);
 const has_avx512f = builtin.cpu.has(.x86, .avx512f);
 const has_avx2 = builtin.cpu.has(.x86, .avx2);
+
 const page_size = std.heap.pageSize();
-const embedded align(@alignOf(Default)) = @embedFile("embedded.nnue").*;
+const embedded align(page_size) =
+if (has_avx512vnni or has_avx512f)
+    @embedFile("avx512.nnue").*
+else if (has_avx2)
+    @embedFile("avx2.nnue").*
+else
+    @embedFile("scalar.nnue").*;
 
 pub const verbatim = if (embedded.len == @sizeOf(Default))
     std.mem.bytesAsValue(Default, embedded[0..])
