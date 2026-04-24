@@ -45,6 +45,25 @@ const Modules = enum {
     });
 
     const values = std.enums.values(Modules);
+
+    const Options = struct {
+        omit_frame_pointer: bool,
+        stack_check: bool,
+        strip: bool,
+        valgrind: bool,
+
+        fn init(bld: *std.Build) Options {
+            const optimize = bld.standardOptimizeOption(.{});
+            const is_debug = optimize == .Debug;
+            const has_debuginfo = is_debug or optimize == .ReleaseSafe;
+            return .{
+                .omit_frame_pointer = bld.option(bool, "omit-fp", "") orelse !has_debuginfo,
+                .stack_check = bld.option(bool, "stack-check", "") orelse is_debug,
+                .strip = bld.option(bool, "strip", "Strip executable(s)") orelse !has_debuginfo,
+                .valgrind = bld.option(bool, "valgrind", "") orelse false,
+            };
+        }
+    };
 };
 
 const Steps = enum {
@@ -85,7 +104,7 @@ fn processNetworks(bld: *std.Build) [3]std.Build.LazyPath {
     const raw_network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
-        bld.dependency("nets", .{}).path("warmup.bin");
+        bld.dependency("nets", .{}).path("main.bin");
 
     const transformer = bld.addExecutable(.{
         .root_module = bld.createModule(.{
@@ -97,22 +116,22 @@ fn processNetworks(bld: *std.Build) [3]std.Build.LazyPath {
 
     const avx512f = blk: {
         const run = bld.addRunArtifact(transformer);
-        run.addFileArg(raw_network);
         run.addArg("x86_64_v4");
+        run.addFileArg(raw_network);
         break :blk run.addOutputFileArg("avx512f.nnue");
     };
 
     const avx2 = blk: {
         const run = bld.addRunArtifact(transformer);
-        run.addFileArg(raw_network);
         run.addArg("x86_64_v3");
+        run.addFileArg(raw_network);
         break :blk run.addOutputFileArg("avx2.nnue");
     };
 
     const scalar = blk: {
         const run = bld.addRunArtifact(transformer);
-        run.addFileArg(raw_network);
         run.addArg("x86_64_v2");
+        run.addFileArg(raw_network);
         break :blk run.addOutputFileArg("scalar.nnue");
     };
 
@@ -162,7 +181,6 @@ pub fn build(bld: *std.Build) !void {
     const omit_frame_pointer = bld.option(bool, "omit-fp", "") orelse !has_debuginfo;
     const stack_check = bld.option(bool, "stack-check", "") orelse is_debug;
     const strip = bld.option(bool, "strip", "Strip executable(s)") orelse !has_debuginfo;
-    const use_llvm = bld.option(bool, "use-llvm", "Use the LLVM code backend") orelse !is_debug;
     const valgrind = bld.option(bool, "valgrind", "") orelse false;
 
     const Unwind = std.builtin.UnwindTables;
@@ -218,14 +236,21 @@ pub fn build(bld: *std.Build) !void {
             module.addAnonymousImport("avx2.nnue", .{ .root_source_file = networks[1] });
             module.addAnonymousImport("scalar.nnue", .{ .root_source_file = networks[2] });
 
+            const Network = @import("tools/nn.zig").Network;
             const options = bld.addOptions();
-            options.addOption(comptime_int, "l1", @import("tools/nn.zig").Network.l1);
-            options.addOption(comptime_int, "l2", @import("tools/nn.zig").Network.l2);
-            options.addOption(comptime_int, "l3", @import("tools/nn.zig").Network.l3);
+            options.addOption([64]u8, "input_buckets", Network.input_buckets);
+            options.addOption(comptime_int, "ibn", Network.ib);
+            options.addOption(comptime_int, "obn", Network.ob);
+
+            options.addOption(comptime_int, "l1", Network.l1);
+            options.addOption(comptime_int, "l2", Network.l2);
+            options.addOption(comptime_int, "l3", Network.l3);
+
             module.addOptions("options", options);
         } else if (m == .params) {
+            const tuning = bld.option(bool, "tuning", "") orelse false;
             const options = bld.addOptions();
-            options.addOption(bool, "tuning", bld.option(bool, "tuning", "") orelse false);
+            options.addOption(bool, "tuning", tuning);
             module.addOptions("options", options);
         }
     }
@@ -268,8 +293,8 @@ pub fn build(bld: *std.Build) !void {
                         .root_module = module,
                         .name = name,
                         .version = version,
-                        .use_lld = use_llvm,
-                        .use_llvm = use_llvm,
+                        .use_lld = true,
+                        .use_llvm = true,
                     });
                     exe.want_lto = if (is_linux) lto else false;
                     break :add_exe exe;
@@ -291,16 +316,16 @@ pub fn build(bld: *std.Build) !void {
                     .root_module = module,
                     .name = exe_name,
                     .version = version,
-                    .use_lld = use_llvm,
-                    .use_llvm = use_llvm,
+                    .use_lld = true,
+                    .use_llvm = true,
                 });
                 exe.want_lto = lto;
                 break :add_exe exe;
             } else bld.addTest(.{
                 .root_module = module,
                 .name = if (s == .perft) "perft" else "test",
-                .use_lld = use_llvm,
-                .use_llvm = use_llvm,
+                .use_lld = true,
+                .use_llvm = true,
             });
 
             const sub_step = if (s == .install)

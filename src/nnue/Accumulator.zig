@@ -52,7 +52,7 @@ pub const Feature = struct {
 
     pub fn bucket(self: Feature) usize {
         std.debug.assert(self.piece.ptype() == .king);
-        return network.Default.buckets.get(self.transform(self.square));
+        return network.Default.buckets[self.transform(self.square).int()];
     }
 
     pub fn index(self: Feature) usize {
@@ -85,8 +85,8 @@ pub const Perspective = struct {
 pub fn update(
     self: *Accumulator,
     wgts: *const [network.Default.inp][network.Default.l1s]i16,
-    opt_adds: ?*const types.BoundedArray(usize, null, 32),
-    opt_subs: ?*const types.BoundedArray(usize, null, 32),
+    adds: *const types.BoundedArray(usize, null, 32),
+    subs: *const types.BoundedArray(usize, null, 32),
 ) void {
     const a: *[network.Default.l1s]i16 = &self.vec;
     var i: usize = 0;
@@ -95,18 +95,14 @@ pub fn update(
         var acc: Native = @splat(0);
         defer vec.* +%= acc;
 
-        if (opt_adds) |adds| {
-            for (adds.constSlice()) |add_i| {
-                const v: *const Native = @alignCast(wgts[add_i][i..][0..native_len]);
-                acc +%= v.*;
-            }
+        for (adds.constSlice()) |add_i| {
+            const v: *const Native = @alignCast(wgts[add_i][i..][0..native_len]);
+            acc +%= v.*;
         }
 
-        if (opt_subs) |subs| {
-            for (subs.constSlice()) |sub_i| {
-                const v: *const Native = @alignCast(wgts[sub_i][i..][0..native_len]);
-                acc -%= v.*;
-            }
+        for (subs.constSlice()) |sub_i| {
+            const v: *const Native = @alignCast(wgts[sub_i][i..][0..native_len]);
+            acc -%= v.*;
         }
     }
 }

@@ -10,7 +10,7 @@ const Options = struct {
 
 fn parseArgs(args: []const u8) !Options {
     var opts: Options = undefined;
-    var tokens = std.mem.tokenizeAny(u8, args, &.{ '\n', '\r', '\t', ' ' });
+    var tokens = std.mem.tokenizeScalar(u8, args, ' ');
 
     const first = tokens.next() orelse std.process.fatal("missing arg '{s}'", .{"genfens"});
     opts.num = if (std.mem.eql(u8, first, "genfens"))

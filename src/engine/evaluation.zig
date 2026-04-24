@@ -1,5 +1,6 @@
 const bitboard = @import("bitboard");
 const nnue = @import("nnue");
+const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
@@ -144,7 +145,10 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
     var min: score.Int = std.math.maxInt(score.Int);
 
     while (pool.io.reader().takeDelimiterInclusive('\n')) |line| {
-        board.parseFen(line) catch continue;
+        board.parseFen(line[0 .. line.len - 1]) catch |err| {
+            std.log.err("failed to parse fen '{s}': {t}", .{ line[0 .. line.len - 1], err });
+            continue;
+        };
 
         const pos = board.positions.last();
         if (pos.isChecked()) {
@@ -175,7 +179,21 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
             try pool.io.writer().flush();
         }
     } else |err| switch (err) {
-        error.EndOfStream => {},
+        error.EndOfStream => {
+            const fcnt: f64 = @floatFromInt(cnt);
+            const fabs: f64 = @floatFromInt(abs_sum);
+            const time: f64 = @floatFromInt(pool.timer.read());
+
+            const avg = fabs / fcnt;
+            const pps = fcnt / time * std.time.ns_per_s;
+            const scale = 955.3610672149737 / avg * nnue.network.Default.scale;
+
+            try pool.io.writer().print(
+                "processed {} positions @ {:.2} pps, abs mean {:.2}, scale {:.2}\n",
+                .{ cnt, pps, avg, scale },
+            );
+            try pool.io.writer().flush();
+        },
         else => return err,
     }
 

@@ -1,5 +1,4 @@
-# mostly yoinked from pawnocchio
-# https://github.com/JonathanHallstrom/pawnocchio/blob/main/Makefile
+# from: https://github.com/JonathanHallstrom/pawnocchio/blob/dev/Makefile
 
 ifndef EXE
 EXE = zin

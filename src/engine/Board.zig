@@ -263,10 +263,8 @@ pub const Position = struct {
         self.checks = if (ka != .none) ka else .full;
     }
 
-    fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
-        const backup = self.*;
-        self.* = .{};
-        errdefer self.* = backup;
+    fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .scalar)) FenError!void {
+        var pos: Position = .{};
 
         const sa: [types.Square.num]types.Square = .{
             .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
@@ -290,7 +288,7 @@ pub const Position = struct {
             const s = sa[si];
             const from_c = types.Piece.fromChar(c);
             si += if (from_c) |p| blk: {
-                self.setSq(s, p);
+                pos.setSq(s, p);
 
                 break :blk sw: switch (p) {
                     .w_rook => {
@@ -335,9 +333,9 @@ pub const Position = struct {
         if (stm_token.len > 1) {
             return error.InvalidFen;
         }
-        self.stm = types.Color.fromChar(stm_token[0]) orelse return error.InvalidSideToMove;
-        if (self.stm == .white) {
-            self.key ^= zobrist.stm();
+        pos.stm = types.Color.fromChar(stm_token[0]) orelse return error.InvalidSideToMove;
+        if (pos.stm == .white) {
+            pos.key ^= zobrist.stm();
         }
 
         const cas_token = tokens.next() orelse return error.InvalidFen;
@@ -376,7 +374,7 @@ pub const Position = struct {
                     .white => if (is_q) types.Castle.wq else types.Castle.wk,
                 };
             };
-            if (self.castles.contains(right)) {
+            if (pos.castles.contains(right)) {
                 return error.InvalidCastle;
             }
 
@@ -387,7 +385,7 @@ pub const Position = struct {
             const kd = types.Square.init(right.color().homeRank(), if (is_q) .file_c else .file_g);
             const rd = types.Square.init(right.color().homeRank(), if (is_q) .file_d else .file_f);
 
-            self.setCastle(right, .init(ks, kd, rs, rd));
+            pos.setCastle(right, .init(ks, kd, rs, rd));
         }
 
         const enp_token = tokens.next() orelse return error.InvalidFen;
@@ -396,22 +394,23 @@ pub const Position = struct {
                 if (enp_token[0] != '-') {
                     return error.InvalidEnPassant;
                 }
-                self.popEnPas();
+                pos.popEnPas();
             },
             2 => {
                 const r = types.Rank.fromChar(enp_token[1]) orelse return error.InvalidEnPassant;
                 const f = types.File.fromChar(enp_token[0]) orelse return error.InvalidEnPassant;
-                try self.setEnPas(.init(r, f));
+                try pos.setEnPas(.init(r, f));
             },
             else => return error.InvalidFen,
         }
 
         const ply_token = tokens.next() orelse return error.InvalidFen;
-        self.rule50 = std.fmt.parseUnsigned(u8, ply_token, 10) catch return error.InvalidPlyClock;
+        pos.rule50 = std.fmt.parseUnsigned(u8, ply_token, 10) catch return error.InvalidPlyClock;
 
         const move_token = tokens.next() orelse return error.InvalidFen;
         _ = std.fmt.parseUnsigned(usize, move_token, 10) catch return error.InvalidMoveClock;
 
+        self.* = pos;
         self.setChecks();
     }
 
@@ -773,11 +772,11 @@ pub const Position = struct {
 };
 
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
-    var tokens = std.mem.tokenizeAny(u8, fen, &std.ascii.whitespace);
+    var tokens = std.mem.tokenizeScalar(u8, fen, ' ');
     return self.parseFenTokens(&tokens);
 }
 
-pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
+pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .scalar)) FenError!void {
     var parsed: Position = .{};
     try parsed.parseFenTokens(tokens);
 
@@ -872,8 +871,10 @@ pub fn printSelf(self: *Board, buffer: []u8) ![]const u8 {
     const eval = self.evaluate();
     const norm = evaluation.score.normalize(eval, mat);
     const w, const d, const l = evaluation.score.wdl(eval, mat);
-    try list.printBounded("wdl: {d:.2} {d:.2} {d:.2}\n", .{ w * 100.0, d * 100.0, l * 100.0 });
-    try list.printBounded("eval: {} cp\n", .{norm});
+    try list.printBounded("eval:\n", .{});
+    try list.printBounded("    raw: {}\n", .{eval});
+    try list.printBounded("    wdl: {d:.2} {d:.2} {d:.2}\n", .{ w * 100.0, d * 100.0, l * 100.0 });
+    try list.printBounded("    normalized: {}\n", .{norm});
 
     return list.items;
 }

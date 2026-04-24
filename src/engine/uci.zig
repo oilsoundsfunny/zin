@@ -31,7 +31,7 @@ const Tokens = struct {
         self.list.deinit(allocator);
     }
 
-    fn init(allocator: std.mem.Allocator, tokens: *std.mem.TokenIterator(u8, .any)) !Tokens {
+    fn init(allocator: std.mem.Allocator, tokens: *std.mem.TokenIterator(u8, .scalar)) !Tokens {
         var list: std.ArrayList([]const u8) = .empty;
         while (tokens.next()) |token| {
             const duped = try allocator.dupe(token);
@@ -43,7 +43,7 @@ const Tokens = struct {
 
 pub const Error = error{UnknownCommand};
 
-fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
+fn parseGo(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Command {
     const pos = pool.threads.items[0].board.positions.last();
     const stm = pos.stm;
 
@@ -99,7 +99,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Comman
     return .go;
 }
 
-fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
+fn parseOption(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Command {
     const options = &pool.opts;
     const backup = options.*;
     errdefer options.* = backup;
@@ -223,7 +223,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
     return .setoption;
 }
 
-fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
+fn parsePosition(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Command {
     const frc = pool.threads.items[0].board.frc;
     const board = try pool.allocator.create(Board);
     defer pool.allocator.destroy(board);
@@ -269,7 +269,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !
 }
 
 fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
-    var tokens = std.mem.tokenizeAny(u8, command, &std.ascii.whitespace);
+    var tokens = std.mem.tokenizeScalar(u8, command, ' ');
     const first = tokens.next() orelse return error.UnknownCommand;
 
     if (std.mem.eql(u8, first, "debug")) {
@@ -387,7 +387,7 @@ pub fn loop(pool: *Thread.Pool) !void {
     const writer = pool.io.writer();
 
     while (reader.takeDelimiterInclusive('\n')) |read| {
-        const comm = parseCommand(read, pool) catch |err| sw: switch (err) {
+        const comm = parseCommand(read[0 .. read.len - 1], pool) catch |err| sw: switch (err) {
             error.UnknownCommand => {
                 try writer.print("Unknown command: '{s}'\n", .{read[0 .. read.len - 1]});
                 try writer.flush();

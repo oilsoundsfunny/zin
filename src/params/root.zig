@@ -1,4 +1,5 @@
 const engine = @import("engine");
+const options = @import("options");
 const std = @import("std");
 const types = @import("types");
 
@@ -210,7 +211,7 @@ const tunables = blk: {
     break :blk tbl;
 };
 
-pub const tuning = false;
+pub const tuning = options.tuning;
 
 pub var values: Values = .{};
 
@@ -223,7 +224,7 @@ pub fn init() !void {
 pub fn parseTunable(
     name: []const u8,
     aux: []const u8,
-    tokens: *std.mem.TokenIterator(u8, .any),
+    tokens: *std.mem.TokenIterator(u8, .scalar),
 ) engine.uci.Error!void {
     const tv = map.get(name) orelse return error.UnknownCommand;
     const tunable = tv.tunable;

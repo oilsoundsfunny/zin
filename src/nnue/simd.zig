@@ -1,9 +1,9 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-const has_avx2 = builtin.cpu.has(.x86, .avx2);
-const has_avx512f = builtin.cpu.has(.x86, .avx512f);
-const has_avx512vnni = builtin.cpu.has(.x86, .avx512vnni);
+pub const has_avx2 = builtin.cpu.has(.x86, .avx2);
+pub const has_avx512f = builtin.cpu.has(.x86, .avx512f);
+pub const has_avx512vnni = builtin.cpu.has(.x86, .avx512vnni);
 
 pub fn Vec(comptime T: type) switch (T) {
     i8, u8, i16, u16, i32, u32 => type,

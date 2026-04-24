@@ -1,20 +1,20 @@
 const std = @import("std");
 
 const Args = struct {
+    cpu: *const std.Target.Cpu.Model,
     inp: std.fs.File,
     out: std.fs.File,
-    cpu: *const std.Target.Cpu.Model,
 
     const Error = error{NotFound};
 
     fn init(args: *std.process.ArgIterator) !Args {
-        const inp_arg = args.next() orelse return error.NotFound;
         const cpu_arg = args.next() orelse return error.NotFound;
+        const inp_arg = args.next() orelse return error.NotFound;
         const out_arg = args.next() orelse return error.NotFound;
 
         return .{
-            .inp = try std.fs.cwd().openFile(inp_arg, .{}),
             .cpu = try std.Target.Cpu.Arch.x86_64.parseCpuModel(cpu_arg),
+            .inp = try std.fs.cwd().openFile(inp_arg, .{}),
             .out = try std.fs.cwd().createFile(out_arg, .{}),
         };
     }
@@ -52,8 +52,21 @@ pub const Network = extern struct {
         l3b: [ob]i32 align(64),
     };
 
+    pub const input_buckets: [64]u8 = .{
+        // zig fmt: off
+         0,  1,  2,  3,  3,  2,  1,  0,
+         4,  5,  6,  7,  7,  6,  5,  4,
+         8,  9, 10, 11, 11, 10,  9,  8,
+         8,  9, 10, 11, 11, 10,  9,  8,
+        12, 12, 13, 13, 13, 13, 12, 12,
+        12, 12, 13, 13, 13, 13, 12, 12,
+        14, 14, 15, 15, 15, 15, 14, 14,
+        14, 14, 15, 15, 15, 15, 14, 14,
+        // zig fmt: on
+    };
+
     pub const ft = 768;
-    pub const ib = 16;
+    pub const ib = std.mem.max(u8, input_buckets[0..]) + 1;
     pub const ob = 8;
 
     pub const l1 = 1024;
@@ -98,6 +111,9 @@ pub fn main() !void {
     const parsed: Args = try .init(&args);
     defer parsed.deinit();
 
+    const has_avx512f = parsed.cpu.toCpu(.x86_64).has(.x86, .avx512f);
+    const has_avx2 = parsed.cpu.toCpu(.x86_64).has(.x86, .avx2);
+
     const input_bytes: []align(64) const u8 =
         try parsed.inp.readToEndAllocOptions(allocator, 64 * 1024 * 1024, null, .@"64", null);
     const raw: *const Network.Raw = @ptrCast(input_bytes);
@@ -114,9 +130,6 @@ pub fn main() !void {
     if (output_bytes.len != @sizeOf(Network)) {
         std.process.fatal("mismatched size: {} != {}", .{ output_bytes.len, @sizeOf(Network) });
     }
-
-    const has_avx512f = parsed.cpu.toCpu(.x86_64).has(.x86, .avx512f);
-    const has_avx2 = parsed.cpu.toCpu(.x86_64).has(.x86, .avx2);
 
     @memcpy(&network.l0w, &raw.l0w);
     @memcpy(&network.l0b, &raw.l0b);
