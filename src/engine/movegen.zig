@@ -83,7 +83,7 @@ pub const RootMove = struct {
                 return a.score > b.score;
             }
         }.inner;
-        std.sort.insertion(RootMove, s, {}, desc);
+        std.sort.pdq(RootMove, s, {}, desc);
     }
 
     pub fn update(
