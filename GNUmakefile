@@ -17,5 +17,9 @@ NETWORK =
 endif
 
 default:
-	-zig build --release=fast $(NETWORK)
+	# TODO: fix avx512 build
+	-zig build --release=fast \
+		-Dtarget=x86_64-linux-musl \
+		-Dcpu=native-avx512f-avx512vnni \
+		$(NETWORK)
 	@$(MV)
