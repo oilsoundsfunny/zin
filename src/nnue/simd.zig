@@ -116,15 +116,19 @@ pub fn Vec(comptime T: type) switch (T) {
     };
 }
 
-pub fn dpbusd(s: Vec(i32), u: Vec(u8), i: Vec(i8)) Vec(i32) {
-    return if (has_avx512vnni) .{ .v = asm ("vpdpbusd %[i], %[u], %[s]"
-        : [s] "+x" (-> Vec(i32).Inner),
-        : [u] "x" (u.v),
-          [i] "x" (i.v),
-    ) } else blk: {
+pub fn dpbusd(sum: Vec(i32), u: Vec(u8), i: Vec(i8)) Vec(i32) {
+    return if (has_avx512vnni) blk: {
+        var s = sum.v;
+        asm ("vpdpbusd %[i], %[u], %[s]"
+            : [s] "+x" (s),
+            : [u] "x" (u.v),
+              [i] "x" (i.v),
+        );
+        break :blk .{ .v = s };
+    } else blk: {
         const partial = maddubs(u, i);
         const dotprod = maddwd(partial, .splat(1));
-        break :blk s.add(dotprod);
+        break :blk sum.add(dotprod);
     };
 }
 
