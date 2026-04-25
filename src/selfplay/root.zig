@@ -37,7 +37,7 @@ const Options = struct {
     draw_adj_score: ?Score = null,
 };
 
-fn parseArgs(args: *std.process.ArgIterator) !Options {
+fn parseArgs(args: *std.process.Args.Iterator) !Options {
     const duped_err = "duplicated arg '{s}'";
     const expected_err = "expected arg after '{s}'";
     var options: Options = .{};
@@ -159,23 +159,23 @@ fn parseArgs(args: *std.process.ArgIterator) !Options {
     return options;
 }
 
-pub fn run(pool: *engine.Thread.Pool, args: *std.process.ArgIterator) !void {
+pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
     const options = try parseArgs(args);
 
     const data = options.data orelse std.process.fatal("missing arg '--data'", .{});
     const games = options.games orelse std.process.fatal("missing arg '--games'", .{});
-    var book = try Book.init(pool.allocator, options.book);
-    defer book.deinit(pool.allocator);
+    var book = try Book.init(pool.gpa, pool.stdio, options.book);
+    defer book.deinit(pool.gpa);
 
-    pool.io.deinit(pool.allocator);
-    pool.io = try .init(pool.allocator, null, std.atomic.cache_line, data, 65536);
+    pool.io.deinit(pool.gpa, pool.stdio);
+    pool.io = try .init(pool.gpa, pool.stdio, null, std.atomic.cache_line, data, 65536);
 
     const hash = options.hash orelse 128;
     const threads = options.threads orelse 1;
 
     try pool.realloc(threads);
-    pool.tt.deinit(pool.allocator);
-    pool.tt = try .init(pool.allocator, hash);
+    pool.tt.deinit(pool.gpa);
+    pool.tt = try .init(pool.gpa, hash);
     pool.clearHash();
 
     pool.limits.depth = options.depth;

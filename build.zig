@@ -99,7 +99,7 @@ fn createModule(
     return bld.createModule(opts);
 }
 
-fn processNetworks(bld: *std.Build) [3]std.Build.LazyPath {
+fn processNetworks(bld: *std.Build) [2]std.Build.LazyPath {
     const evalfile = bld.option([]const u8, "evalfile", "");
     const raw_network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
@@ -113,13 +113,6 @@ fn processNetworks(bld: *std.Build) [3]std.Build.LazyPath {
         }),
         .name = "transformer",
     });
-
-    const avx512f = blk: {
-        const run = bld.addRunArtifact(transformer);
-        run.addArg("x86_64_v4");
-        run.addFileArg(raw_network);
-        break :blk run.addOutputFileArg("avx512f.nnue");
-    };
 
     const avx2 = blk: {
         const run = bld.addRunArtifact(transformer);
@@ -135,7 +128,7 @@ fn processNetworks(bld: *std.Build) [3]std.Build.LazyPath {
         break :blk run.addOutputFileArg("scalar.nnue");
     };
 
-    return .{ avx512f, avx2, scalar };
+    return .{ avx2, scalar };
 }
 
 fn releaseTargets(bld: *std.Build) !std.ArrayList(std.Build.ResolvedTarget) {
@@ -232,9 +225,8 @@ pub fn build(bld: *std.Build) !void {
         }
 
         if (m == .nnue) {
-            module.addAnonymousImport("avx512f.nnue", .{ .root_source_file = networks[0] });
-            module.addAnonymousImport("avx2.nnue", .{ .root_source_file = networks[1] });
-            module.addAnonymousImport("scalar.nnue", .{ .root_source_file = networks[2] });
+            module.addAnonymousImport("avx2.nnue", .{ .root_source_file = networks[0] });
+            module.addAnonymousImport("scalar.nnue", .{ .root_source_file = networks[1] });
 
             const Network = @import("tools/nn.zig").Network;
             const options = bld.addOptions();
@@ -255,7 +247,8 @@ pub fn build(bld: *std.Build) !void {
         }
     }
 
-    const lto = bld.option(bool, "lto", "") orelse !has_debuginfo;
+    const lto: std.zig.LtoMode = bld.option(std.zig.LtoMode, "lto", "") orelse
+        if (has_debuginfo) .none else .thin;
     const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
     const version = @import("src/root.zig").version;
 
@@ -282,7 +275,6 @@ pub fn build(bld: *std.Build) !void {
                     module.addImport(dep_name, dep_module);
                 }
 
-                const is_linux = release_target.result.os.tag == .linux;
                 // TODO: ts lowkirkuinely leaks memory
                 const name = try std.mem.concat(bld.allocator, u8, &.{
                     exe_name, "-", version_string, "-", release_target.result.cpu.model.name,
@@ -296,7 +288,7 @@ pub fn build(bld: *std.Build) !void {
                         .use_lld = true,
                         .use_llvm = true,
                     });
-                    exe.want_lto = if (is_linux) lto else false;
+                    exe.lto = if (release_target.result.os.tag != .windows) lto else .none;
                     break :add_exe exe;
                 };
                 const sub_step = &bld.addInstallArtifact(comp, .{}).step;
@@ -319,7 +311,7 @@ pub fn build(bld: *std.Build) !void {
                     .use_lld = true,
                     .use_llvm = true,
                 });
-                exe.want_lto = lto;
+                exe.lto = if (target.result.os.tag != .windows) lto else .none;
                 break :add_exe exe;
             } else bld.addTest(.{
                 .root_module = module,

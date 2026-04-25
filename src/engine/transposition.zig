@@ -89,33 +89,38 @@ pub const Table = struct {
         return zobrist.index(key, self.slice.len);
     }
 
-    pub fn deinit(self: *Table, allocator: std.mem.Allocator) void {
-        allocator.free(self.slice);
+    fn madviseHugePage(self: *const Table) !void {
+        if (@hasField(std.posix.MADV, "HUGEPAGE")) {
+            try std.posix.madvise(
+                @ptrCast(self.slice.ptr),
+                @sizeOf(Cluster) * self.slice.len,
+                std.posix.MADV.HUGEPAGE,
+            );
+        }
+    }
+
+    pub fn deinit(self: *Table, gpa: std.mem.Allocator) void {
+        gpa.free(self.slice);
         self.slice = undefined;
         self.resetAge();
     }
 
-    pub fn init(allocator: std.mem.Allocator, mb: ?usize) !Table {
+    pub fn init(gpa: std.mem.Allocator, mb: ?usize) !Table {
         const options: Thread.Options = .{};
         const len = (mb orelse options.hash) * (1 << 20) / @sizeOf(Cluster);
 
         const page_size = std.heap.pageSize();
-        const slice = try allocator.alignedAlloc(Cluster, .fromByteUnits(page_size), len);
+        const slice = try gpa.alignedAlloc(Cluster, .fromByteUnits(page_size), len);
 
-        std.posix.madvise(
-            @ptrCast(slice.ptr),
-            slice.len * @sizeOf(Cluster),
-            std.c.MADV.HUGEPAGE,
-        ) catch |err| switch (err) {
-            error.MadviseUnavailable => {},
-            else => return err,
-        };
-        return .{ .slice = slice, .age = 0 };
+        const table: Table = .{ .slice = slice, .age = 0 };
+        try table.madviseHugePage();
+        return table;
     }
 
-    pub fn realloc(self: *Table, allocator: std.mem.Allocator, mb: usize) !void {
+    pub fn realloc(self: *Table, gpa: std.mem.Allocator, mb: usize) !void {
         const len = (mb << 20) / @sizeOf(Cluster);
-        self.slice = try allocator.realloc(self.slice, len);
+        self.slice = try gpa.realloc(self.slice, len);
+        try self.madviseHugePage();
     }
 
     pub fn hashfull(self: *const Table) usize {

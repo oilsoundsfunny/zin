@@ -30,23 +30,17 @@ pub fn run(pool: *engine.Thread.Pool, depth: ?engine.Thread.Depth) !void {
     pool.limits.depth = depth orelse 12;
     pool.limits.infinite = false;
 
-    const board = try pool.allocator.create(engine.Board);
-    defer pool.allocator.destroy(board);
+    const board = try pool.gpa.create(engine.Board);
+    defer pool.gpa.destroy(board);
 
     var sum: u64 = 0;
-    var time: u64 = 0;
-
     for (fens) |fen| {
         try board.parseFen(fen);
-
         pool.setBoard(board, true);
-        pool.bench();
-
-        time += pool.timer.lap();
-        sum += pool.nodes();
+        sum += pool.bench();
     }
 
-    const nps = sum * std.time.ns_per_s / time;
+    const nps = sum * std.time.ns_per_s / pool.elapsedNanosecs();
     try pool.io.writer().print("{d} nodes {d} nps\n", .{ sum, nps });
     try pool.io.writer().flush();
 }

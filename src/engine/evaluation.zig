@@ -39,8 +39,8 @@ pub const score = struct {
 
     fn wdlParams(m: Int) struct { f32, f32 } {
         // zig fmt: off
-        const p_a: [4]f32 = .{ -125.94470275,  361.13329132, -436.02351672, 465.82175860 };
-        const p_b: [4]f32 = .{   78.70983897, -167.31729756,  143.00239659,  57.40055307 };
+        const p_a: [4]f32 = .{ -5.27254245,  -3.58054810, 2.81336795, 284.63146557 };
+        const p_b: [4]f32 = .{ 49.23056003, -69.85434163, 48.23555930, 41.30969488 };
         // zig fmt: on
         const x: f32 = @floatFromInt(std.math.clamp(m, 17, 78));
 
@@ -130,12 +130,12 @@ pub const score = struct {
 };
 
 pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
-    pool.io.deinit(pool.allocator);
-    pool.io = try types.IO.init(pool.allocator, path, 65536, null, 65536);
-    pool.timer.reset();
+    pool.io.deinit(pool.gpa, pool.stdio);
+    pool.io = try types.IO.init(pool.gpa, pool.stdio, path, 65536, null, 65536);
+    pool.now = .now(pool.stdio, .real);
 
-    const board = try pool.allocator.create(Board);
-    defer pool.allocator.destroy(board);
+    const board = try pool.gpa.create(Board);
+    defer pool.gpa.destroy(board);
 
     var cnt: u32 = 0;
     var sum: i64 = 0;
@@ -166,7 +166,7 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
         if (cnt % 1024 == 0) {
             const fcnt: f64 = @floatFromInt(cnt);
             const fabs: f64 = @floatFromInt(abs_sum);
-            const time: f64 = @floatFromInt(pool.timer.read());
+            const time: f64 = @floatFromInt(pool.elapsedNanosecs());
 
             const avg = fabs / fcnt;
             const pps = fcnt / time * std.time.ns_per_s;
@@ -182,7 +182,7 @@ pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
         error.EndOfStream => {
             const fcnt: f64 = @floatFromInt(cnt);
             const fabs: f64 = @floatFromInt(abs_sum);
-            const time: f64 = @floatFromInt(pool.timer.read());
+            const time: f64 = @floatFromInt(pool.elapsedNanosecs());
 
             const avg = fabs / fcnt;
             const pps = fcnt / time * std.time.ns_per_s;

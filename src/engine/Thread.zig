@@ -33,33 +33,36 @@ const Request = union(Tag) {
     };
 };
 
+const page_size = std.heap.pageSize();
+
 pub const Depth = evaluation.score.Int;
 
 pub const Pool = struct {
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
+    stdio: std.Io,
     threads: std.ArrayList(Thread),
 
-    pawn_corrhist: []align(hist.Corr.page_size) hist.Corr.Pawn,
-    minor_corrhist: []align(hist.Corr.page_size) hist.Corr.Minor,
-    major_corrhist: []align(hist.Corr.page_size) hist.Corr.Major,
-    nonpawn_corrhist: []align(hist.Corr.page_size) hist.Corr.NonPawn,
+    pawn_corrhist: []align(page_size) hist.Corr.Pawn,
+    minor_corrhist: []align(page_size) hist.Corr.Minor,
+    major_corrhist: []align(page_size) hist.Corr.Major,
+    nonpawn_corrhist: []align(page_size) hist.Corr.NonPawn,
 
     searching: bool align(std.atomic.cache_line),
     sleeping: bool align(std.atomic.cache_line),
     stopped: bool align(std.atomic.cache_line),
 
-    cond: std.Thread.Condition align(std.atomic.cache_line),
-    mtx: std.Thread.Mutex align(std.atomic.cache_line),
+    cond: std.Io.Condition align(std.atomic.cache_line),
+    mtx: std.Io.Mutex align(std.atomic.cache_line),
 
     limits: Limits align(std.atomic.cache_line),
-    opts: Options,
-    timer: std.time.Timer,
+    opts: Options align(std.atomic.cache_line),
 
+    now: std.Io.Timestamp,
     io: types.IO,
     tt: transposition.Table,
 
     fn spawn(self: *Pool) !void {
-        const config: std.Thread.SpawnConfig = .{ .allocator = self.allocator };
+        const config: std.Thread.SpawnConfig = .{ .allocator = self.gpa };
         for (self.threads.items) |*thread| {
             thread.handle = try std.Thread.spawn(config, Thread.loop, .{thread});
         }
@@ -91,73 +94,49 @@ pub const Pool = struct {
 
     pub fn destroy(self: *Pool) void {
         self.join();
-        self.threads.deinit(self.allocator);
+        self.threads.deinit(self.gpa);
 
-        self.allocator.free(self.pawn_corrhist);
-        self.allocator.free(self.minor_corrhist);
-        self.allocator.free(self.major_corrhist);
-        self.allocator.free(self.nonpawn_corrhist);
+        self.gpa.free(self.pawn_corrhist);
+        self.gpa.free(self.minor_corrhist);
+        self.gpa.free(self.major_corrhist);
+        self.gpa.free(self.nonpawn_corrhist);
 
-        self.io.deinit(self.allocator);
-        self.tt.deinit(self.allocator);
+        self.io.deinit(self.gpa, self.stdio);
+        self.tt.deinit(self.gpa);
 
-        self.allocator.destroy(self);
+        self.gpa.destroy(self);
     }
 
-    pub fn create(
-        allocator: std.mem.Allocator,
-        opt_threads: ?usize,
-        io: types.IO,
-        tt: transposition.Table,
-    ) !*Pool {
+    pub fn create(gpa: std.mem.Allocator, stdio: std.Io) !*Pool {
         const options: Options = .{};
-        const threads = opt_threads orelse options.threads;
+        const pool = try gpa.create(Pool);
 
-        const pool = try allocator.create(Pool);
         pool.* = .{
-            .allocator = allocator,
-            .threads = try .initCapacity(allocator, threads),
+            .gpa = gpa,
+            .stdio = stdio,
+            .threads = try .initCapacity(gpa, 1),
 
-            .pawn_corrhist = try allocator.alignedAlloc(
-                hist.Corr.Pawn,
-                .fromByteUnits(hist.Corr.page_size),
-                hist.Corr.size * threads,
-            ),
-
-            .major_corrhist = try allocator.alignedAlloc(
-                hist.Corr.Major,
-                .fromByteUnits(hist.Corr.page_size),
-                hist.Corr.size * threads,
-            ),
-
-            .minor_corrhist = try allocator.alignedAlloc(
-                hist.Corr.Minor,
-                .fromByteUnits(hist.Corr.page_size),
-                hist.Corr.size * threads,
-            ),
-
-            .nonpawn_corrhist = try allocator.alignedAlloc(
-                hist.Corr.NonPawn,
-                .fromByteUnits(hist.Corr.page_size),
-                hist.Corr.size * threads,
-            ),
-
-            .cond = .{},
-            .mtx = .{},
-
-            .limits = .{},
-            .opts = options,
-            .timer = try std.time.Timer.start(),
+            .pawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Pawn, 1),
+            .minor_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Minor, 1),
+            .major_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Major, 1),
+            .nonpawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.NonPawn, 1),
 
             .searching = false,
             .sleeping = false,
             .stopped = true,
 
-            .io = io,
-            .tt = tt,
+            .cond = .init,
+            .mtx = .init,
+
+            .limits = .{},
+            .opts = options,
+
+            .now = .now(stdio, .real),
+            .io = try .init(gpa, stdio, null, 65536, null, 65536),
+            .tt = try .init(gpa, null),
         };
 
-        _ = try pool.threads.addManyAsSliceBounded(threads);
+        _ = try pool.threads.addManyAsSliceBounded(1);
         try pool.reset();
         try pool.spawn();
 
@@ -174,43 +153,43 @@ pub const Pool = struct {
     }
 
     pub fn realloc(self: *Pool, num: usize) !void {
-        const board = try self.allocator.create(Board);
+        const board = try self.gpa.create(Board);
         board.* = self.threads.items[0].board;
-        defer self.allocator.destroy(board);
+        defer self.gpa.destroy(board);
 
-        const prev_len = self.threads.items.len;
-        if (prev_len == num) {
+        const prev_num = self.threads.items.len;
+        if (prev_num == num) {
             return;
         }
 
         self.stopSearch();
         self.join();
 
-        if (prev_len < num) {
-            const add_n = num - prev_len;
-            _ = try self.threads.addManyAsSlice(self.allocator, add_n);
+        if (prev_num < num) {
+            const add_n = num - prev_num;
+            _ = try self.threads.addManyAsSlice(self.gpa, add_n);
         } else {
-            self.threads.items.len -= prev_len - num;
+            self.threads.items.len -= prev_num - num;
         }
 
-        self.pawn_corrhist = try self.allocator.realloc(
+        self.pawn_corrhist = try self.gpa.realloc(
             self.pawn_corrhist,
-            num * hist.Corr.size,
+            hist.Corr.per_thread * num,
         );
 
-        self.minor_corrhist = try self.allocator.realloc(
+        self.minor_corrhist = try self.gpa.realloc(
             self.minor_corrhist,
-            num * hist.Corr.size,
+            hist.Corr.per_thread * num,
         );
 
-        self.major_corrhist = try self.allocator.realloc(
+        self.major_corrhist = try self.gpa.realloc(
             self.major_corrhist,
-            num * hist.Corr.size,
+            hist.Corr.per_thread * num,
         );
 
-        self.nonpawn_corrhist = try self.allocator.realloc(
+        self.nonpawn_corrhist = try self.gpa.realloc(
             self.nonpawn_corrhist,
-            num * hist.Corr.size,
+            hist.Corr.per_thread * num,
         );
 
         for (self.threads.items, 0..) |*thread, i| {
@@ -231,7 +210,7 @@ pub const Pool = struct {
 
         self.limits = .{};
         self.opts = .{};
-        self.timer.reset();
+        self.now = .now(self.stdio, .real);
 
         for (self.threads.items, 0..) |*thread, i| {
             thread.* = .{
@@ -241,8 +220,8 @@ pub const Pool = struct {
             };
         }
 
-        const board = try self.allocator.create(Board);
-        defer self.allocator.destroy(board);
+        const board = try self.gpa.create(Board);
+        defer self.gpa.destroy(board);
 
         try board.parseFen(Board.Position.startpos);
         self.setBoard(board, false);
@@ -270,7 +249,7 @@ pub const Pool = struct {
         }
     }
 
-    pub fn bench(self: *Pool) void {
+    pub fn bench(self: *Pool) u64 {
         self.stopSearch();
         self.tt.doAge();
 
@@ -278,6 +257,7 @@ pub const Pool = struct {
         self.searching = true;
         self.wakeMain(.bench);
         self.waitMain();
+        return self.nodes();
     }
 
     pub fn clearHash(self: *Pool) void {
@@ -290,7 +270,7 @@ pub const Pool = struct {
     pub fn datagen(self: *Pool, rq: selfplay.Request) void {
         self.stopSearch();
         self.tt.doAge();
-        self.timer.reset();
+        self.now = .now(self.stdio, .real);
 
         self.stopped = false;
         self.searching = true;
@@ -318,6 +298,11 @@ pub const Pool = struct {
     pub fn waitSleep(self: *Pool) void {
         self.waitMain();
         self.waitHelpers();
+    }
+
+    pub fn elapsedNanosecs(self: *const Pool) u64 {
+        const now = std.Io.Clock.real.now(self.stdio);
+        return @intCast(self.now.durationTo(now).toNanoseconds());
     }
 };
 
@@ -380,9 +365,17 @@ pub const hist = struct {
         const Major = Pawn;
         const NonPawn = [color_n][color_n]Int;
 
-        const size = 1 << 16;
-        const page_size = std.heap.pageSize();
+        const per_thread = 65536;
+
         const values = std.enums.values(Corr);
+
+        fn alloc(gpa: std.mem.Allocator, comptime T: type, threads: usize) ![]align(page_size) T {
+            return gpa.alignedAlloc(T, .fromByteUnits(page_size), per_thread * threads);
+        }
+
+        fn realloc(gpa: std.mem.Allocator, old_mem: anytype, threads: usize) !@TypeOf(old_mem) {
+            return gpa.realloc(old_mem, per_thread * threads);
+        }
     };
 
     const color_n = 1 << types.Color.int_info.bits;
@@ -492,7 +485,7 @@ fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score
     inline for (hist.Corr.values) |t| {
         correction += switch (t) {
             .nonpawn => blk: {
-                const len = hist.Corr.size * self.pool.threads.items.len;
+                const len = hist.Corr.per_thread * self.pool.threads.items.len;
                 const keys = pos.nonpawn_keys;
 
                 const stm_i = zobrist.index(keys.getPtrConst(stm).*, len);
@@ -514,7 +507,7 @@ fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score
                     .major => pos.major_key,
                     else => unreachable,
                 };
-                const len = hist.Corr.size * self.pool.threads.items.len;
+                const len = hist.Corr.per_thread * self.pool.threads.items.len;
                 const idx = zobrist.index(key, len);
 
                 break :blk switch (t) {
@@ -547,7 +540,7 @@ fn updateCorrHists(
     inline for (hist.Corr.values) |t| {
         switch (t) {
             .nonpawn => {
-                const len = hist.Corr.size * self.pool.threads.items.len;
+                const len = hist.Corr.per_thread * self.pool.threads.items.len;
                 const keys = pos.nonpawn_keys;
 
                 const ntm = stm.flip();
@@ -580,7 +573,7 @@ fn updateCorrHists(
                     .major => pos.major_key,
                     else => unreachable,
                 };
-                const len = hist.Corr.size * self.pool.threads.items.len;
+                const len = hist.Corr.per_thread * self.pool.threads.items.len;
                 const idx = zobrist.index(key, len);
 
                 const p = switch (t) {
@@ -639,8 +632,8 @@ fn printInfo(
     const io = &self.pool.io;
     const tt = &self.pool.tt;
 
-    self.pool.mtx.lock();
-    defer self.pool.mtx.unlock();
+    self.pool.mtx.lockUncancelable(self.pool.stdio);
+    defer self.pool.mtx.unlock(self.pool.stdio);
 
     const writer = io.writer();
     const pv = opt_pv orelse {
@@ -649,9 +642,8 @@ fn printInfo(
         return;
     };
 
-    const timer = &self.pool.timer;
     const nodes = self.pool.nodes();
-    const ntime = timer.read();
+    const ntime = self.pool.elapsedNanosecs();
     const mtime = ntime / std.time.ns_per_ms;
 
     try writer.print("info", .{});
@@ -704,8 +696,8 @@ fn printInfo(
 }
 
 fn printBest(self: *const Thread, opt_pv: ?*const movegen.RootMove) !void {
-    self.pool.mtx.lock();
-    defer self.pool.mtx.unlock();
+    self.pool.mtx.lockUncancelable(self.pool.stdio);
+    defer self.pool.mtx.unlock(self.pool.stdio);
 
     const pv = opt_pv orelse {
         try self.pool.io.writer().print("bestmove 0000\n", .{});
@@ -736,11 +728,9 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
     const nodes_lim = if (which == .hard) limits.hard_nodes else limits.soft_nodes;
     if (nodes_lim != null and nodes >= nodes_lim.?) {
         return true;
-    } else if (nodes % 2048 != 0) {
-        return false;
     }
 
-    const movetime = blk: {
+    return nodes % 2048 == 0 and self.pool.elapsedNanosecs() >= blk: {
         const mlim = limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
 
@@ -752,9 +742,6 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
 
         break :blk if (which == .hard) nlim else std.math.shr(u64, nlim * nodetm, 20);
     };
-
-    const timer = &self.pool.timer;
-    return timer.read() >= movetime;
 }
 
 fn asp(self: *Thread) void {
@@ -1499,13 +1486,17 @@ fn qs(
 }
 
 fn loop(self: *Thread) !void {
+    const io = self.pool.stdio;
+    const cond = &self.pool.cond;
+    const mtx = &self.pool.mtx;
+
     idle: while (true) {
-        self.pool.mtx.lock();
+        mtx.lockUncancelable(io);
         while (self.request == .sleep) {
-            self.pool.cond.signal();
-            self.pool.cond.wait(&self.pool.mtx);
+            cond.signal(io);
+            cond.waitUncancelable(io, mtx);
         }
-        self.pool.mtx.unlock();
+        mtx.unlock(io);
 
         defer self.request = .sleep;
         switch (self.request) {
@@ -1518,22 +1509,29 @@ fn loop(self: *Thread) !void {
     }
 }
 
-fn waitBool(self: *Thread, cond: *bool) void {
-    self.pool.mtx.lock();
-    defer self.pool.mtx.unlock();
+fn waitBool(self: *Thread, sleep_cond: *bool) void {
+    const io = self.pool.stdio;
+    const cond = &self.pool.cond;
+    const mtx = &self.pool.mtx;
 
-    while (!cond.*) {
-        self.pool.cond.wait(&self.pool.mtx);
+    mtx.lockUncancelable(io);
+    defer mtx.unlock(io);
+    while (!sleep_cond.*) {
+        cond.waitUncancelable(io, mtx);
     }
 }
 
 fn waitSleep(self: *Thread) void {
-    self.pool.mtx.lock();
+    const io = self.pool.stdio;
+    const cond = &self.pool.cond;
+    const mtx = &self.pool.mtx;
+
+    mtx.lockUncancelable(io);
     while (self.request != .sleep) {
-        self.pool.cond.signal();
-        self.pool.cond.wait(&self.pool.mtx);
+        cond.signal(io);
+        cond.waitUncancelable(io, mtx);
     }
-    self.pool.mtx.unlock();
+    mtx.unlock(io);
 
     if (self.idx == 0) {
         self.pool.searching = false;
@@ -1541,11 +1539,14 @@ fn waitSleep(self: *Thread) void {
 }
 
 fn wake(self: *Thread, request: Request) void {
-    self.pool.mtx.lock();
-    defer self.pool.mtx.unlock();
+    const io = self.pool.stdio;
+    const cond = &self.pool.cond;
+    const mtx = &self.pool.mtx;
 
+    mtx.lockUncancelable(io);
+    defer mtx.unlock(io);
     self.request = request;
-    self.pool.cond.signal();
+    cond.signal(io);
 }
 
 fn clearHash(self: *Thread) void {
@@ -1569,10 +1570,13 @@ fn clearHash(self: *Thread) void {
         c.* = .{};
     }
 
-    self.pool.pawn_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
-    self.pool.minor_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
-    self.pool.major_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* = @splat(@splat(0));
-    self.pool.nonpawn_corrhist[i * hist.Corr.size ..][0..hist.Corr.size].* =
+    self.pool.pawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+        @splat(@splat(0));
+    self.pool.minor_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+        @splat(@splat(0));
+    self.pool.major_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+        @splat(@splat(0));
+    self.pool.nonpawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
         @splat(@splat(@splat(0)));
 }
 

@@ -11,27 +11,20 @@ const TunableValue = if (!tuning) void else struct {
 };
 
 const Values = blk: {
-    var fields: [tunables.len]std.builtin.Type.StructField = undefined;
-    for (tunables, 0..) |tunable, i| {
-        fields[i] = .{
-            .name = tunable.name,
-            .type = Int,
+    const Types: [tunables.len]type = @splat(Int);
+    var names: [tunables.len][]const u8 = undefined;
+    var attrs: [tunables.len]std.builtin.Type.StructField.Attributes = undefined;
+    for (tunables[0..], names[0..], attrs[0..]) |*tunable, *name, *attr| {
+        name.* = tunable.name[0..];
+        attr.* = .{
+            .@"comptime" = !tuning,
             .default_value_ptr = &tunable.value,
-            .is_comptime = !tuning,
-            .alignment = @alignOf(Int),
         };
     }
-
-    break :blk @Type(.{ .@"struct" = .{
-        .layout = .auto,
-        .fields = fields[0..],
-        .decls = &.{},
-        .is_tuple = false,
-    } });
+    break :blk @Struct(.auto, null, names[0..], Types[0..], attrs[0..]);
 };
 
-const map = if (!tuning)
-{} else blk: {
+const map = if (!tuning) {} else blk: {
     const KV = struct { []const u8, TunableValue };
     var kvs: [tunables.len]KV = undefined;
 

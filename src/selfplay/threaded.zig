@@ -26,10 +26,10 @@ fn playRandom(thread: *engine.Thread) !void {
     const rq = &thread.request.datagen;
     const random_moves = rq.random_moves;
 
-    const board = try thread.pool.allocator.create(engine.Board);
+    const board = try thread.pool.gpa.create(engine.Board);
     defer {
         thread.board = board.*;
-        thread.pool.allocator.destroy(board);
+        thread.pool.gpa.destroy(board);
     }
 
     find_line: while (true) : (board.* = thread.board) {
@@ -107,17 +107,17 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
 }
 
 fn readOpening(thread: *engine.Thread) ![]const u8 {
-    thread.pool.mtx.lock();
-    defer thread.pool.mtx.unlock();
+    thread.pool.mtx.lockUncancelable(thread.pool.stdio);
+    defer thread.pool.mtx.unlock(thread.pool.stdio);
 
     const line = try thread.pool.io.reader().takeDelimiterInclusive('\n');
-    const dupe = try thread.pool.allocator.dupe(u8, line);
+    const dupe = try thread.pool.gpa.dupe(u8, line);
     return dupe;
 }
 
 fn writeData(thread: *engine.Thread, data: *const ViriFormat) !void {
-    thread.pool.mtx.lock();
-    defer thread.pool.mtx.unlock();
+    thread.pool.mtx.lockUncancelable(thread.pool.stdio);
+    defer thread.pool.mtx.unlock(thread.pool.stdio);
 
     const writer = thread.pool.io.writer();
     try writer.writeAll(std.mem.asBytes(&data.head));
@@ -153,7 +153,7 @@ pub fn datagen(thread: *engine.Thread) !void {
         positions += data.line.constSlice().len -| 1;
 
         if (played % 256 == 0 or played >= games) {
-            const ntime = thread.pool.timer.read();
+            const ntime = thread.pool.elapsedNanosecs();
             const pps =
                 @as(f32, @floatFromInt(positions)) /
                 @as(f32, @floatFromInt(ntime)) *

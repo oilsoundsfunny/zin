@@ -2,26 +2,26 @@ const std = @import("std");
 
 const Args = struct {
     cpu: *const std.Target.Cpu.Model,
-    inp: std.fs.File,
-    out: std.fs.File,
+    inp: std.Io.File,
+    out: std.Io.File,
 
     const Error = error{NotFound};
 
-    fn init(args: *std.process.ArgIterator) !Args {
+    fn init(args: *std.process.Args.Iterator, io: std.Io) !Args {
         const cpu_arg = args.next() orelse return error.NotFound;
         const inp_arg = args.next() orelse return error.NotFound;
         const out_arg = args.next() orelse return error.NotFound;
 
         return .{
             .cpu = try std.Target.Cpu.Arch.x86_64.parseCpuModel(cpu_arg),
-            .inp = try std.fs.cwd().openFile(inp_arg, .{}),
-            .out = try std.fs.cwd().createFile(out_arg, .{}),
+            .inp = try std.Io.Dir.cwd().openFile(io, inp_arg, .{}),
+            .out = try std.Io.Dir.cwd().createFile(io, out_arg, .{}),
         };
     }
 
-    fn deinit(self: Args) void {
-        self.inp.close();
-        self.out.close();
+    fn deinit(self: Args, io: std.Io) void {
+        self.inp.close(io);
+        self.out.close(io);
     }
 };
 
@@ -99,33 +99,32 @@ fn permute(ptr: anytype, order: []const usize) void {
     }
 }
 
-pub fn main() !void {
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
-    const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
-
-    var args = try std.process.argsWithAllocator(allocator);
+pub fn main(init: std.process.Init) !void {
+    var args = try init.minimal.args.iterateAllocator(init.gpa);
     _ = args.skip();
     defer args.deinit();
 
-    const parsed: Args = try .init(&args);
-    defer parsed.deinit();
+    const parsed: Args = try .init(&args, init.io);
+    defer parsed.deinit(init.io);
 
     const has_avx512f = parsed.cpu.toCpu(.x86_64).has(.x86, .avx512f);
     const has_avx2 = parsed.cpu.toCpu(.x86_64).has(.x86, .avx2);
 
-    const input_bytes: []align(64) const u8 =
-        try parsed.inp.readToEndAllocOptions(allocator, 64 * 1024 * 1024, null, .@"64", null);
+    const input_bytes: []align(64) u8 =
+        try init.gpa.alignedAlloc(u8, .@"64", @sizeOf(Network.Raw));
     const raw: *const Network.Raw = @ptrCast(input_bytes);
-    defer allocator.free(input_bytes);
+    defer init.gpa.free(input_bytes);
 
     if (input_bytes.len != @sizeOf(Network.Raw)) {
         std.process.fatal("mismatched size: {} != {}", .{ input_bytes.len, @sizeOf(Network.Raw) });
+    } else if (input_bytes.len != try parsed.inp.readPositionalAll(init.io, input_bytes, 0)) {
+        std.process.fatal("expected size {}", .{input_bytes.len});
     }
 
-    const output_bytes = try allocator.alignedAlloc(u8, .@"64", input_bytes.len);
+    const output_bytes: []align(64) u8 =
+        try init.gpa.alignedAlloc(u8, .@"64", @sizeOf(Network));
     const network: *Network = @ptrCast(output_bytes);
-    defer allocator.free(output_bytes);
+    defer init.gpa.free(output_bytes);
 
     if (output_bytes.len != @sizeOf(Network)) {
         std.process.fatal("mismatched size: {} != {}", .{ output_bytes.len, @sizeOf(Network) });
@@ -169,5 +168,5 @@ pub fn main() !void {
     @memcpy(&network.l2b, &raw.l2b);
     @memcpy(&network.l3b, &raw.l3b);
 
-    try parsed.out.writeAll(output_bytes);
+    try parsed.out.writeStreamingAll(init.io, output_bytes);
 }

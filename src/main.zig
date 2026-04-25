@@ -61,26 +61,14 @@ pub const std_options: std.Options = .{
     .side_channels_mitigations = .basic,
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     try root.init();
     defer root.deinit();
 
-    const is_debug = builtin.mode == .Debug;
-    var gpa = if (is_debug) std.heap.DebugAllocator(.{}).init else {};
-    const allocator = if (is_debug) gpa.allocator() else std.heap.smp_allocator;
-    defer if (is_debug) {
-        _ = gpa.deinit();
-    };
-
-    const pool = try engine.Thread.Pool.create(
-        allocator,
-        null,
-        try .init(allocator, null, 16384, null, 16384),
-        try .init(allocator, null),
-    );
+    const pool = try engine.Thread.Pool.create(init.gpa, init.io);
     defer pool.destroy();
 
-    var args = try std.process.argsWithAllocator(allocator);
+    var args = try init.minimal.args.iterateAllocator(init.gpa);
     defer args.deinit();
 
     _ = args.skip();
@@ -112,7 +100,7 @@ pub fn main() !void {
             const epd = args.next() orelse std.process.fatal("expected arg after '{s}'", .{arg});
             return engine.evaluation.printStats(pool, epd);
         } else if (std.mem.eql(u8, arg, "help")) {
-            try std.fs.File.stdout().writeAll(help);
+            try std.Io.File.stdout().writeStreamingAll(init.io, help);
             std.process.exit(0);
         } else std.process.fatal("unknown arg '{s}'", .{arg});
     } else try engine.uci.loop(pool);

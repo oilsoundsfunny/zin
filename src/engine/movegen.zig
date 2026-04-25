@@ -14,19 +14,13 @@ pub const RootMove = struct {
     nodes: usize = 0,
 
     pub const List = struct {
-        array: types.BoundedArray(RootMove, null, capacity) = .{
-            .buffer = .{@as(RootMove, .{})} ** capacity,
-            .len = 0,
-        },
+        array: types.BoundedArray(RootMove, null, capacity) = .{},
 
         pub fn constSlice(self: *const List) []const RootMove {
             return self.slice();
         }
 
-        pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
-            []RootMove, []const RootMove => |T| T,
-            else => |T| @compileError("unexpected type " ++ @typeName(T)),
-        } {
+        pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *List, []RootMove) {
             return self.array.slice();
         }
 
@@ -70,10 +64,7 @@ pub const RootMove = struct {
         return self.slice();
     }
 
-    pub fn slice(self: anytype) switch (@TypeOf(self.line.slice())) {
-        []Move, []const Move => |T| T,
-        else => |T| @compileError("unexpected type " ++ @typeName(T)),
-    } {
+    pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *RootMove, []Move) {
         return self.line.slice();
     }
 
@@ -377,10 +368,7 @@ pub const Move = packed struct(u16) {
             return self.slice();
         }
 
-        pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
-            []Move, []const Move => |T| T,
-            else => |T| @compileError("unexpected type " ++ @typeName(T)),
-        } {
+        pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *List, []Move) {
             return self.array.slice();
         }
 

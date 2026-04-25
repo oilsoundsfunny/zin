@@ -10,9 +10,7 @@ const sparse = @import("sparse.zig");
 
 const page_size = std.heap.pageSize();
 const embedded align(page_size) =
-    if (simd.has_avx512vnni or simd.has_avx512f)
-        @embedFile("avx512f.nnue").*
-    else if (simd.has_avx2)
+    if (simd.has_avx2)
         @embedFile("avx2.nnue").*
     else
         @embedFile("scalar.nnue").*;
@@ -77,12 +75,12 @@ pub const Default = extern struct {
 
     fn activateL1(
         self: *const Self,
-        stm_inputs: *align(64) const [l1s]i16,
-        ntm_inputs: *align(64) const [l1s]i16,
+        stm_inputs: []align(1024) const i16,
+        ntm_inputs: []align(1024) const i16,
         l1: []align(page_size) u8,
     ) void {
         _ = self;
-        const inputs: [types.Color.num][]align(64) const i16 = .{ stm_inputs, ntm_inputs };
+        const inputs: [types.Color.num][]align(1024) const i16 = .{ stm_inputs, ntm_inputs };
 
         for (inputs, 0..) |input, which| {
             const half = l1s / 2;
