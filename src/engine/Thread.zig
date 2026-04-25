@@ -926,26 +926,24 @@ fn ab(
     }
 
     // reverse futility pruning (rfp)
-    // TODO: remove min margin
     if (!is_pv and
         !is_singular and
         !is_checked and
         d <= 7 and
-        corr_eval >= b + 6)
-    rfp: {
-        var margin = params.values.rfp_depth2 * d * d +
+        b <= corr_eval)
+    {
+        const depth_margin =
+            params.values.rfp_depth2 * d * d +
             params.values.rfp_depth1 * d +
             params.values.rfp_depth0;
-        margin = @divTrunc(margin, 1024);
-        margin = margin - params.values.rfp_ntm_worsening * @intFromBool(ntm_worsening);
+        const margin = @divTrunc(depth_margin, 1024) -
+            params.values.rfp_ntm_worsening * @intFromBool(ntm_worsening);
 
-        if (corr_eval < b + margin) {
-            break :rfp;
+        if (corr_eval >= b + margin) {
+            const lhs = corr_eval * params.values.rfp_fail_firm;
+            const rhs = b * (1024 - params.values.rfp_fail_firm);
+            return evaluation.score.clamp(@divTrunc(lhs + rhs, 1024));
         }
-
-        const lhs = corr_eval * params.values.rfp_fail_firm;
-        const rhs = b * (1024 - params.values.rfp_fail_firm);
-        return evaluation.score.clamp(@divTrunc(lhs + rhs, 1024));
     }
 
     // null move pruning
@@ -990,10 +988,10 @@ fn ab(
             const verified = d < 16 or verif_search: {
                 self.nmp_verif = true;
                 defer self.nmp_verif = false;
-
                 const vs = self.ab(.upperbound, ply + 1, b - 1, b, d - r);
                 break :verif_search vs >= b;
             };
+
             if (verified) {
                 return s;
             }
