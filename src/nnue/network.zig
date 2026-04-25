@@ -124,6 +124,7 @@ pub const Default = extern struct {
         ob: usize,
         l1: []align(page_size) const u8,
         l2: []align(page_size) i32,
+        l2_raw: []align(page_size) i32,
     ) void {
         const unroll = @sizeOf(i32) / @sizeOf(u8);
         const stride = simd.Vec(i32).len * unroll;
@@ -166,6 +167,7 @@ pub const Default = extern struct {
         }
 
         const out_vecs: []align(page_size) simd.Vec(i32) = @ptrCast(l2);
+        const raw_vecs: []align(page_size) simd.Vec(i32) = @ptrCast(l2_raw);
         for (acc[0..], 0..) |*lane, k| {
             var sum: simd.Vec(i32) = .splat(0);
             for (lane) |v| {
@@ -181,6 +183,7 @@ pub const Default = extern struct {
             const crelu = shifted.clamp(lo, hi).shl(q.bits());
             const csrelu = shifted.mul(shifted).clamp(lo, hi_sq);
 
+            raw_vecs[k] = shifted.mul(hi_sq);
             out_vecs[k] = crelu;
             out_vecs[k + acc_lanes] = csrelu;
         }
@@ -190,6 +193,7 @@ pub const Default = extern struct {
         self: *const Self,
         ob: usize,
         l2: []align(page_size) const i32,
+        l2_raw: []align(page_size) const i32,
         l3: []align(page_size) i32,
     ) void {
         const acc: []align(page_size) simd.Vec(i32) = @ptrCast(l3);
@@ -208,10 +212,14 @@ pub const Default = extern struct {
             }
         }
 
-        for (acc[0..]) |*lane| {
-            const lo: simd.Vec(i32) = .splat(0);
-            const hi: simd.Vec(i32) = .splat(q.pow(3));
-            lane.* = lane.clamp(lo, hi);
+        const raw: []align(page_size) const simd.Vec(i32) = @ptrCast(l2_raw);
+        var i: usize = 0;
+        while (i < l2.len / l2_raw.len) : (i += 1) {
+            for (acc[i * raw.len ..][0..raw.len], raw) |*lane, input| {
+                const lo: simd.Vec(i32) = .splat(0);
+                const hi: simd.Vec(i32) = .splat(q.pow(3));
+                lane.* = lane.clamp(lo, hi).add(input);
+            }
         }
     }
 
@@ -256,13 +264,14 @@ pub const Default = extern struct {
         };
 
         var l1: [l1s]u8 align(page_size) = @splat(0);
-        var l2: [l2s * 2]i32 align(page_size) = @splat(0);
+        var l2_raw: [l2s]i32 align(page_size) = @splat(0);
+        var l2: [2 * l2s]i32 align(page_size) = @splat(0);
         var l3: [l3s]i32 align(page_size) = @splat(0);
         var out: i64 = 0;
 
         self.activateL1(stm_inputs, ntm_inputs, &l1);
-        self.forwardL1(ob, &l1, &l2);
-        self.forwardL2(ob, &l2, &l3);
+        self.forwardL1(ob, &l1, &l2, &l2_raw);
+        self.forwardL2(ob, &l2, &l2_raw, &l3);
         self.forwardL3(ob, &l3, &out);
         return @intCast(out);
     }
