@@ -10,9 +10,7 @@ const sparse = @import("sparse.zig");
 
 const page_size = std.heap.pageSize();
 const embedded align(page_size) =
-    if (simd.has_avx512vnni or simd.has_avx512f)
-        @embedFile("avx512f.nnue").*
-    else if (simd.has_avx2)
+    if (simd.has_avx2)
         @embedFile("avx2.nnue").*
     else
         @embedFile("scalar.nnue").*;

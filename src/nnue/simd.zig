@@ -2,8 +2,6 @@ const builtin = @import("builtin");
 const std = @import("std");
 
 pub const has_avx2 = builtin.cpu.has(.x86, .avx2);
-pub const has_avx512f = builtin.cpu.has(.x86, .avx512f);
-pub const has_avx512vnni = builtin.cpu.has(.x86, .avx512vnni);
 
 pub fn Vec(comptime T: type) switch (T) {
     i8, u8, i16, u16, i32, u32 => type,
@@ -117,32 +115,20 @@ pub fn Vec(comptime T: type) switch (T) {
 }
 
 pub fn dpbusd(sum: Vec(i32), u: Vec(u8), i: Vec(i8)) Vec(i32) {
-    return if (has_avx512vnni) blk: {
-        var s = sum.v;
-        asm ("vpdpbusd %[i], %[u], %[s]"
-            : [s] "+x" (s),
-            : [u] "x" (u.v),
-              [i] "x" (i.v),
-        );
-        break :blk .{ .v = s };
-    } else blk: {
-        const partial = maddubs(u, i);
-        const dotprod = maddwd(partial, .splat(1));
-        break :blk sum.add(dotprod);
-    };
+    const partial = maddubs(u, i);
+    const dotprod = maddwd(partial, .splat(1));
+    return sum.add(dotprod);
 }
 
 pub fn dpbusd2(s: Vec(i32), uv0: Vec(u8), iv0: Vec(i8), uv1: Vec(u8), iv1: Vec(i8)) Vec(i32) {
-    return if (has_avx512vnni) dpbusd(dpbusd(s, uv0, iv0), uv1, iv1) else blk: {
-        const partials: [2]Vec(i16) = .{ maddubs(uv0, iv0), maddubs(uv1, iv1) };
-        const ones: Vec(i16) = .splat(1);
-        const dotprod = maddwd(.add(partials[0], partials[1]), ones);
-        break :blk s.add(dotprod);
-    };
+    const partials: [2]Vec(i16) = .{ maddubs(uv0, iv0), maddubs(uv1, iv1) };
+    const ones: Vec(i16) = .splat(1);
+    const dotprod = maddwd(.add(partials[0], partials[1]), ones);
+    return s.add(dotprod);
 }
 
 pub fn maddubs(u: Vec(u8), i: Vec(i8)) Vec(i16) {
-    return if (has_avx512f or has_avx2) .{ .v = asm ("vpmaddubsw %[i], %[u], %[dst]"
+    return if (has_avx2) .{ .v = asm ("vpmaddubsw %[i], %[u], %[dst]"
         : [dst] "=x" (-> Vec(i16).Inner),
         : [i] "x" (i.v),
           [u] "x" (u.v),
@@ -156,7 +142,7 @@ pub fn maddubs(u: Vec(u8), i: Vec(i8)) Vec(i16) {
 }
 
 pub fn maddwd(a: Vec(i16), b: Vec(i16)) Vec(i32) {
-    return if (has_avx512f or has_avx2) .{ .v = asm ("vpmaddwd %[b], %[a], %[dst]"
+    return if (has_avx2) .{ .v = asm ("vpmaddwd %[b], %[a], %[dst]"
         : [dst] "=x" (-> Vec(i32).Inner),
         : [a] "x" (a.v),
           [b] "x" (b.v),
@@ -170,7 +156,7 @@ pub fn maddwd(a: Vec(i16), b: Vec(i16)) Vec(i32) {
 }
 
 pub fn mulhi(a: Vec(i16), b: Vec(i16)) Vec(i16) {
-    return if (has_avx512f or has_avx2) .{ .v = asm ("vpmulhw %[b], %[a], %[dst]"
+    return if (has_avx2) .{ .v = asm ("vpmulhw %[b], %[a], %[dst]"
         : [dst] "=x" (-> Vec(i16).Inner),
         : [a] "x" (a.v),
           [b] "x" (b.v),
@@ -182,7 +168,7 @@ pub fn mulhi(a: Vec(i16), b: Vec(i16)) Vec(i16) {
 }
 
 pub fn packus(a: Vec(i16), b: Vec(i16)) Vec(u8) {
-    return if (has_avx512f or has_avx2) .{ .v = asm ("vpackuswb %[b], %[a], %[dst]"
+    return if (has_avx2) .{ .v = asm ("vpackuswb %[b], %[a], %[dst]"
         : [dst] "=x" (-> Vec(u8).Inner),
         : [a] "x" (a.v),
           [b] "x" (b.v),
