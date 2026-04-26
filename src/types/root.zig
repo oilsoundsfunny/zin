@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const IO = @import("IO.zig");
 
-const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
+const SquareSet = enum(@Int(.unsigned, Square.num)) {
     none = (1 << (Square.num * 0)) - 1,
     full = (1 << (Square.num * 1)) - 1,
     _,
@@ -132,7 +132,7 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
     }
 };
 
-const CastleSet = enum(std.meta.Int(.unsigned, Castle.num)) {
+const CastleSet = enum(@Int(.unsigned, Castle.num)) {
     none = (1 << (Castle.num * 0)) - 1,
     full = (1 << (Castle.num * 1)) - 1,
     _,
@@ -303,7 +303,7 @@ pub const Color = enum(u1) {
     }
 };
 
-pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_info.bits)) {
+pub const Piece = enum(@Int(.unsigned, Color.int_info.bits + Ptype.int_info.bits)) {
     w_pawn,
     b_pawn,
 
@@ -515,7 +515,7 @@ pub const File = enum(u3) {
     }
 };
 
-pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_info.bits)) {
+pub const Square = enum(@Int(.unsigned, Rank.int_info.bits + File.int_info.bits)) {
     // zig fmt: off
     a1, b1, c1, d1, e1, f1, g1, h1,
     a2, b2, c2, d2, e2, f2, g2, h2,

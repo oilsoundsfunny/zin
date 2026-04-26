@@ -62,13 +62,14 @@ const tunables = blk: {
 
     const fields = std.meta.fields(Zon);
     const inis: [fields.len]Tunable.Init = .{
-        .{ .name = "nodetm1", .min = 8, .max = 4096, .c_end = 24.0 },
-        .{ .name = "nodetm0", .min = 1024, .max = 2048, .c_end = 48.0 },
+        .{ .name = "nodetm_mult", .min = 8, .max = 4096, .c_end = 24.0 },
+        .{ .name = "nodetm_bias", .min = 1024, .max = 2048, .c_end = 48.0 },
 
-        .{ .name = "base_lmr_noisy1", .min = 4, .max = 64, .c_end = 1.0 },
-        .{ .name = "base_lmr_noisy0", .min = 256, .max = 4096, .c_end = 16.0 },
-        .{ .name = "base_lmr_quiet1", .min = 256, .max = 4096, .c_end = 36.0 },
-        .{ .name = "base_lmr_quiet0", .min = 256, .max = 4096, .c_end = 36.0 },
+        .{ .name = "base_lmr_noisy_mult", .min = 4, .max = 64, .c_end = 1.0 },
+        .{ .name = "base_lmr_noisy_bias", .min = 256, .max = 4096, .c_end = 16.0 },
+
+        .{ .name = "base_lmr_quiet_mult", .min = 256, .max = 4096, .c_end = 36.0 },
+        .{ .name = "base_lmr_quiet_bias", .min = 256, .max = 4096, .c_end = 36.0 },
 
         .{ .name = "see_ordering_pawn", .min = 0, .max = 2340, .c_end = 16.0 },
         .{ .name = "see_ordering_knight", .min = 0, .max = 2340, .c_end = 32.0 },
@@ -82,18 +83,26 @@ const tunables = blk: {
         .{ .name = "see_pruning_rook", .min = 0, .max = 2340, .c_end = 64.0 },
         .{ .name = "see_pruning_queen", .min = 0, .max = 2340, .c_end = 128.0 },
 
-        .{ .name = "base_time_mul", .min = 32, .max = 128, .c_end = 4.0 },
-        .{ .name = "base_incr_mul", .min = 256, .max = 1024, .c_end = 32.0 },
+        .{ .name = "base_time_mult", .min = 32, .max = 128, .c_end = 4.0 },
+        .{ .name = "base_incr_mult", .min = 256, .max = 1024, .c_end = 32.0 },
 
-        .{ .name = "max_hist_bonus", .min = 256, .max = 4096, .c_end = 256.0 },
-        .{ .name = "hist_bonus2", .min = 32, .max = 2048, .c_end = 64.0 },
-        .{ .name = "hist_bonus1", .min = 32, .max = 512, .c_end = 32.0 },
-        .{ .name = "hist_bonus0", .min = -768, .max = 768, .c_end = 64.0 },
+        .{ .name = "quiethist_max_bonus", .min = 256, .max = 4096, .c_end = 256.0 },
+        .{ .name = "quiethist_bonus_quad", .min = 32, .max = 2048, .c_end = 64.0 },
+        .{ .name = "quiethist_bonus_mult", .min = 32, .max = 512, .c_end = 32.0 },
+        .{ .name = "quiethist_bonus_bias", .min = -768, .max = 768, .c_end = 64.0 },
+        .{ .name = "quiethist_max_malus", .min = 256, .max = 4096, .c_end = 256.0 },
+        .{ .name = "quiethist_malus_quad", .min = 32, .max = 2048, .c_end = 64.0 },
+        .{ .name = "quiethist_malus_mult", .min = 32, .max = 512, .c_end = 32.0 },
+        .{ .name = "quiethist_malus_bias", .min = -768, .max = 768, .c_end = 64.0 },
 
-        .{ .name = "max_hist_malus", .min = 256, .max = 4096, .c_end = 256.0 },
-        .{ .name = "hist_malus2", .min = 32, .max = 2048, .c_end = 64.0 },
-        .{ .name = "hist_malus1", .min = 32, .max = 512, .c_end = 32.0 },
-        .{ .name = "hist_malus0", .min = -768, .max = 768, .c_end = 64.0 },
+        .{ .name = "noisyhist_max_bonus", .min = 256, .max = 4096, .c_end = 256.0 },
+        .{ .name = "noisyhist_bonus_quad", .min = 32, .max = 2048, .c_end = 64.0 },
+        .{ .name = "noisyhist_bonus_mult", .min = 32, .max = 512, .c_end = 32.0 },
+        .{ .name = "noisyhist_bonus_bias", .min = -768, .max = 768, .c_end = 64.0 },
+        .{ .name = "noisyhist_max_malus", .min = 256, .max = 4096, .c_end = 256.0 },
+        .{ .name = "noisyhist_malus_quad", .min = 32, .max = 2048, .c_end = 64.0 },
+        .{ .name = "noisyhist_malus_mult", .min = 32, .max = 512, .c_end = 32.0 },
+        .{ .name = "noisyhist_malus_bias", .min = -768, .max = 768, .c_end = 64.0 },
 
         .{ .name = "corr_pawn_w", .min = 256, .max = 4096, .c_end = 128.0 },
         .{ .name = "corr_minor_w", .min = 256, .max = 4096, .c_end = 128.0 },
@@ -108,7 +117,7 @@ const tunables = blk: {
         .{ .name = "corr_nonpawn_update_ntm_w", .min = 512, .max = 8192, .c_end = 256.0 },
 
         .{ .name = "asp_window", .min = 2, .max = 32, .c_end = 2.0 },
-        .{ .name = "asp_window_mul", .min = 4, .max = 256, .c_end = 32.0 },
+        .{ .name = "asp_window_mult", .min = 4, .max = 256, .c_end = 32.0 },
 
         .{ .name = "tt_depth_w", .min = 4, .max = 4096, .c_end = 64.0 },
         .{ .name = "tt_age_w", .min = 4, .max = 4096, .c_end = 128.0 },
@@ -118,51 +127,51 @@ const tunables = blk: {
         .{ .name = "tt_lowerbound_w", .min = 4, .max = 4096, .c_end = 8.0 },
         .{ .name = "tt_move_w", .min = 4, .max = 4096, .c_end = 8.0 },
 
-        .{ .name = "rfp_depth2", .min = 512, .max = 2048, .c_end = 64.0 },
-        .{ .name = "rfp_depth1", .min = 65536, .max = 262144, .c_end = 4096.0 },
-        .{ .name = "rfp_depth0", .min = 4096, .max = 16384, .c_end = 512.0 },
+        .{ .name = "rfp_depth_quad", .min = 512, .max = 2048, .c_end = 64.0 },
+        .{ .name = "rfp_depth_mult", .min = 65536, .max = 262144, .c_end = 4096.0 },
+        .{ .name = "rfp_depth_bias", .min = 4096, .max = 16384, .c_end = 512.0 },
         .{ .name = "rfp_ntm_worsening", .min = 8, .max = 128, .c_end = 1.0 },
         .{ .name = "rfp_fail_firm", .min = 0, .max = 1024, .c_end = 1.0 },
 
         .{ .name = "nmp_eval_margin", .min = 16, .max = 64, .c_end = 1.0 },
-        .{ .name = "nmp_base_reduction", .min = 512, .max = 2048, .c_end = 32.0 },
-        .{ .name = "nmp_depth_mul", .min = 64, .max = 256, .c_end = 4.0 },
+        .{ .name = "nmp_base_r", .min = 512, .max = 2048, .c_end = 32.0 },
+        .{ .name = "nmp_depth_mult", .min = 64, .max = 256, .c_end = 4.0 },
         .{ .name = "nmp_improving_r", .min = 128, .max = 512, .c_end = 8.0 },
-        .{ .name = "nmp_deval_mul", .min = 512, .max = 2048, .c_end = 32.0 },
+        .{ .name = "nmp_deval_mult", .min = 512, .max = 2048, .c_end = 32.0 },
         .{ .name = "nmp_deval_max_r", .min = 512, .max = 2048, .c_end = 64.0 },
 
-        .{ .name = "razoring_mul", .min = 256, .max = 1024, .c_end = 16.0 },
+        .{ .name = "razoring_mult", .min = 256, .max = 1024, .c_end = 16.0 },
 
-        .{ .name = "fp_margin0", .min = 128, .max = 512, .c_end = 16.0 },
-        .{ .name = "fp_margin1", .min = 64, .max = 256, .c_end = 8.0 },
-        .{ .name = "fp_hist_mul", .min = 8, .max = 128, .c_end = 2.0 },
+        .{ .name = "fp_margin_mult", .min = 64, .max = 256, .c_end = 8.0 },
+        .{ .name = "fp_margin_bias", .min = 128, .max = 512, .c_end = 16.0 },
+        .{ .name = "fp_hist_mult", .min = 8, .max = 128, .c_end = 2.0 },
 
-        .{ .name = "lmp_improving2", .min = 128, .max = 2048, .c_end = 64.0 },
-        .{ .name = "lmp_improving1", .min = -1024, .max = 1024, .c_end = 128.0 },
-        .{ .name = "lmp_improving0", .min = -8192, .max = 8192, .c_end = 256.0 },
+        .{ .name = "lmp_improving_quad", .min = 128, .max = 2048, .c_end = 64.0 },
+        .{ .name = "lmp_improving_mult", .min = -1024, .max = 1024, .c_end = 128.0 },
+        .{ .name = "lmp_improving_bias", .min = -8192, .max = 8192, .c_end = 256.0 },
 
-        .{ .name = "lmp_nonimproving2", .min = 128, .max = 2048, .c_end = 64.0 },
-        .{ .name = "lmp_nonimproving1", .min = -1024, .max = 1024, .c_end = 128.0 },
-        .{ .name = "lmp_nonimproving0", .min = -8192, .max = 8192, .c_end = 256.0 },
+        .{ .name = "lmp_nonimproving_quad", .min = 128, .max = 2048, .c_end = 64.0 },
+        .{ .name = "lmp_nonimproving_mult", .min = -1024, .max = 1024, .c_end = 128.0 },
+        .{ .name = "lmp_nonimproving_bias", .min = -8192, .max = 8192, .c_end = 256.0 },
 
-        .{ .name = "pvs_see_quiet_mul", .min = -256, .max = -64, .c_end = 4.0 },
-        .{ .name = "pvs_see_noisy_mul", .min = -256, .max = -64, .c_end = 4.0 },
+        .{ .name = "pvs_see_quiet_mult", .min = -256, .max = -64, .c_end = 4.0 },
+        .{ .name = "pvs_see_noisy_mult", .min = -256, .max = -64, .c_end = 4.0 },
         .{ .name = "pvs_see_max_capthist", .min = 64, .max = 256, .c_end = 4.0 },
-        .{ .name = "pvs_see_capthist_mul", .min = 16, .max = 64, .c_end = 1.0 },
+        .{ .name = "pvs_see_capthist_mult", .min = 16, .max = 64, .c_end = 1.0 },
 
-        .{ .name = "quiet_hist_pruning_lim", .min = 512, .max = 8192, .c_end = 128.0 },
-        .{ .name = "quiet_hist_pruning0", .min = 512, .max = 2048, .c_end = 48.0 },
-        .{ .name = "quiet_hist_pruning1", .min = -8192, .max = -512, .c_end = 128.0 },
+        .{ .name = "quiethist_pruning_lim", .min = 512, .max = 8192, .c_end = 128.0 },
+        .{ .name = "quiethist_pruning_mult", .min = -8192, .max = -512, .c_end = 128.0 },
+        .{ .name = "quiethist_pruning_bias", .min = 512, .max = 2048, .c_end = 48.0 },
 
-        .{ .name = "noisy_hist_pruning_lim", .min = 512, .max = 8192, .c_end = 128.0 },
-        .{ .name = "noisy_hist_pruning0", .min = 512, .max = 2048, .c_end = 48.0 },
-        .{ .name = "noisy_hist_pruning1", .min = -8192, .max = -512, .c_end = 128.0 },
+        .{ .name = "noisyhist_pruning_lim", .min = 512, .max = 8192, .c_end = 128.0 },
+        .{ .name = "noisyhist_pruning_mult", .min = -8192, .max = -512, .c_end = 128.0 },
+        .{ .name = "noisyhist_pruning_bias", .min = 512, .max = 2048, .c_end = 48.0 },
 
-        .{ .name = "se_bmul", .min = 256, .max = 1024, .c_end = 24.0 },
-        .{ .name = "se_bmul_pv", .min = 256, .max = 1024, .c_end = 32.0 },
-        .{ .name = "se_bmul_was_pv", .min = 256, .max = 1024, .c_end = 32.0 },
-        .{ .name = "se_d1", .min = 256, .max = 1024, .c_end = 32.0 },
-        .{ .name = "se_d0", .min = 512, .max = 2048, .c_end = 64.0 },
+        .{ .name = "se_beta_mult", .min = 256, .max = 1024, .c_end = 24.0 },
+        .{ .name = "se_beta_mult_pv", .min = 256, .max = 1024, .c_end = 32.0 },
+        .{ .name = "se_beta_mult_was_pv", .min = 256, .max = 1024, .c_end = 32.0 },
+        .{ .name = "se_depth_mult", .min = 256, .max = 1024, .c_end = 32.0 },
+        .{ .name = "se_depth_bias", .min = 512, .max = 2048, .c_end = 64.0 },
 
         .{ .name = "dext_quiet", .min = 8, .max = 32, .c_end = 1.0 },
         .{ .name = "dext_noisy", .min = 8, .max = 32, .c_end = 1.0 },
@@ -181,10 +190,15 @@ const tunables = blk: {
         .{ .name = "lmr_was_pv", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_was_pv_non_fail_low", .min = 0, .max = 4096, .c_end = 64.0 },
 
-        .{ .name = "deeper_margin1", .min = -1024, .max = 1024, .c_end = 32.0 },
-        .{ .name = "deeper_margin0", .min = -1024, .max = 1024, .c_end = 32.0 },
-        .{ .name = "shallower_margin1", .min = -1024, .max = 1024, .c_end = 32.0 },
-        .{ .name = "shallower_margin0", .min = -1024, .max = 1024, .c_end = 32.0 },
+        .{ .name = "deeper_margin_mult", .min = -1024, .max = 1024, .c_end = 32.0 },
+        .{ .name = "deeper_margin_bias", .min = -1024, .max = 1024, .c_end = 32.0 },
+
+        .{ .name = "shallower_margin_mult", .min = -1024, .max = 1024, .c_end = 32.0 },
+        .{ .name = "shallower_margin_bias", .min = -1024, .max = 1024, .c_end = 32.0 },
+
+        .{ .name = "pcm_mult", .min = 64, .max = 256, .c_end = 8.0 },
+        .{ .name = "pcm_bias", .min = 16, .max = 128, .c_end = 2.0 },
+        .{ .name = "pcm_max", .min = 512, .max = 2048, .c_end = 64.0 },
 
         .{ .name = "qs_fp_margin", .min = 8, .max = 128, .c_end = 2.0 },
     };
