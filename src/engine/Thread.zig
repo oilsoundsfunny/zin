@@ -773,10 +773,10 @@ fn asp(self: *Thread) void {
 
         if (s <= a) {
             b = @divTrunc(a + b, 2);
-            a = std.math.clamp(a - w, evaluation.score.mated, evaluation.score.mate);
+            a = @max(a - w, evaluation.score.mated);
         } else if (s >= b) {
             a = @divTrunc(a + b, 2);
-            b = std.math.clamp(b + w, evaluation.score.mated, evaluation.score.mate);
+            b = @min(b + w, evaluation.score.mate);
         } else break;
     }
 }
@@ -851,11 +851,7 @@ fn ab(
     const is_singular = !pos.excluded.isNone();
 
     const tt = self.pool.tt;
-    const tte, const tth = if (!is_singular) blk: {
-        var entry: transposition.Entry = .{};
-        const hit = tt.read(key, &entry);
-        break :blk .{ entry, hit };
-    } else .{ @as(transposition.Entry, .{}), false };
+    const tte: transposition.Entry, const tth = if (!is_singular) tt.read(key) else .{ .{}, false };
 
     const was_pv = tth and tte.was_pv;
     const ttscore = evaluation.score.fromTT(tte.score, ply);
@@ -1292,7 +1288,6 @@ fn ab(
             .flag = flag,
             .age = @truncate(tt.age),
             .depth = @intCast(depth),
-            .key = @truncate(key),
             .eval = @intCast(stat_eval),
             .score = @intCast(evaluation.score.toTT(best.score, ply)),
             .move = best.move,
@@ -1354,9 +1349,8 @@ fn qs(
     const key = pos.key;
     const is_checked = pos.isChecked();
 
-    var tte: transposition.Entry = .{};
     const tt = self.pool.tt;
-    const tth = tt.read(key, &tte);
+    const tte, const tth = tt.read(key);
     const ttscore = evaluation.score.fromTT(tte.score, ply);
 
     if (tth and tte.shouldTrust(a, b, 0)) {
@@ -1470,17 +1464,15 @@ fn qs(
         return loss;
     }
 
-    tte = .{
+    tt.write(key, .{
         .was_pv = tte.was_pv,
         .flag = flag,
         .age = @truncate(tt.age),
         .depth = 0,
-        .key = @truncate(key),
         .eval = @intCast(stat_eval),
         .score = @intCast(evaluation.score.toTT(best.score, ply)),
         .move = best.move,
-    };
-    tt.write(key, tte);
+    });
 
     return best.score;
 }
@@ -1550,16 +1542,16 @@ fn wake(self: *Thread, request: Request) void {
 }
 
 fn clearHash(self: *Thread) void {
-    const tt = self.pool.tt.slice;
-    if (tt.len == 0) {
-        return;
-    }
-
+    const tt = self.pool.tt.clusters;
     const i = self.idx;
     const n = self.cnt;
     const d = tt.len / n;
     const m = tt.len % n;
     var p = tt.ptr;
+
+    if (d == 0 and m == 0) {
+        return;
+    }
 
     for (0..i) |it| {
         p += if (it < m) d + 1 else d;
