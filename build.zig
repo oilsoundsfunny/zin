@@ -104,7 +104,7 @@ fn processNetworks(bld: *std.Build) [2]std.Build.LazyPath {
     const raw_network: std.Build.LazyPath = if (evalfile) |path|
         .{ .cwd_relative = path }
     else
-        bld.dependency("nets", .{}).path("main.bin");
+        bld.dependency("nets", .{}).path("crumbs.bin");
 
     const transformer = bld.addExecutable(.{
         .root_module = bld.createModule(.{
