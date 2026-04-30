@@ -90,6 +90,29 @@ pub const Entry = packed struct(u64) {
 const Cluster = struct {
     entries: [3]Entry = @splat(.{}),
     hashes: [4]u16 = @splat(0),
+
+    fn load(self: *const Cluster) Cluster {
+        const p128: [*]const u128 = @alignCast(@ptrCast(self)); 
+        const halves: [2]u128 = .{
+            @atomicLoad(u128, &p128[0], .monotonic),
+            @atomicLoad(u128, &p128[1], .monotonic),
+        };
+        const quarters: [4]u64 = @bitCast(halves);
+        return .{ .entries = @bitCast(quarters[0..3].*), .hashes = @bitCast(quarters[3]) };
+    }
+
+    fn entriesVec(self: *const Cluster, padding: Entry) @Vector(4, u64) {
+        return .{
+            @bitCast(self.entries[0]),
+            @bitCast(self.entries[1]),
+            @bitCast(self.entries[2]),
+            @bitCast(padding),
+        };
+    }
+
+    fn hashesVec(self: *const Cluster, padding: u16) @Vector(4, u16) {
+        return .{ self.hashes[0], self.hashes[1], self.hashes[2], padding };
+    }
 };
 
 pub const Table = struct {
@@ -200,46 +223,32 @@ pub const Table = struct {
 
     pub fn read(self: *const Table, pos_hash: zobrist.Int) struct { Entry, bool } {
         const cluster = &self.clusters[self.index(pos_hash)];
-        const entries: [4]Entry align(32) = .{
-            @atomicLoad(Entry, &cluster.entries[0], .monotonic),
-            @atomicLoad(Entry, &cluster.entries[1], .monotonic),
-            @atomicLoad(Entry, &cluster.entries[2], .monotonic),
-            .{},
-        };
-        const entries_vec: @Vector(4, u64) = @bitCast(entries);
+        const loaded = cluster.load();
+
+        const entries_vec: @Vector(4, u64) = loaded.entriesVec(.{});
+        const entries: [4]Entry align(32) = @bitCast(entries_vec);
 
         const short_hash: u16 = @truncate(pos_hash);
         const short_hashes: @Vector(4, u16) = @splat(short_hash);
-        const hashes: @Vector(4, u16) = blk: {
-            const p64: *const u64 = @alignCast(@ptrCast(cluster.hashes[0..].ptr));
-            const load: @Vector(4, u16) = @bitCast(@atomicLoad(u64, p64, .monotonic));
-            break :blk .{ load[0], load[1], load[2], ~short_hash };
-        };
+        const hashes_vec = cluster.hashesVec(~short_hash);
 
         const valids = entries_vec & Entry.flags_vec != Entry.none_vec;
-        const matches = hashes == short_hashes;
+        const matches = hashes_vec == short_hashes;
         const hits = valids & matches;
         return if (std.simd.firstTrue(hits)) |i| .{ entries[i], true } else .{ entries[3], false };
     }
 
     pub fn write(self: *const Table, pos_hash: zobrist.Int, src: Entry) void {
         const cluster = &self.clusters[self.index(pos_hash)];
-        const entries: [4]Entry align(32) = .{
-            @atomicLoad(Entry, &cluster.entries[0], .monotonic),
-            @atomicLoad(Entry, &cluster.entries[1], .monotonic),
-            @atomicLoad(Entry, &cluster.entries[2], .monotonic),
-            .{ .flag = .exact },
-        };
-        const entries_vec: @Vector(4, u64) = @bitCast(entries);
+        const loaded = cluster.load();
+
+        const entries_vec: @Vector(4, u64) = loaded.entriesVec(.{ .flag = .exact });
+        const entries: [4]Entry align(32) = @bitCast(entries_vec);
 
         const short_hash: u16 = @truncate(pos_hash);
         const short_hashes: @Vector(4, u16) = @splat(short_hash);
-        const hashes: [4]u16 = blk: {
-            const p: *const u64 = @alignCast(@ptrCast(cluster.hashes[0..].ptr));
-            const load: [4]u16 = @bitCast(@atomicLoad(u64, p, .monotonic));
-            break :blk .{ load[0], load[1], load[2], ~short_hash };
-        };
-        const hashes_vec: @Vector(4, u16) = @bitCast(hashes);
+        const hashes_vec = cluster.hashesVec(~short_hash);
+        const hashes: [4]u16 align(@alignOf(u64)) = @bitCast(hashes_vec);
 
         const nones = entries_vec & Entry.flags_vec == Entry.none_vec;
         const matches = hashes_vec == short_hashes;
