@@ -99,38 +99,6 @@ fn createModule(
     return bld.createModule(opts);
 }
 
-fn processNetworks(bld: *std.Build) [2]std.Build.LazyPath {
-    const evalfile = bld.option([]const u8, "evalfile", "");
-    const raw_network: std.Build.LazyPath = if (evalfile) |path|
-        .{ .cwd_relative = path }
-    else
-        bld.dependency("nets", .{}).path("crumbs.bin");
-
-    const transformer = bld.addExecutable(.{
-        .root_module = bld.createModule(.{
-            .root_source_file = bld.path("tools/nn.zig"),
-            .target = bld.graph.host,
-        }),
-        .name = "transformer",
-    });
-
-    const avx2 = blk: {
-        const run = bld.addRunArtifact(transformer);
-        run.addArg("x86_64_v3");
-        run.addFileArg(raw_network);
-        break :blk run.addOutputFileArg("avx2.nnue");
-    };
-
-    const scalar = blk: {
-        const run = bld.addRunArtifact(transformer);
-        run.addArg("x86_64_v2");
-        run.addFileArg(raw_network);
-        break :blk run.addOutputFileArg("scalar.nnue");
-    };
-
-    return .{ avx2, scalar };
-}
-
 fn releaseTargets(bld: *std.Build) !std.ArrayList(std.Build.ResolvedTarget) {
     const triples: [2][]const u8 = .{
         "x86_64-linux-musl",
@@ -211,8 +179,11 @@ pub fn build(bld: *std.Build) !void {
         root.addImport(name, module);
     }
 
-    // TODO: named instead of array
-    const networks = processNetworks(bld);
+    const evalfile = bld.option([]const u8, "evalfile", "");
+    const network: std.Build.LazyPath = if (evalfile) |path|
+        .{ .cwd_relative = path }
+    else
+        bld.dependency("nets", .{}).path("1024hl-16b-8ob-100426.nnue");
 
     for (Modules.values) |m| {
         const deps = Modules.dependencies.get(m);
@@ -225,20 +196,7 @@ pub fn build(bld: *std.Build) !void {
         }
 
         if (m == .nnue) {
-            module.addAnonymousImport("avx2.nnue", .{ .root_source_file = networks[0] });
-            module.addAnonymousImport("scalar.nnue", .{ .root_source_file = networks[1] });
-
-            const Network = @import("tools/nn.zig").Network;
-            const options = bld.addOptions();
-            options.addOption([64]u8, "input_buckets", Network.input_buckets);
-            options.addOption(comptime_int, "ibn", Network.ib);
-            options.addOption(comptime_int, "obn", Network.ob);
-
-            options.addOption(comptime_int, "l1", Network.l1);
-            options.addOption(comptime_int, "l2", Network.l2);
-            options.addOption(comptime_int, "l3", Network.l3);
-
-            module.addOptions("options", options);
+            module.addAnonymousImport("embed.nnue", .{ .root_source_file = network });
         } else if (m == .params) {
             const tuning = bld.option(bool, "tuning", "") orelse false;
             const options = bld.addOptions();

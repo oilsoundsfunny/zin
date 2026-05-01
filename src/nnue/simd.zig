@@ -16,7 +16,8 @@ pub fn Vec(comptime T: type) switch (T) {
             @compileError("cpu doesn't support vectors with 32bit elements");
 
         pub const Inner = @Vector(len, T);
-        pub const len = dwords * @sizeOf(u32) / @sizeOf(T);
+        pub const bytes = dwords * @sizeOf(u32) / @sizeOf(u8);
+        pub const len = bytes * @sizeOf(u8) / @sizeOf(T);
 
         pub fn bitCast(vec: anytype) Self {
             if (@bitSizeOf(@TypeOf(vec.v)) != @bitSizeOf(Inner)) {
@@ -82,14 +83,11 @@ pub fn Vec(comptime T: type) switch (T) {
             return @reduce(op, self.v);
         }
 
-        pub fn load(ptr: anytype) Self {
-            const p: *const Inner = switch (@TypeOf(ptr)) {
-                [*]const T,
-                [*]align(@alignOf(T)) const T,
-                []const T,
-                []align(@alignOf(T)) const T,
-                    => @alignCast(@ptrCast(ptr[0..len])),
-                *const Inner => ptr,
+        pub fn load(p: anytype) Self {
+            return .{ .v = switch (@TypeOf(p)) {
+                []align(bytes) const T => @bitCast(p[0..len].*),
+                *const Inner => p.*,
+                *const Self => p.v,
                 else => |P| {
                     const msg = std.fmt.comptimePrint(
                         "expected slice of {s}s or ref to {s}, found {s}",
@@ -97,18 +95,14 @@ pub fn Vec(comptime T: type) switch (T) {
                     );
                     @compileError(msg);
                 },
-            };
-            return .{ .v = p.* };
+            } };
         }
 
-        pub fn store(self: *const Self, ptr: anytype) void {
-            const p: *Inner = switch (@TypeOf(ptr)) {
-                [*]T,
-                [*]align(@alignOf(T)) T,
-                []T,
-                []align(@alignOf(T)) T,
-                    => @alignCast(@ptrCast(ptr[0..len])),
-                *Inner => ptr,
+        pub fn store(self: *const Self, p: anytype) void {
+            switch (@TypeOf(p)) {
+                []align(bytes) T => p[0..len].* = self.v,
+                *Inner => p.* = self.v,
+                *Self => p.* = self,
                 else => |P| {
                     const msg = std.fmt.comptimePrint(
                         "expected slice of mut {s}s or mut ref to {s}, found {s}",
@@ -116,8 +110,7 @@ pub fn Vec(comptime T: type) switch (T) {
                     );
                     @compileError(msg);
                 },
-            };
-            p.* = self.v;
+            }
         }
     };
 }
