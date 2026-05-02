@@ -90,7 +90,7 @@ pub fn Vec(comptime T: type) switch (T) {
                 *const Self => p.v,
                 else => |P| {
                     const msg = std.fmt.comptimePrint(
-                        "expected slice of {s}s or ref to {s}, found {s}",
+                        "expected aligned slice of {s}s or ref to {s}, found {s}",
                         .{ @typeName(T), @typeName(Inner), @typeName(P) },
                     );
                     @compileError(msg);
@@ -100,12 +100,12 @@ pub fn Vec(comptime T: type) switch (T) {
 
         pub fn store(self: *const Self, p: anytype) void {
             switch (@TypeOf(p)) {
-                []align(bytes) T => p[0..len].* = self.v,
+                []align(bytes) T => p[0..len].* = @bitCast(self.v),
                 *Inner => p.* = self.v,
                 *Self => p.* = self,
                 else => |P| {
                     const msg = std.fmt.comptimePrint(
-                        "expected slice of mut {s}s or mut ref to {s}, found {s}",
+                        "expected aligned slice of mut {s}s or mut ref to {s}, found {s}",
                         .{ @typeName(T), @typeName(Inner), @typeName(P) },
                     );
                     @compileError(msg);
