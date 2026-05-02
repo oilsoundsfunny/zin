@@ -175,6 +175,7 @@ const tunables = blk: {
         .{ .name = "lmr_non_improving", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_cutnode", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_noisy_ttm", .min = 0, .max = 4096, .c_end = 64.0 },
+        .{ .name = "lmr_found_pv", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_gave_check", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_is_checked", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_is_pv", .min = 0, .max = 4096, .c_end = 64.0 },

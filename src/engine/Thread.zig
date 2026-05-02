@@ -1180,21 +1180,19 @@ fn ab(
                 // 10.0+0.1: 48.29 +- 15.89
                 r += base_lmr;
 
-                r += @as(@TypeOf(d), @intFromBool(!improving)) * params.values.lmr_non_improving;
-                r += @as(@TypeOf(d), @intFromBool(node == .lowerbound)) * params.values.lmr_cutnode;
-                r += @as(@TypeOf(d), @intFromBool(is_ttm_noisy)) * params.values.lmr_noisy_ttm;
+                r += params.values.lmr_non_improving * @intFromBool(!improving);
+                r += params.values.lmr_cutnode * @intFromBool(node == .lowerbound);
+                r += params.values.lmr_noisy_ttm * @intFromBool(is_ttm_noisy);
+                r += params.values.lmr_found_pv * @intFromBool(flag == .exact);
 
-                r -= @as(@TypeOf(d), @intFromBool(board.positions.last().isChecked())) *
-                    params.values.lmr_gave_check;
-                r -= @as(@TypeOf(d), @intFromBool(is_checked)) *
-                    params.values.lmr_is_checked;
-                r -= @as(@TypeOf(d), @intFromBool(is_pv)) *
-                    params.values.lmr_is_pv;
+                r -= params.values.lmr_gave_check *
+                    @intFromBool(board.positions.last().isChecked());
+                r -= params.values.lmr_is_checked * @intFromBool(is_checked);
+                r -= params.values.lmr_is_pv * @intFromBool(is_pv);
 
-                r -= @as(@TypeOf(d), @intFromBool(was_pv)) *
-                    params.values.lmr_was_pv;
-                r -= @as(@TypeOf(d), @intFromBool(was_pv and ttscore > a)) *
-                    params.values.lmr_was_pv_non_fail_low;
+                r -= params.values.lmr_was_pv * @intFromBool(was_pv);
+                r -= params.values.lmr_was_pv_non_fail_low *
+                    @intFromBool(was_pv and ttscore > a);
 
                 r = @divTrunc(r, 1024);
                 const rd = std.math.clamp(recur_d - r, 1, recur_d);
