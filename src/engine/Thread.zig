@@ -1028,6 +1028,7 @@ fn ab(
             continue :move_loop;
         }
 
+        const is_direct_check = pos.isDirectCheck(m);
         const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
         const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
 
@@ -1056,14 +1057,31 @@ fn ab(
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
             const fp_margin =
-                @divTrunc(sm.score * params.values.fp_hist_mul, 16384) +
                 params.values.fp_margin1 * fp_d +
-                params.values.fp_margin0;
+                params.values.fp_margin0 +
+                @divTrunc(sm.score * params.values.fp_hist_mul, 16384);
             if (fp_d <= 8 and
                 !is_noisy and
                 !is_checked and
                 a < evaluation.score.win and
                 corr_eval + fp_margin <= a)
+            {
+                continue :move_loop;
+            }
+
+            // futility pruning on bad noisy moves
+            const bnfp_d = fp_d;
+            const bnfp_margin =
+                params.values.bnfp_margin1 * bnfp_d +
+                params.values.bnfp_margin0 +
+                @divTrunc(sm.score * params.values.bnfp_hist_mul, 16384);
+            if (bnfp_d <= 8 and
+                mp.stage.isBad() and
+                !is_quiet and
+                !is_checked and
+                !is_direct_check and
+                a < evaluation.score.win and
+                corr_eval + bnfp_margin <= a)
             {
                 continue :move_loop;
             }
@@ -1080,7 +1098,7 @@ fn ab(
                         params.values.lmp_nonimproving1 * d +
                         params.values.lmp_nonimproving0;
                 const div: usize = @intCast(@divTrunc(base, 1024));
-                break :blk @max(div + @intFromBool(pos.isDirectCheck(m)), 1);
+                break :blk @max(div + @intFromBool(is_direct_check), 1);
             };
             if (searched > lmp_lim) {
                 break :move_loop;
