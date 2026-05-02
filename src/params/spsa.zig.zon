@@ -89,6 +89,7 @@
     .lmr_non_improving = 711,
     .lmr_cutnode = 1840,
     .lmr_noisy_ttm = 1290,
+    .lmr_found_pv = 1024,
     .lmr_gave_check = 1555,
     .lmr_is_checked = 60,
     .lmr_is_pv = 840,
