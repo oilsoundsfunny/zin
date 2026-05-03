@@ -325,8 +325,8 @@ pub const Limits = struct {
             const incr = self.incr.get(stm).?;
             const time = self.time.get(stm).?;
 
-            const im: u64 = @intCast(params.values.base_incr_mul);
-            const tm: u64 = @intCast(params.values.base_time_mul);
+            const im: u64 = @intCast(params.values.tm_incr_mult);
+            const tm: u64 = @intCast(params.values.tm_time_mult);
 
             break :blk @divTrunc(time * tm + incr * im, 1024) -| overhead;
         };
@@ -387,20 +387,36 @@ pub const hist = struct {
     pub const min = std.math.minInt(Int) / 2;
     pub const max = -min;
 
-    fn bonus(d: Depth) evaluation.score.Int {
-        const x: evaluation.score.Int =
-            params.values.hist_bonus2 * d * d +
-            params.values.hist_bonus1 * d +
-            params.values.hist_bonus0;
-        return @min(x, params.values.max_hist_bonus);
+    fn quietBonus(d: Depth) evaluation.score.Int {
+        const v =
+            params.values.quiethist_bonus_quad * d * d +
+            params.values.quiethist_bonus_mult * d +
+            params.values.quiethist_bonus_bias;
+        return @min(v, params.values.quiethist_max_bonus);
     }
 
-    fn malus(d: Depth) evaluation.score.Int {
-        const x: evaluation.score.Int =
-            params.values.hist_malus2 * d * d +
-            params.values.hist_malus1 * d +
-            params.values.hist_malus0;
-        return -@min(x, params.values.max_hist_malus);
+    fn quietMalus(d: Depth) evaluation.score.Int {
+        const v =
+            params.values.quiethist_malus_quad * d * d +
+            params.values.quiethist_malus_mult * d +
+            params.values.quiethist_malus_bias;
+        return @min(v, params.values.quiethist_max_malus);
+    }
+
+    fn noisyBonus(d: Depth) evaluation.score.Int {
+        const v =
+            params.values.noisyhist_bonus_quad * d * d +
+            params.values.noisyhist_bonus_mult * d +
+            params.values.noisyhist_bonus_bias;
+        return @min(v, params.values.noisyhist_max_bonus);
+    }
+
+    fn noisyMalus(d: Depth) evaluation.score.Int {
+        const v =
+            params.values.noisyhist_malus_quad * d * d +
+            params.values.noisyhist_malus_mult * d +
+            params.values.noisyhist_malus_bias;
+        return @min(v, params.values.noisyhist_max_malus);
     }
 
     fn gravity(p: *Int, dx: evaluation.score.Int) void {
@@ -595,14 +611,14 @@ fn updateHist(
     bad_noisy_moves: []const movegen.Move,
     bad_quiet_moves: []const movegen.Move,
 ) void {
-    const bonus = hist.bonus(depth);
-    const malus = hist.malus(depth);
-
     const is_quiet = move.flag.isQuiet();
     if (is_quiet) {
+        const bonus = hist.quietBonus(depth);
+        const malus = hist.quietMalus(depth);
+
         hist.gravity(self.quietHistPtr(move), bonus);
         for (bad_quiet_moves) |qm| {
-            hist.gravity(self.quietHistPtr(qm), malus);
+            hist.gravity(self.quietHistPtr(qm), -malus);
         }
 
         const cont_plies = [_]usize{ 1, 2, 4, 6 };
@@ -610,16 +626,18 @@ fn updateHist(
             if (self.contHistPtr(move, ply)) |p| {
                 hist.gravity(p, bonus);
                 for (bad_quiet_moves) |qm| {
-                    hist.gravity(self.contHistPtr(qm, ply).?, malus);
+                    hist.gravity(self.contHistPtr(qm, ply).?, -malus);
                 }
             } else break;
         }
     } else {
+        const bonus = hist.noisyBonus(depth);
         hist.gravity(self.noisyHistPtr(move), bonus);
     }
 
+    const malus = hist.noisyMalus(depth);
     for (bad_noisy_moves) |nm| {
-        hist.gravity(self.noisyHistPtr(nm), malus);
+        hist.gravity(self.noisyHistPtr(nm), -malus);
     }
 }
 
@@ -734,11 +752,11 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
         const mlim = limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
 
-        const node0: u64 = @intCast(params.values.nodetm0);
-        const node1: u64 = @intCast(params.values.nodetm1);
-        const node_n = self.root_moves.constSlice()[0].nodes;
-        const node_d = @max(self.nodes, 1);
-        const nodetm = node1 * (node0 - node_n * 1024 / node_d);
+        const mult: u64 = @intCast(params.values.nodetm_mult);
+        const bias: u64 = @intCast(params.values.nodetm_bias);
+        const n = self.root_moves.constSlice()[0].nodes;
+        const d = @max(self.nodes, 1);
+        const nodetm = mult * (bias - n * 1024 / d);
 
         break :blk if (which == .hard) nlim else std.math.shr(u64, nlim * nodetm, 20);
     };
@@ -760,7 +778,7 @@ fn asp(self: *Thread) void {
     }
 
     while (true) : ({
-        w = w + @divTrunc(w * params.values.asp_window_mul, 256);
+        w = w + @divTrunc(w * params.values.asp_window_mult, 256);
         w = std.math.clamp(w, evaluation.score.mated, evaluation.score.mate);
     }) {
         s = self.ab(.exact, 0, a, b, d);
@@ -921,11 +939,14 @@ fn ab(
         d <= 7 and
         corr_eval >= b + 6)
     rfp: {
-        var margin = params.values.rfp_depth2 * d * d +
-            params.values.rfp_depth1 * d +
-            params.values.rfp_depth0;
-        margin = @divTrunc(margin, 1024);
-        margin = margin - params.values.rfp_ntm_worsening * @intFromBool(ntm_worsening);
+        const margin = blk: {
+            const by_d =
+                params.values.rfp_depth_quad * d * d +
+                params.values.rfp_depth_mult * d +
+                params.values.rfp_depth_bias;
+            const ntm = params.values.rfp_ntm_worsening * @intFromBool(ntm_worsening);
+            break :blk @divTrunc(by_d, 1024) - ntm;
+        };
 
         if (corr_eval < b + margin) {
             break :rfp;
@@ -952,14 +973,14 @@ fn ab(
             break :nmp;
         }
 
-        const base_r = params.values.nmp_base_reduction;
-        const depth_r = params.values.nmp_depth_mul * d;
+        const base_r = params.values.nmp_base_r;
+        const depth_r = params.values.nmp_depth_mult * d;
         const improving_r = params.values.nmp_improving_r * @intFromBool(improving);
         const deval_r = blk: {
             const diff = corr_eval - b;
+            const mult = params.values.nmp_deval_mult;
             const max_r = params.values.nmp_deval_max_r;
-            const mul = params.values.nmp_deval_mul;
-            break :blk @min(@divTrunc(diff * mul, 1024), max_r);
+            break :blk @min(@divTrunc(diff * mult, 1024), max_r);
         };
         const r = @divTrunc(base_r + depth_r + deval_r + improving_r, 256);
 
@@ -993,7 +1014,7 @@ fn ab(
         !is_singular and
         !is_checked and
         d <= 7 and
-        corr_eval + params.values.razoring_mul * d <= a)
+        corr_eval + params.values.razoring_mult * d <= a)
     {
         const rs = self.qs(ply + 1, a, b);
         if (rs <= a) {
@@ -1039,16 +1060,16 @@ fn ab(
             // history pruning
             // 10.0+0.1: 16.91 +- 8.41
             // 40.0+0.4: 3.77 +- 8.30
-            const hp_lim, const hp0, const hp1 = if (is_quiet) .{
-                params.values.quiet_hist_pruning_lim,
-                params.values.quiet_hist_pruning0,
-                params.values.quiet_hist_pruning1,
+            const hp_lim, const hp_mult, const hp_bias = if (is_quiet) .{
+                params.values.quiethist_pruning_lim,
+                params.values.quiethist_pruning_mult,
+                params.values.quiethist_pruning_bias,
             } else .{
-                params.values.noisy_hist_pruning_lim,
-                params.values.noisy_hist_pruning0,
-                params.values.noisy_hist_pruning1,
+                params.values.noisyhist_pruning_lim,
+                params.values.noisyhist_pruning_mult,
+                params.values.noisyhist_pruning_bias,
             };
-            if (lmr_d <= hp_lim and sm.score < hp0 + hp1 * d) {
+            if (lmr_d <= hp_lim and sm.score < hp_mult * d + hp_bias) {
                 mp.skipQuiets();
                 continue :move_loop;
             }
@@ -1057,9 +1078,9 @@ fn ab(
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
             const fp_margin =
-                params.values.fp_margin1 * fp_d +
-                params.values.fp_margin0 +
-                @divTrunc(sm.score * params.values.fp_hist_mul, 16384);
+                @divTrunc(sm.score * params.values.fp_hist_mult, 16384) +
+                params.values.fp_margin_mult * fp_d +
+                params.values.fp_margin_bias;
             if (fp_d <= 8 and
                 !is_noisy and
                 !is_checked and
@@ -1069,34 +1090,17 @@ fn ab(
                 continue :move_loop;
             }
 
-            // futility pruning on bad noisy moves
-            const bnfp_d = fp_d;
-            const bnfp_margin =
-                params.values.bnfp_margin1 * bnfp_d +
-                params.values.bnfp_margin0 +
-                @divTrunc(sm.score * params.values.bnfp_hist_mul, 16384);
-            if (bnfp_d <= 8 and
-                mp.stage.isBad() and
-                !is_quiet and
-                !is_checked and
-                !is_direct_check and
-                a < evaluation.score.win and
-                corr_eval + bnfp_margin <= a)
-            {
-                continue :move_loop;
-            }
-
             // late move pruning (lmp)
             // 10.0+0.1: 21.30 +- 9.80
             const lmp_lim = blk: {
                 const base = if (improving)
-                    params.values.lmp_improving2 * d * d +
-                        params.values.lmp_improving1 * d +
-                        params.values.lmp_improving0
+                    params.values.lmp_improving_quad * d * d +
+                    params.values.lmp_improving_mult * d +
+                    params.values.lmp_improving_bias
                 else
-                    params.values.lmp_nonimproving2 * d * d +
-                        params.values.lmp_nonimproving1 * d +
-                        params.values.lmp_nonimproving0;
+                    params.values.lmp_nonimproving_quad * d * d +
+                    params.values.lmp_nonimproving_mult * d +
+                    params.values.lmp_nonimproving_bias;
                 const div: usize = @intCast(@divTrunc(base, 1024));
                 break :blk @max(div + @intFromBool(is_direct_check), 1);
             };
@@ -1106,12 +1110,12 @@ fn ab(
 
             // pvs see
             const see_margin = if (is_quiet)
-                d * params.values.pvs_see_quiet_mul
+                params.values.pvs_see_quiet_mult * d
             else noisy: {
-                const base = params.values.pvs_see_noisy_mul * d;
-                const mul = params.values.pvs_see_capthist_mul;
+                const base = params.values.pvs_see_noisy_mult * d;
+                const mult = params.values.pvs_see_capthist_mult;
                 const max = params.values.pvs_see_max_capthist * d;
-                break :noisy base - std.math.clamp(@divTrunc(sm.score * mul, 1024), -max, max);
+                break :noisy base - std.math.clamp(@divTrunc(sm.score * mult, 1024), -max, max);
             };
             if (!pos.see(.pruning, m, see_margin)) {
                 continue :move_loop;
@@ -1130,11 +1134,14 @@ fn ab(
             pos.excluded = m;
             defer pos.excluded = .{};
 
-            const bmul = params.values.se_bmul -
-                params.values.se_bmul_pv * @intFromBool(is_pv) +
-                params.values.se_bmul_was_pv * @intFromBool(was_pv);
+            const bmul =
+                params.values.se_beta_mult -
+                params.values.se_beta_mult_pv * @intFromBool(is_pv) +
+                params.values.se_beta_mult_was_pv * @intFromBool(was_pv);
             const raw_sb = @divTrunc(ttscore * 1024 - d * bmul, 1024);
-            const raw_sd = params.values.se_d1 * d + params.values.se_d0;
+            const raw_sd =
+                params.values.se_depth_mult * d +
+                params.values.se_depth_bias;
 
             const sb = @max(raw_sb, evaluation.score.loss + 1);
             const sd = @divTrunc(raw_sd, 1024);
@@ -1218,13 +1225,13 @@ fn ab(
 
                 if (rs > a and rd < recur_d) {
                     const deeper_margin =
-                        params.values.deeper_margin1 * recur_d +
-                        params.values.deeper_margin0;
+                        params.values.deeper_margin_mult * recur_d +
+                        params.values.deeper_margin_bias;
                     recur_d += @intFromBool(rs > best.score + @divTrunc(deeper_margin, 1024));
 
                     const shallower_margin =
-                        params.values.shallower_margin1 * recur_d +
-                        params.values.shallower_margin0;
+                        params.values.shallower_margin_mult * recur_d +
+                        params.values.shallower_margin_bias;
                     recur_d -= @intFromBool(rs < best.score + @divTrunc(shallower_margin, 1024));
 
                     rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
