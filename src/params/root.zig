@@ -183,6 +183,10 @@ const tunables = blk: {
         .{ .name = "text_noisy", .min = 64, .max = 256, .c_end = 8.0 },
         .{ .name = "text_pv", .min = 256, .max = 1024, .c_end = 32.0 },
 
+        .{ .name = "qext_quiet", .min = 128, .max = 512, .c_end = 16.0 },
+        .{ .name = "qext_noisy", .min = 128, .max = 512, .c_end = 16.0 },
+        .{ .name = "qext_pv", .min = 512, .max = 2048, .c_end = 64.0 },
+
         .{ .name = "lmr_non_improving", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_cutnode", .min = 0, .max = 4096, .c_end = 64.0 },
         .{ .name = "lmr_noisy_ttm", .min = 0, .max = 4096, .c_end = 64.0 },
