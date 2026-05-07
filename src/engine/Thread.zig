@@ -1009,6 +1009,67 @@ fn ab(
         }
     }
 
+    // probcut
+    if (!is_pv and
+        !is_checked and
+        !is_singular and
+        d > 4 and
+        b > evaluation.score.loss and
+        b < evaluation.score.win)
+    probcut: {
+        const pd = d - 4;
+        const pb = b +
+            params.values.probcut_margin_mult * d +
+            params.values.probcut_margin_bias -
+            params.values.probcut_improving * @intFromBool(improving);
+        if (tth and ttscore < pb and tte.depth > pd) {
+            break :probcut;
+        }
+
+        var mp: movegen.Picker = .init(self, tte.move);
+        move_loop: while (mp.next()) |sm| {
+            const m = sm.move;
+            const is_legal = m == mp.ttm or check: {
+                const next_pos = pos.tryMove(m) catch break :check false;
+                tt.prefetch(next_pos.key);
+                break :check true;
+            };
+            const threshold = pb - corr_eval;
+            if (!is_legal or !pos.see(m, threshold)) {
+                continue :move_loop;
+            }
+
+            const s = blk: {
+                board.doMove(m);
+                defer board.undoMove();
+                var score = -self.qs(ply + 1, -pb, 1 - pb);
+                if (score >= pb) {
+                    score = -self.ab(node.flip(), ply + 1, -pb, 1 - pb, pd);
+                }
+                break :blk score;
+            };
+
+            const datagen_stop = is_datagen and self.datagenStop(.hard);
+            const go_stop = !is_datagen and self.pool.stopped;
+            if (datagen_stop or go_stop) {
+                return a;
+            }
+
+            if (s >= pb) {
+                tt.write(key, .{
+                    .was_pv = was_pv,
+                    .flag = .lowerbound,
+                    .age = @truncate(tt.age),
+                    .depth = @intCast(pd),
+                    .eval = @intCast(stat_eval),
+                    .score = @intCast(evaluation.score.toTT(s, ply)),
+                    .move = m,
+                });
+                return s;
+            }
+        }
+    }
+
     // razoring
     if (!is_pv and
         !is_singular and
