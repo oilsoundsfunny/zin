@@ -1078,14 +1078,30 @@ fn ab(
             // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
             const fp_margin =
-                @divTrunc(sm.score * params.values.fp_hist_mult, 16384) +
                 params.values.fp_margin_mult * fp_d +
-                params.values.fp_margin_bias;
+                params.values.fp_margin_bias +
+                @divTrunc(sm.score * params.values.fp_hist_mult, 16384);
             if (fp_d <= 8 and
                 !is_noisy and
                 !is_checked and
                 a < evaluation.score.win and
                 corr_eval + fp_margin <= a)
+            {
+                continue :move_loop;
+            }
+
+            // bad noisy(/ies?) futility pruning
+            const bnfp_d = fp_d;
+            const bnfp_margin =
+                params.values.bnfp_margin_mult * bnfp_d +
+                params.values.bnfp_margin_bias +
+                @divTrunc(sm.score * params.values.bnfp_hist_mult, 16384);
+            if (bnfp_d <= 8 and
+                mp.stage.isBad() and
+                !is_quiet and
+                !is_checked and
+                a < evaluation.score.win and
+                corr_eval + bnfp_margin <= a)
             {
                 continue :move_loop;
             }

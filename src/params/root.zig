@@ -168,6 +168,10 @@ const tunables = blk: {
         .{ .name = "fp_margin_bias" },
         .{ .name = "fp_hist_mult" },
 
+        .{ .name = "bnfp_margin_mult" },
+        .{ .name = "bnfp_margin_bias" },
+        .{ .name = "bnfp_hist_mult" },
+
         .{ .name = "lmp_improving_quad" },
         .{ .name = "lmp_improving_mult" },
         .{ .name = "lmp_improving_bias" },
