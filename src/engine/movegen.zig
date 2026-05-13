@@ -424,23 +424,25 @@ pub const Picker = struct {
     thread: *const Thread,
 
     excluded: Move,
-    ttm: Move = .{},
+    killer: Move,
+    ttm: Move,
 
-    skip_quiets: bool = false,
-    stage: Stage = .gen_noisy,
+    skip_quiets: bool,
+    stage: Stage,
 
-    moves: Move.List = .{},
-    scores: evaluation.score.List = .{},
+    moves: Move.List,
+    scores: evaluation.score.List,
 
-    first: usize = 0,
-    last: usize = 0,
-    bad_noisy_n: usize = 0,
-    bad_quiet_n: usize = 0,
+    first: usize,
+    last: usize,
+    bad_noisy_n: usize,
+    bad_quiet_n: usize,
 
     pub const Stage = enum {
         ttm,
         gen_noisy,
         good_noisy,
+        killer,
         gen_quiet,
         good_quiet,
         bad_noisy,
@@ -531,13 +533,26 @@ pub const Picker = struct {
         };
     }
 
-    pub fn init(thread: *const Thread, ttm: Move) Picker {
+    pub fn init(thread: *const Thread, ttm: Move, killer: Move) Picker {
         const pos = thread.board.positions.last();
         var mp: Picker = .{
             .board = &thread.board,
             .thread = thread,
 
             .excluded = pos.excluded,
+            .killer = .{},
+            .ttm = .{},
+
+            .skip_quiets = false,
+            .stage = .gen_noisy,
+
+            .moves = .{},
+            .scores = .{},
+
+            .first = 0,
+            .last = 0,
+            .bad_noisy_n = 0,
+            .bad_quiet_n = 0,
         };
 
         const is_excluded = !ttm.isNone() and ttm == mp.excluded;
@@ -547,13 +562,21 @@ pub const Picker = struct {
             mp.stage = if (!is_excluded) .ttm else .gen_noisy;
         }
 
+        if (!killer.isNone() and
+            killer != mp.excluded and
+            killer != mp.ttm and
+            pos.isMovePseudoLegal(killer) and
+            pos.isMoveLegal(killer))
+        {
+            mp.killer = killer;
+        }
+
         return mp;
     }
 
     pub fn next(self: *Picker) ?Move.Scored {
         if (self.stage == .ttm) {
             self.stage = .gen_noisy;
-
             if (!self.ttm.isNone()) {
                 std.debug.assert(self.ttm != self.excluded);
                 return .{
@@ -579,7 +602,7 @@ pub const Picker = struct {
 
         good_noisy_loop: while (self.stage == .good_noisy) {
             const sm = self.pick() orelse {
-                self.stage = .gen_quiet;
+                self.stage = .killer;
                 break :good_noisy_loop;
             };
 
@@ -591,6 +614,18 @@ pub const Picker = struct {
             }
 
             return sm;
+        }
+
+        if (self.stage == .killer) {
+            self.stage = .gen_quiet;
+            if (!self.killer.isNone()) {
+                std.debug.assert(self.killer != self.excluded);
+                std.debug.assert(self.killer != self.ttm);
+                return .{
+                    .move = self.killer,
+                    .score = self.scoreQuiet(self.killer),
+                };
+            }
         }
 
         if (self.stage == .gen_quiet) gen_quiet: {

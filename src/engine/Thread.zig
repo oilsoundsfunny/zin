@@ -1031,7 +1031,11 @@ fn ab(
     var searched: usize = 0;
     var bad_noisy_moves: movegen.Move.List = .{};
     var bad_quiet_moves: movegen.Move.List = .{};
-    var mp = movegen.Picker.init(self, if (is_singular) pos.excluded else tte.move);
+    var mp = movegen.Picker.init(
+        self,
+        if (is_singular) pos.excluded else tte.move,
+        if (is_singular and !is_root) .{} else pos.before(1).killer,
+    );
 
     const is_ttm_noisy = !mp.ttm.isNone() and mp.ttm.flag.isNoisy();
     const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
@@ -1294,6 +1298,9 @@ fn ab(
             }
 
             if (s >= b) {
+                if (!is_root and is_quiet) {
+                    pos.before(1).killer = m;
+                }
                 flag = .lowerbound;
                 break :move_loop;
             }
@@ -1429,7 +1436,7 @@ fn qs(
     var flag = transposition.Entry.Flag.upperbound;
 
     var searched: usize = 0;
-    var mp = movegen.Picker.init(self, tte.move);
+    var mp = movegen.Picker.init(self, tte.move, pos.before(1).killer);
     if (!is_checked) {
         mp.skipQuiets();
     }
