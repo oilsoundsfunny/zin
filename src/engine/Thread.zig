@@ -1298,10 +1298,13 @@ fn ab(
             }
 
             if (s >= b) {
-                if (!is_root and is_quiet) {
+                flag = .lowerbound;
+                if (!is_root and
+                    is_quiet and
+                    pos.before(1).killer.isNone())
+                {
                     pos.before(1).killer = m;
                 }
-                flag = .lowerbound;
                 break :move_loop;
             }
         }
