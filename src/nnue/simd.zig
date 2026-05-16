@@ -76,8 +76,20 @@ pub fn Vec(comptime T: type) switch (T) {
             };
         }
 
+        pub fn min(self: Self, other: Self) Self {
+            return .{ .v = @min(self.v, other.v) };
+        }
+
+        pub fn max(self: Self, other: Self) Self {
+            return .{ .v = @max(self.v, other.v) };
+        }
+
         pub fn clamp(self: Self, l: Self, h: Self) Self {
-            return .{ .v = std.math.clamp(self.v, l.v, h.v) };
+            return self.min(h).max(l);
+        }
+
+        pub fn crelu(self: Self, one: T) Self {
+            return self.clamp(.splat(0), .splat(one));
         }
 
         pub fn reduce(self: Self, comptime op: std.builtin.ReduceOp) T {

@@ -88,15 +88,6 @@ pub const Default = extern struct {
             var i: usize = 0;
 
             while (i < half) : (i += simd.Vec(i8).len) {
-                const crelu = struct {
-                    fn inner(v: simd.Vec(i16)) simd.Vec(i16) {
-                        const lo: simd.Vec(i16) = .splat(0);
-                        const hi: simd.Vec(i16) = .splat(qa.v);
-                        return .clamp(v, lo, hi);
-                    }
-                }.inner;
-                const shift = qa.bits() * 2 - 9;
-
                 const vecs: [4]simd.Vec(i16).ConstSlice = .{
                     @alignCast(input[i + half * 0 ..]),
                     @alignCast(input[i + half * 1 ..]),
@@ -104,10 +95,13 @@ pub const Default = extern struct {
                     @alignCast(input[i + half * 1 + simd.Vec(i16).len ..]),
                 };
                 const clamped: [4]simd.Vec(i16) = .{
-                    crelu(.load(vecs[0])), crelu(.load(vecs[1])),
-                    crelu(.load(vecs[2])), crelu(.load(vecs[3])),
+                    simd.Vec(i16).load(vecs[0]).crelu(qa.v),
+                    simd.Vec(i16).load(vecs[1]).crelu(qa.v),
+                    simd.Vec(i16).load(vecs[2]).crelu(qa.v),
+                    simd.Vec(i16).load(vecs[3]).crelu(qa.v),
                 };
 
+                const shift = qa.bits() * 2 - 9;
                 const prods: [2]simd.Vec(i16) = .{
                     simd.mulhi(clamped[0].shl(shift), clamped[1]),
                     simd.mulhi(clamped[2].shl(shift), clamped[3]),
@@ -177,14 +171,8 @@ pub const Default = extern struct {
                 @alignCast(self.l1b[ob][k * simd.Vec(i32).len ..]);
             const shifted = sum.add(.load(bias)).shr(qa.bits() * 2 - 9 + qb.bits() - q.bits());
 
-            const lo: simd.Vec(i32) = .splat(0);
-            const hi: simd.Vec(i32) = .splat(q.v);
-            const hi_sq: simd.Vec(i32) = .splat(q.pow(2));
-            const crelu = shifted.clamp(lo, hi).shl(q.bits());
-            const csrelu = shifted.mul(shifted).clamp(lo, hi_sq);
-
-            out_vecs[k] = crelu;
-            out_vecs[k + acc_lanes] = csrelu;
+            out_vecs[k] = shifted.crelu(q.v).shl(q.bits());
+            out_vecs[k + acc_lanes] = shifted.mul(shifted).crelu(q.pow(2));
         }
     }
 
@@ -194,6 +182,7 @@ pub const Default = extern struct {
         l2: []align(page_size) const i32,
         l3: []align(page_size) i32,
     ) void {
+        const inputs: []align(page_size) const simd.Vec(i32) = @ptrCast(l2);
         const acc: []align(page_size) simd.Vec(i32) = @ptrCast(l3);
         const wgts = &self.l2w[ob];
         const bias = &self.l2b[ob];
@@ -208,12 +197,9 @@ pub const Default = extern struct {
                 const v: simd.Vec(i32) = .splat(scalar);
                 lane.* = v.mul(.load(w)).add(lane.*);
             }
-        }
-
-        const inputs: []align(page_size) const simd.Vec(i32) = @ptrCast(l2);
-        for (acc[0..], inputs) |*lane, input| {
-            const lhs = lane.clamp(.splat(0), .splat(q.pow(3)));
-            const rhs = input.mul(.splat(q.v));
+        } else for (acc[0..], inputs) |*lane, input| {
+            const lhs = lane.crelu(q.pow(3));
+            const rhs = input.shl(q.bits());
             lane.* = .add(lhs, rhs);
         }
     }

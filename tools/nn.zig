@@ -107,7 +107,6 @@ pub fn main(init: std.process.Init) !void {
     const parsed: Args = try .init(&args, init.io);
     defer parsed.deinit(init.io);
 
-    const has_avx512f = parsed.cpu.toCpu(.x86_64).has(.x86, .avx512f);
     const has_avx2 = parsed.cpu.toCpu(.x86_64).has(.x86, .avx2);
 
     const input_bytes: []align(64) u8 =
@@ -133,13 +132,9 @@ pub fn main(init: std.process.Init) !void {
     @memcpy(&network.l0w, &raw.l0w);
     @memcpy(&network.l0b, &raw.l0b);
 
-    if (has_avx512f or has_avx2) {
-        const order: []const usize = if (has_avx512f)
-            &.{ 0, 2, 4, 6, 1, 3, 5, 7 }
-        else
-            &.{ 0, 2, 1, 3 };
-        permute(&network.l0w, order);
-        permute(&network.l0b, order);
+    if (has_avx2) {
+        permute(&network.l0w, &.{ 0, 2, 1, 3 });
+        permute(&network.l0b, &.{ 0, 2, 1, 3 });
     }
 
     for (0..Network.ob) |ob| {
