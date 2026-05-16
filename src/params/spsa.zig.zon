@@ -66,6 +66,8 @@
     .probcut_margin_mult = 20,
     .probcut_margin_bias = 50,
     .probcut_improving = 64,
+    .probcut_see_mult = 1024,
+    .probcut_fail_firm = 1024,
     .razoring_mult = 301,
     .fp_margin_mult = 134,
     .fp_margin_bias = 356,

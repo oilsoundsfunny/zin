@@ -677,11 +677,11 @@ fn printInfo(
     const pvs: evaluation.score.Int = @intCast(pv.score);
 
     try writer.print(" score", .{});
-    if (evaluation.score.isMated(pvs)) {
+    if (pvs <= evaluation.score.loss) {
         const ply = pvs - evaluation.score.mated;
         const moves = @divTrunc(ply + 1, 2);
         try writer.print(" mate {d}", .{-moves});
-    } else if (evaluation.score.isMate(pvs)) {
+    } else if (pvs >= evaluation.score.win) {
         const ply = evaluation.score.mate - pvs;
         const moves = @divTrunc(ply + 1, 2);
         try writer.print(" mate {d}", .{moves});
@@ -690,9 +690,9 @@ fn printInfo(
     }
 
     if (self.pool.opts.show_wdl) {
-        if (evaluation.score.isMated(pvs)) {
+        if (pvs <= evaluation.score.loss) {
             try writer.print(" wdl 0 0 1000", .{});
-        } else if (evaluation.score.isMate(pvs)) {
+        } else if (pvs >= evaluation.score.win) {
             try writer.print(" wdl 1000 0 0", .{});
         } else {
             const w, _, const l = evaluation.score.wdl(pvs, mat);
@@ -992,7 +992,7 @@ fn ab(
         };
 
         if (s >= b) {
-            if (evaluation.score.isMate(s)) {
+            if (s >= evaluation.score.win) {
                 s = b;
             }
 
@@ -1010,7 +1010,7 @@ fn ab(
     }
 
     // probcut
-    if (!is_pv and
+    if (node == .lowerbound and
         !is_checked and
         !is_singular and
         d > 4 and
@@ -1026,7 +1026,14 @@ fn ab(
             break :probcut;
         }
 
-        var mp: movegen.Picker = .init(self, tte.move);
+        const threshold = @divTrunc((pb - corr_eval) * params.values.probcut_see_mult, 1024);
+        const has_probcut_ttm =
+            has_ttm and
+            tte.move.flag.isNoisy() and
+            pos.see(tte.move, threshold);
+        var mp: movegen.Picker = .init(self, if (has_probcut_ttm) tte.move else .{});
+        mp.skipQuiets();
+
         move_loop: while (mp.next()) |sm| {
             const m = sm.move;
             const is_legal = m == mp.ttm or check: {
@@ -1034,7 +1041,6 @@ fn ab(
                 tt.prefetch(next_pos.key);
                 break :check true;
             };
-            const threshold = pb - corr_eval;
             if (!is_legal or !pos.see(m, threshold)) {
                 continue :move_loop;
             }
@@ -1065,7 +1071,9 @@ fn ab(
                     .score = @intCast(evaluation.score.toTT(s, ply)),
                     .move = m,
                 });
-                return s;
+                const lhs = s * params.values.probcut_fail_firm;
+                const rhs = b * (1024 - params.values.probcut_fail_firm);
+                return @divTrunc(lhs + rhs, 1024);
             }
         }
     }

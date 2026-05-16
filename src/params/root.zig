@@ -165,6 +165,8 @@ const tunables = blk: {
         .{ .name = "probcut_margin_mult" },
         .{ .name = "probcut_margin_bias" },
         .{ .name = "probcut_improving" },
+        .{ .name = "probcut_see_mult" },
+        .{ .name = "probcut_fail_firm", .min = 0, .max = 1024 },
 
         .{ .name = "razoring_mult" },
 

@@ -62,11 +62,7 @@ pub const score = struct {
     }
 
     pub fn isMate(s: Int) bool {
-        return s == std.math.clamp(s, win, mate);
-    }
-
-    pub fn isMated(s: Int) bool {
-        return s == std.math.clamp(s, mated, loss);
+        return s == std.math.clamp(s, win, loss);
     }
 
     pub fn mateIn(ply: usize) Int {
