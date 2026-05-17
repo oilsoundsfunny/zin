@@ -167,11 +167,13 @@ pub const Default = extern struct {
                 sum = sum.add(v);
             }
 
+            const shift = qa.bits() * 2 - 9 + qb.bits() - q.bits();
             const bias: simd.Vec(i32).ConstSlice =
                 @alignCast(self.l1b[ob][k * simd.Vec(i32).len ..]);
-            const shifted = sum.add(.load(bias)).shr(qa.bits() * 2 - 9 + qb.bits() - q.bits());
+            const biased = sum.add(.load(bias));
+            const shifted = biased.shr(shift);
 
-            out_vecs[k] = shifted.crelu(q.v).shl(q.bits());
+            out_vecs[k] = biased.crelu(q.v << shift).shr(shift - q.bits());
             out_vecs[k + acc_lanes] = shifted.mul(shifted).crelu(q.pow(2));
         }
     }

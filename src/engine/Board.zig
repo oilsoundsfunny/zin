@@ -263,7 +263,7 @@ pub const Position = struct {
         self.checks = if (ka != .none) ka else .full;
     }
 
-    fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .scalar)) FenError!void {
+    fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .scalar)) !void {
         var pos: Position = .{};
 
         const sa: [types.Square.num]types.Square = .{
@@ -770,12 +770,12 @@ pub const Position = struct {
     }
 };
 
-pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
+pub fn parseFen(self: *Board, fen: []const u8) !void {
     var tokens = std.mem.tokenizeScalar(u8, fen, ' ');
     return self.parseFenTokens(&tokens);
 }
 
-pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .scalar)) FenError!void {
+pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .scalar)) !void {
     var parsed: Position = .{};
     try parsed.parseFenTokens(tokens);
 

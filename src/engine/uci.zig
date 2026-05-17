@@ -367,9 +367,10 @@ pub fn loop(pool: *Thread.Pool) !void {
     const writer = pool.io.writer();
 
     while (reader.takeDelimiterInclusive('\n')) |read| {
-        const comm = parseCommand(read[0 .. read.len - 1], pool) catch |err| sw: switch (err) {
+        const trimmed = read[0..read.len - 1];
+        const comm = parseCommand(trimmed, pool) catch |err| sw: switch (err) {
             error.UnknownCommand => {
-                try writer.print("Unknown command: '{s}'\n", .{read[0 .. read.len - 1]});
+                try writer.print("Unknown command: '{s}'\n", .{trimmed});
                 try writer.flush();
                 break :sw Command.none;
             },
