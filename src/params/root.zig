@@ -199,6 +199,9 @@ const tunables = blk: {
         .{ .name = "se_depth_mult" },
         .{ .name = "se_depth_bias" },
 
+        .{ .name = "ldse_margin_mult" },
+        .{ .name = "ldse_margin_bias" },
+
         .{ .name = "dext_quiet" },
         .{ .name = "dext_noisy" },
         .{ .name = "dext_pv" },
