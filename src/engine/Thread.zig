@@ -1189,9 +1189,10 @@ fn ab(
         } else if (!is_checked and
             node == .lowerbound and
             d <= 7 and
-            corr_eval <= a - params.values.ldse_margin_mult * d - params.values.ldse_margin_bias)
-        {
-            e += 1;
+            corr_eval < a)
+        low_depth: {
+            e += if (corr_eval <= a - params.values.ldse_margin) 1 else break :low_depth;
+            e += if (corr_eval <= a - params.values.ldde_margin) 1 else break :low_depth;
         }
 
         const s = recur: {
