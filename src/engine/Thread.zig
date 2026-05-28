@@ -1186,6 +1186,12 @@ fn ab(
                 e -= 2;
                 e -= @intFromBool(node == .lowerbound);
             }
+        } else if (!is_checked and
+            node == .lowerbound and
+            d <= 7 and
+            corr_eval <= a - params.values.ldse_margin)
+        {
+            e += 1;
         }
 
         const s = recur: {
