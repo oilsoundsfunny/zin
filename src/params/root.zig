@@ -219,8 +219,10 @@ const tunables = blk: {
         .{ .name = "lmr_was_pv" },
         .{ .name = "lmr_was_pv_non_fail_low" },
 
-        .{ .name = "deeper_margin_mult" },
-        .{ .name = "deeper_margin_bias" },
+        .{ .name = "deeper_margin0_mult" },
+        .{ .name = "deeper_margin0_bias" },
+        .{ .name = "deeper_margin1_mult" },
+        .{ .name = "deeper_margin1_bias" },
         .{ .name = "shallower_margin_mult" },
         .{ .name = "shallower_margin_bias" },
 
