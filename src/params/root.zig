@@ -223,8 +223,11 @@ const tunables = blk: {
         .{ .name = "deeper_margin0_bias" },
         .{ .name = "deeper_margin1_mult" },
         .{ .name = "deeper_margin1_bias" },
-        .{ .name = "shallower_margin_mult" },
-        .{ .name = "shallower_margin_bias" },
+
+        .{ .name = "shallower_margin0_mult" },
+        .{ .name = "shallower_margin0_bias" },
+        .{ .name = "shallower_margin1_mult" },
+        .{ .name = "shallower_margin1_bias" },
 
         .{ .name = "qs_fp_margin" },
     };

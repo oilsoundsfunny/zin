@@ -1255,10 +1255,16 @@ fn ab(
                     recur_d += @intFromBool(rs > best.score + @divTrunc(deeper_margins[0], 1024));
                     recur_d += @intFromBool(rs > best.score + @divTrunc(deeper_margins[1], 1024));
 
-                    const shallower_margin =
-                        params.values.shallower_margin_mult * recur_d +
-                        params.values.shallower_margin_bias;
-                    recur_d -= @intFromBool(rs < best.score + @divTrunc(shallower_margin, 1024));
+                    const shallower_margins: [2]evaluation.score.Int = .{
+                        params.values.shallower_margin0_mult * recur_d +
+                            params.values.shallower_margin0_bias,
+                        params.values.shallower_margin1_mult * recur_d +
+                            params.values.shallower_margin1_bias,
+                    };
+                    recur_d -=
+                        @intFromBool(rs < best.score + @divTrunc(shallower_margins[0], 1024));
+                    recur_d -=
+                        @intFromBool(rs < best.score + @divTrunc(shallower_margins[1], 1024));
 
                     rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
                 }

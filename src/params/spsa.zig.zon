@@ -111,7 +111,9 @@
     .deeper_margin0_bias = 1512,
     .deeper_margin1_mult = 32880,
     .deeper_margin1_bias = 3024,
-    .shallower_margin_mult = 1362,
-    .shallower_margin_bias = 612,
+    .shallower_margin0_mult = 1362,
+    .shallower_margin0_bias = 612,
+    .shallower_margin1_mult = 681,
+    .shallower_margin1_bias = 306,
     .qs_fp_margin = 52,
 }
