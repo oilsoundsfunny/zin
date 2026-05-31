@@ -1246,10 +1246,14 @@ fn ab(
                 var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
 
                 if (rs > a and rd < recur_d) {
-                    const deeper_margin =
-                        params.values.deeper_margin_mult * recur_d +
-                        params.values.deeper_margin_bias;
-                    recur_d += @intFromBool(rs > best.score + @divTrunc(deeper_margin, 1024));
+                    const deeper_margins: [2]evaluation.score.Int = .{
+                        params.values.deeper_margin0_mult * recur_d +
+                            params.values.deeper_margin0_bias,
+                        params.values.deeper_margin1_mult * recur_d +
+                            params.values.deeper_margin1_bias,
+                    };
+                    recur_d += @intFromBool(rs > best.score + @divTrunc(deeper_margins[0], 1024));
+                    recur_d += @intFromBool(rs > best.score + @divTrunc(deeper_margins[1], 1024));
 
                     const shallower_margin =
                         params.values.shallower_margin_mult * recur_d +
