@@ -1165,16 +1165,14 @@ fn ab(
 
             if (se_score < sb) {
                 const margins: [2]evaluation.score.Int = if (is_noisy) .{
-                    params.values.dext_noisy + params.values.dext_pv * @intFromBool(is_pv),
-                    params.values.text_noisy + params.values.text_pv * @intFromBool(is_pv),
+                    params.values.dext_noisy, params.values.text_noisy,
                 } else .{
-                    params.values.dext_quiet + params.values.dext_pv * @intFromBool(is_pv),
-                    params.values.text_quiet + params.values.text_pv * @intFromBool(is_pv),
+                    params.values.dext_quiet, params.values.text_quiet,
                 };
 
                 e += 1;
-                e += @intFromBool(se_score < sb - margins[0]);
-                e += @intFromBool(se_score < sb - margins[1]);
+                e += @intFromBool(!is_pv and se_score < sb - margins[0]);
+                e += @intFromBool(!is_pv and se_score < sb - margins[1]);
             } else if (sb >= b) {
                 const min = evaluation.score.loss + 1;
                 const max = evaluation.score.win - 1;
