@@ -198,7 +198,7 @@ pub fn build(bld: *std.Build) !void {
         if (m == .nnue) {
             module.addAnonymousImport("embed.nnue", .{ .root_source_file = network });
         } else if (m == .params) {
-            const tuning = bld.option(bool, "tuning", "") orelse false;
+            const tuning = bld.option(bool, "tuning", "") orelse true;
             const options = bld.addOptions();
             options.addOption(bool, "tuning", tuning);
             module.addOptions("options", options);
