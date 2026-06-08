@@ -351,7 +351,7 @@ pub const Options = struct {
 
 pub const hist = struct {
     const Quiet = [color_n][ptype_n][square_n]Int;
-    const Noisy = [color_n][ptype_n][square_n][ptype_n]Int;
+    const Noisy = [color_n][ptype_n][square_n]Int;
     const Cont = [4][color_n][ptype_n][square_n][ptype_n][square_n]Int;
 
     const Corr = enum {
@@ -448,7 +448,8 @@ root_moves: movegen.RootMove.List = .{},
 
 nmp_verif: bool = false,
 quiethist: hist.Quiet = @splat(@splat(@splat(0))),
-noisyhist: hist.Noisy = @splat(@splat(@splat(@splat(0)))),
+noisyhist_src: hist.Noisy = @splat(@splat(@splat(0))),
+noisyhist_dst: hist.Noisy = @splat(@splat(@splat(0))),
 conthist: hist.Cont = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
 
 fn quietHistPtr(
@@ -459,18 +460,25 @@ fn quietHistPtr(
     return &self.quiethist[sp.color().int()][sp.ptype().int()][move.dst.int()];
 }
 
-fn noisyHistPtr(
+fn noisyHistSrcPtr(
     self: anytype,
     move: movegen.Move,
 ) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
     const pos = self.board.positions.last();
-    const sp = pos.getSq(move.src);
+    const sp = pos.getSq(move.src).ptype().int();
+    return &self.noisyhist_src[pos.stm.int()][sp][move.src.int()];
+}
+
+fn noisyHistDstPtr(
+    self: anytype,
+    move: movegen.Move,
+) types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
+    const pos = self.board.positions.last();
     const dp = switch (pos.getSq(move.dst)) {
         .none => types.Ptype.num,
         else => |p| p.ptype().int(),
     };
-
-    return &self.noisyhist[sp.color().int()][sp.ptype().int()][move.dst.int()][dp];
+    return &self.noisyhist_dst[pos.stm.int()][dp][move.dst.int()];
 }
 
 fn contHistPtr(
@@ -632,12 +640,14 @@ fn updateHist(
         }
     } else {
         const bonus = hist.noisyBonus(depth);
-        hist.gravity(self.noisyHistPtr(move), bonus);
+        hist.gravity(self.noisyHistSrcPtr(move), bonus);
+        hist.gravity(self.noisyHistDstPtr(move), bonus);
     }
 
     const malus = hist.noisyMalus(depth);
     for (bad_noisy_moves) |nm| {
-        hist.gravity(self.noisyHistPtr(nm), -malus);
+        hist.gravity(self.noisyHistSrcPtr(nm), -malus);
+        hist.gravity(self.noisyHistDstPtr(nm), -malus);
     }
 }
 
@@ -1708,7 +1718,7 @@ pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {
 }
 
 pub fn getNoisyHist(self: *const Thread, move: movegen.Move) hist.Int {
-    return self.noisyHistPtr(move).*;
+    return self.noisyHistSrcPtr(move).* + self.noisyHistDstPtr(move).*;
 }
 
 pub fn getContHist(self: *const Thread, move: movegen.Move, ply: usize) hist.Int {
