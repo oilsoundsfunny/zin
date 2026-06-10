@@ -252,7 +252,7 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
     var tokens = std.mem.tokenizeScalar(u8, command, ' ');
     const first = tokens.next() orelse return error.UnknownCommand;
 
-    if (std.mem.eql(u8, first, "debug")) {
+    if (std.mem.eql(u8, first, "debug") or std.mem.eql(u8, first, "d")) {
         if (tokens.peek()) |_| {
             return error.UnknownCommand;
         }
@@ -283,13 +283,16 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
         return .isready;
     } else if (std.mem.eql(u8, first, "position")) {
         return parsePosition(&tokens, pool);
-    } else if (std.mem.eql(u8, first, "quit") or std.mem.eql(u8, first, "stop")) {
+    } else if (std.mem.eql(u8, first, "q") or
+        std.mem.eql(u8, first, "quit") or
+        std.mem.eql(u8, first, "stop")
+    ) {
         if (tokens.peek()) |_| {
             return error.UnknownCommand;
         }
 
         pool.stopSearch();
-        return if (std.mem.eql(u8, first, "quit")) .quit else .stop;
+        return if (std.mem.eql(u8, first, "stop")) .stop else .quit;
     } else if (std.mem.eql(u8, first, "setoption")) {
         return parseOption(&tokens, pool);
     } else if (std.mem.eql(u8, first, "spsa_inputs")) {
