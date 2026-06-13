@@ -513,8 +513,9 @@ pub const Picker = struct {
                 .queen => params.values.ordering_queen,
                 .king => std.debug.panic("found king capture", .{}),
             };
-            const hist = self.thread.getNoisyHist(move);
-            break :blk @intCast(@divTrunc(mvv * 2 + hist, 4));
+            const src_hist = self.thread.getNoisyHistSrc(move);
+            const dst_hist = self.thread.getNoisyHistDst(move);
+            break :blk @intCast(@divTrunc(mvv + src_hist + dst_hist, 3));
         };
     }
 

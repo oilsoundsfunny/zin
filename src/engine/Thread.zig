@@ -1717,8 +1717,12 @@ pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {
     return self.quietHistPtr(move).*;
 }
 
-pub fn getNoisyHist(self: *const Thread, move: movegen.Move) hist.Int {
-    return self.noisyHistSrcPtr(move).* + self.noisyHistDstPtr(move).*;
+pub fn getNoisyHistSrc(self: *const Thread, move: movegen.Move) hist.Int {
+    return self.noisyHistSrcPtr(move).*;
+}
+
+pub fn getNoisyHistDst(self: *const Thread, move: movegen.Move) hist.Int {
+    return self.noisyHistDstPtr(move).*;
 }
 
 pub fn getContHist(self: *const Thread, move: movegen.Move, ply: usize) hist.Int {
