@@ -198,6 +198,8 @@ const tunables = blk: {
         .{ .name = "se_beta_mult_was_pv" },
         .{ .name = "se_depth_mult" },
         .{ .name = "se_depth_bias" },
+        .{ .name = "se_rfp_mult" },
+        .{ .name = "se_rfp_bias" },
 
         .{ .name = "ldse_margin" },
 

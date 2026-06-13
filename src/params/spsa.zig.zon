@@ -91,6 +91,8 @@
     .se_beta_mult_was_pv = 444,
     .se_depth_mult = 466,
     .se_depth_bias = 895,
+    .se_rfp_mult = 30,
+    .se_rfp_bias = 480,
     .ldse_margin = 125,
     .dext_quiet = 18,
     .dext_noisy = 14,

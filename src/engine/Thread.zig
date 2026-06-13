@@ -1161,7 +1161,14 @@ fn ab(
 
             const sb = @max(raw_sb, evaluation.score.loss + 1);
             const sd = @divTrunc(raw_sd, 1024);
-            const se_score = self.ab(node, ply, sb - 1, sb, sd);
+            const rfp_margin =
+                params.values.se_rfp_mult * d +
+                params.values.se_rfp_bias;
+            const se_score =
+                if (!is_pv and !is_checked and corr_eval >= sb + rfp_margin)
+                    corr_eval
+                else
+                    self.ab(node, ply, sb - 1, sb, sd);
 
             if (se_score < sb) {
                 const margins: [2]evaluation.score.Int = if (is_noisy) .{
