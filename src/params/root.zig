@@ -162,6 +162,10 @@ const tunables = blk: {
         .{ .name = "nmp_deval_mult" },
         .{ .name = "nmp_deval_max_r" },
 
+        .{ .name = "probcut_margin" },
+        .{ .name = "probcut_improving_margin" },
+        .{ .name = "probcut_see_mult" },
+
         .{ .name = "razoring_mult" },
 
         .{ .name = "fp_margin_mult" },

@@ -926,7 +926,9 @@ fn ab(
 
     // internal iterative reduction (iir)
     // 10.0+0.1: 84.25 +- 20.51
-    const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
+    const has_ttm = tth and
+        pos.isMovePseudoLegal(tte.move) and
+        pos.isMoveLegal(tte.move);
     if (node.hasLower() and depth >= 3 and !has_ttm) {
         d -= 1;
     }
@@ -1009,6 +1011,73 @@ fn ab(
         }
     }
 
+    const is_ttm_noisy = has_ttm and tte.move.flag.isNoisy();
+    const is_ttm_quiet = has_ttm and tte.move.flag.isQuiet();
+
+    // probcut
+    if (!is_pv and
+        !is_singular and
+        !is_checked and
+        d > 4 and
+        b > evaluation.score.loss and
+        b < evaluation.score.win and
+        !is_ttm_quiet)
+    {
+        const pd = d - 4;
+        const pb = b +
+            params.values.probcut_margin -
+            params.values.probcut_improving_margin * @intFromBool(improving);
+
+        const see_margin = @divTrunc(params.values.probcut_see_mult * (pb - b), 1024);
+        const ttm: movegen.Move =
+            if (is_ttm_noisy and pos.see(tte.move, see_margin))
+                tte.move
+            else
+                .{};
+
+        var mp: movegen.Picker = .init(self, ttm);
+        move_loop: while (mp.next()) |sm| {
+            const m = sm.move;
+            const is_legal = m == ttm or check: {
+                const next_pos = pos.tryMove(m) catch break :check false;
+                tt.prefetch(next_pos.key);
+                break :check true;
+            };
+            if (!is_legal or !pos.see(m, see_margin)) {
+                continue :move_loop;
+            }
+
+            const s = recur: {
+                board.doMove(m);
+                defer board.undoMove();
+                var score = -self.qs(ply + 1, -pb, 1 - pb);
+                if (score >= pb) {
+                    score = -self.ab(node.flip(), ply + 1, -pb, 1 - pb, pd);
+                }
+                break :recur score;
+            };
+
+            const datagen_stop = is_datagen and self.datagenStop(.hard);
+            const go_stop = !is_datagen and self.pool.stopped;
+            if (datagen_stop or go_stop) {
+                return a;
+            }
+
+            if (s >= pb) {
+                tt.write(key, .{
+                    .was_pv = was_pv,
+                    .flag = .lowerbound,
+                    .age = @truncate(tt.age),
+                    .depth = @intCast(pd + 1),
+                    .eval = @intCast(stat_eval),
+                    .score = @intCast(evaluation.score.toTT(s, ply)),
+                    .move = m,
+                });
+                return s;
+            }
+        }
+    }
+
     // razoring
     if (!is_pv and
         !is_singular and
@@ -1031,15 +1100,19 @@ fn ab(
     var searched: usize = 0;
     var bad_noisy_moves: movegen.Move.List = .{};
     var bad_quiet_moves: movegen.Move.List = .{};
-    var mp = movegen.Picker.init(self, if (is_singular) pos.excluded else tte.move);
-
-    const is_ttm_noisy = !mp.ttm.isNone() and mp.ttm.flag.isNoisy();
-    const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
+    var mp: movegen.Picker = .init(
+        self,
+        if (is_singular)
+            pos.excluded
+        else if (has_ttm)
+            tte.move
+        else
+            .{},
+    );
 
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
         const is_ttm = m == mp.ttm;
-
         const is_legal = is_ttm or check: {
             const next_pos = pos.tryMove(m) catch break :check false;
             tt.prefetch(next_pos.key);
@@ -1050,8 +1123,8 @@ fn ab(
         }
 
         const is_direct_check = pos.isDirectCheck(m);
-        const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
-        const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
+        const is_noisy = m.flag.isNoisy();
+        const is_quiet = m.flag.isQuiet();
 
         const base_lmr = params.lmr.get(d, searched, is_quiet);
         const lmr_d = @max(d * 1024 - base_lmr, 0);
@@ -1438,8 +1511,11 @@ fn qs(
     };
     var flag = transposition.Entry.Flag.upperbound;
 
+    const has_ttm = tth and
+        pos.isMovePseudoLegal(tte.move) and
+        pos.isMoveLegal(tte.move);
+    var mp = movegen.Picker.init(self, if (has_ttm) tte.move else .{});
     var searched: usize = 0;
-    var mp = movegen.Picker.init(self, tte.move);
     if (!is_checked) {
         mp.skipQuiets();
     }
