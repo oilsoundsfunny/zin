@@ -240,21 +240,21 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool
 
     board.frc = frc;
     while (tokens.next()) |token| {
-        var i: usize = 0;
-        var n: usize = 0;
-        var list: movegen.Move.List = .{};
-
         const pos = board.positions.last();
-        n += list.genNoisy(pos);
-        n += list.genQuiet(pos);
-        while (i < n) : (i += 1) {
-            const m = list.constSlice()[i];
+        var list: movegen.Move.List = .init;
+
+        _ = list.genNoisy(pos);
+        _ = list.genQuiet(pos);
+        for (list.constSlice()) |m| {
             const s = m.toString(board);
             const l = m.toStringLen();
-            if (!std.mem.eql(u8, token, s[0..l]) or !pos.isMoveLegal(m)) {
+            if (!std.mem.eql(u8, token, s[0..l])) {
                 continue;
             }
 
+            if (!pos.isMoveLegal(m)) {
+                return error.UnknownCommand;
+            }
             board.doMove(m);
             break;
         } else return error.UnknownCommand;

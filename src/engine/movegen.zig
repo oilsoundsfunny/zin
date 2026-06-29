@@ -9,12 +9,12 @@ const Thread = @import("Thread.zig");
 const uci = @import("uci.zig");
 
 pub const RootMove = struct {
-    line: types.BoundedArray(Move, null, capacity) = .{},
-    score: isize = evaluation.score.none,
-    nodes: usize = 0,
+    line: types.BoundedArray(Move, null, capacity),
+    score: isize,
+    nodes: usize,
 
     pub const List = struct {
-        array: types.BoundedArray(RootMove, null, capacity) = .{},
+        array: types.BoundedArray(RootMove, null, capacity),
 
         pub fn constSlice(self: *const List) []const RootMove {
             return self.slice();
@@ -38,27 +38,26 @@ pub const RootMove = struct {
 
         pub fn init(board: *Board) List {
             const pos = board.positions.last();
-            var root_moves: List = .{};
-            var gen_moves: Move.List = .{};
+            var root_moves: List = .{ .array = .init };
 
+            var gen_moves: Move.List = .init;
             _ = gen_moves.genNoisy(pos);
             _ = gen_moves.genQuiet(pos);
+
             for (gen_moves.constSlice()) |m| {
                 if (!pos.isMoveLegal(m)) {
                     continue;
                 }
-
-                var rm: RootMove = .{};
-                defer root_moves.array.pushUnchecked(rm);
-
+                var rm: RootMove = .{ .line = .init, .score = evaluation.score.draw, .nodes = 0 };
                 rm.line.pushUnchecked(m);
-                rm.score = evaluation.score.draw;
+                root_moves.array.pushUnchecked(rm);
             }
             return root_moves;
         }
     };
 
     pub const capacity = 256 - @sizeOf(usize) * 3 / @sizeOf(Move);
+    pub const init: RootMove = .{ .line = .init, .score = evaluation.score.none, .nodes = 0 };
 
     pub fn constSlice(self: *const RootMove) []const Move {
         return self.slice();
@@ -91,9 +90,9 @@ pub const RootMove = struct {
 };
 
 pub const Move = packed struct(u16) {
-    flag: Flag = .none,
-    src: types.Square = @enumFromInt(0),
-    dst: types.Square = @enumFromInt(0),
+    flag: Flag,
+    src: types.Square,
+    dst: types.Square,
 
     pub const Flag = enum(u4) {
         none = 0b0000,
@@ -155,12 +154,11 @@ pub const Move = packed struct(u16) {
     };
 
     pub const List = struct {
-        array: types.BoundedArray(Move, null, capacity) = .{
-            .buffer = .{@as(Move, .{})} ** capacity,
-            .len = 0,
-        },
+        array: types.BoundedArray(Move, null, capacity),
 
         pub const capacity = 256 - @sizeOf(usize) / @sizeOf(Move);
+
+        pub const init: List = .{ .array = .init };
 
         fn genCastle(self: *List, pos: *const Board.Position, comptime flag: Move.Flag) usize {
             const len = self.slice().len;
@@ -380,12 +378,15 @@ pub const Move = packed struct(u16) {
     pub const Root = RootMove;
 
     pub const Scored = packed struct(u32) {
-        move: Move = .{},
-        score: evaluation.score.Small = evaluation.score.none,
+        move: Move,
+        score: evaluation.score.Small,
+        pub const init: Scored = .{ .move = none, .score = evaluation.score.none };
     };
 
+    pub const none: Move = .{ .flag = .none, .src = .a1, .dst = .a1 };
+
     pub fn isNone(self: Move) bool {
-        return self == @as(Move, .{});
+        return self == none;
     }
 
     pub fn toString(self: Move, board: *const Board) [8]u8 {
@@ -424,18 +425,18 @@ pub const Picker = struct {
     thread: *const Thread,
 
     excluded: Move,
-    ttm: Move = .{},
+    ttm: Move,
 
-    skip_quiets: bool = false,
-    stage: Stage = .gen_noisy,
+    skip_quiets: bool,
+    stage: Stage,
 
-    moves: Move.List = .{},
-    scores: evaluation.score.List = .{},
+    moves: Move.List,
+    scores: evaluation.score.List,
 
-    first: usize = 0,
-    last: usize = 0,
-    bad_noisy_n: usize = 0,
-    bad_quiet_n: usize = 0,
+    first: usize,
+    last: usize,
+    bad_noisy_n: usize,
+    bad_quiet_n: usize,
 
     pub const Stage = enum {
         ttm,
@@ -538,6 +539,18 @@ pub const Picker = struct {
             .thread = thread,
 
             .excluded = pos.excluded,
+            .ttm = .none,
+
+            .skip_quiets = false,
+            .stage = .gen_noisy,
+
+            .moves = .init,
+            .scores = .init,
+
+            .first = 0,
+            .last = 0,
+            .bad_noisy_n = 0,
+            .bad_quiet_n = 0,
         };
 
         if (!ttm.isNone()) {

@@ -761,8 +761,8 @@ pub fn BoundedArray(
     comptime max_len: comptime_int,
 ) type {
     return struct {
-        buffer: [capacity]T align(alignment) = undefined,
-        len: usize = 0,
+        buffer: [capacity]T align(alignment),
+        len: usize,
 
         const Self = @This();
 
@@ -772,6 +772,8 @@ pub fn BoundedArray(
 
         pub const alignment = opt_alignment orelse @alignOf(T);
         pub const capacity = max_len;
+
+        pub const init: Self = .{ .buffer = undefined, .len = 0 };
 
         pub fn addOne(self: *Self) Error!*align(alignment) T {
             return if (self.len < capacity) self.addOneUnchecked() else error.OutOfMemory;

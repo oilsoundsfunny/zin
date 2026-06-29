@@ -7,12 +7,14 @@ const network = @import("network.zig");
 
 const FinnyTable = @This();
 
-accs: std.EnumArray(types.Color, [network.Default.ibn]Accumulator) = .initFill(@splat(.{})),
-occs: std.EnumArray(types.Color, [network.Default.ibn]Occupancy) = .initFill(@splat(.{})),
+accs: std.EnumArray(types.Color, [network.Default.ibn]Accumulator),
+occs: std.EnumArray(types.Color, [network.Default.ibn]Occupancy),
 
 const Occupancy = struct {
-    by_ptype: std.EnumArray(types.Ptype, types.Square.Set) = .initFill(.none),
-    by_color: std.EnumArray(types.Color, types.Square.Set) = .initFill(.none),
+    by_ptype: std.EnumArray(types.Ptype, types.Square.Set),
+    by_color: std.EnumArray(types.Color, types.Square.Set),
+
+    const none: Occupancy = .{ .by_ptype = .initFill(.none), .by_color = .initFill(.none) };
 
     fn init(pos: *const engine.Board.Position, c: types.Color) Occupancy {
         var occ: Occupancy = .{ .by_ptype = pos.by_ptype, .by_color = pos.by_color };
@@ -42,6 +44,11 @@ const Occupancy = struct {
     }
 };
 
+pub const init: FinnyTable = .{
+    .accs = .initFill(@splat(.none)),
+    .occs = .initFill(@splat(.none)),
+};
+
 pub fn load(
     self: *FinnyTable,
     c: types.Color,
@@ -58,8 +65,8 @@ pub fn load(
     const occs = &self.occs.getPtr(c)[bucket];
     const onboard_occs: Occupancy = .init(position, c);
 
-    var add_array: types.BoundedArray(usize, null, 32) = .{};
-    var sub_array: types.BoundedArray(usize, null, 32) = .{};
+    var add_array: types.BoundedArray(usize, null, 32) = .init;
+    var sub_array: types.BoundedArray(usize, null, 32) = .init;
 
     for (types.Piece.values) |p| {
         const cached = occs.pieceOcc(p);

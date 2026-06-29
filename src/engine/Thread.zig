@@ -193,12 +193,11 @@ pub const Pool = struct {
         );
 
         for (self.threads.items, 0..) |*thread, i| {
-            thread.* = .{
-                .board = board.*,
-                .pool = self,
-                .idx = i,
-                .cnt = num,
-            };
+            thread.* = .init;
+            thread.board = board.*;
+            thread.pool = self;
+            thread.idx = i;
+            thread.cnt = num;
         }
         try self.spawn();
         self.clearHash();
@@ -213,11 +212,10 @@ pub const Pool = struct {
         self.now = .now(self.stdio, .real);
 
         for (self.threads.items, 0..) |*thread, i| {
-            thread.* = .{
-                .pool = self,
-                .idx = i,
-                .cnt = self.threads.items.len,
-            };
+            thread.* = .init;
+            thread.pool = self;
+            thread.idx = i;
+            thread.cnt = self.threads.items.len;
         }
 
         const board = try self.gpa.create(Board);
@@ -450,27 +448,51 @@ pub const hist = struct {
     }
 };
 
-board: Board = .{},
+pool: *Pool,
+idx: usize,
+cnt: usize,
 
-pool: *Pool = undefined,
-idx: usize = 0,
-cnt: usize = 0,
+handle: std.Thread,
+request: Request align(std.atomic.cache_line),
 
-handle: std.Thread = undefined,
-request: Request align(std.atomic.cache_line) = .sleep,
+board: Board,
 
-nodes: u64 = 0,
-tbhits: u64 = 0,
-tthits: u64 = 0,
+nodes: u64,
+tbhits: u64,
+tthits: u64,
 
-depth: Depth = 0,
-seldepth: Depth = 0,
-root_moves: movegen.RootMove.List = .{},
+depth: Depth,
+seldepth: Depth,
+root_moves: movegen.RootMove.List,
 
-nmp_verif: bool = false,
-quiethist: hist.Quiet = @splat(@splat(@splat(0))),
-noisyhist: hist.Noisy = @splat(@splat(@splat(@splat(0)))),
-conthist: hist.Cont = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
+nmp_verif: bool,
+quiethist: hist.Quiet,
+noisyhist: hist.Noisy,
+conthist: hist.Cont,
+
+pub const init: Thread = .{
+    .pool = undefined,
+    .idx = 0,
+    .cnt = 0,
+
+    .handle = undefined,
+    .request = .sleep,
+
+    .board = .init,
+
+    .nodes = 0,
+    .tbhits = 0,
+    .tthits = 0,
+
+    .depth = 0,
+    .seldepth = 0,
+    .root_moves = .{ .array = .init },
+
+    .nmp_verif = false,
+    .quiethist = @splat(@splat(@splat(0))),
+    .noisyhist = @splat(@splat(@splat(@splat(0)))),
+    .conthist = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
+};
 
 fn quietHistPtr(
     self: anytype,
@@ -890,7 +912,11 @@ fn ab(
     const is_singular = !pos.excluded.isNone();
 
     const tt = self.pool.tt;
-    const tte: transposition.Entry, const tth = if (!is_singular) tt.read(key) else .{ .{}, false };
+    const tte: transposition.Entry, const tth =
+        if (!is_singular)
+            tt.read(key)
+        else
+            .{ .none, false };
 
     const was_pv = tth and tte.was_pv;
     const ttscore = evaluation.score.fromTT(tte.score, ply);
@@ -1045,18 +1071,15 @@ fn ab(
         }
     }
 
-    var best: movegen.Move.Scored = .{
-        .move = .{},
-        .score = evaluation.score.none,
-    };
+    var best: movegen.Move.Scored = .init;
     var flag = transposition.Entry.Flag.upperbound;
 
     var searched: usize = 0;
-    var bad_noisy_moves: movegen.Move.List = .{};
-    var bad_quiet_moves: movegen.Move.List = .{};
+    var bad_noisy_moves: movegen.Move.List = .init;
+    var bad_quiet_moves: movegen.Move.List = .init;
     var mp: movegen.Picker = .init(
         self,
-        if (is_singular) pos.excluded else if (has_ttm) tte.move else .{},
+        if (is_singular) pos.excluded else if (has_ttm) tte.move else .none,
     );
 
     move_loop: while (mp.next()) |sm| {
@@ -1170,7 +1193,7 @@ fn ab(
             tte.flag != .upperbound)
         {
             pos.excluded = m;
-            defer pos.excluded = .{};
+            defer pos.excluded = .none;
 
             const bmul =
                 params.values.se_beta_mult -
@@ -1454,16 +1477,13 @@ fn qs(
         return a;
     }
 
-    var best: movegen.Move.Scored = .{
-        .move = .{},
-        .score = @intCast(stat_eval),
-    };
+    var best: movegen.Move.Scored = .{ .move = .none, .score = @intCast(stat_eval) };
     var flag = transposition.Entry.Flag.upperbound;
 
     const has_ttm = tth and
         pos.isMovePseudoLegal(tte.move) and
         pos.isMoveLegal(tte.move);
-    var mp = movegen.Picker.init(self, if (has_ttm) tte.move else .{});
+    var mp = movegen.Picker.init(self, if (has_ttm) tte.move else .none);
     var searched: usize = 0;
     if (!is_checked) {
         mp.skipQuiets();
@@ -1633,7 +1653,7 @@ fn clearHash(self: *Thread) void {
 
     const s = p[0..if (i < m) d + 1 else d];
     for (s) |*c| {
-        c.* = .{};
+        c.* = .none;
     }
 
     self.pool.pawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
