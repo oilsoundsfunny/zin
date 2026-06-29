@@ -193,11 +193,13 @@ pub const Pool = struct {
         );
 
         for (self.threads.items, 0..) |*thread, i| {
+            const handle = thread.handle;
             thread.* = .init;
             thread.board = board.*;
             thread.pool = self;
             thread.idx = i;
             thread.cnt = num;
+            thread.handle = handle;
         }
         try self.spawn();
         self.clearHash();
@@ -212,10 +214,12 @@ pub const Pool = struct {
         self.now = .now(self.stdio, .real);
 
         for (self.threads.items, 0..) |*thread, i| {
+            const handle = thread.handle;
             thread.* = .init;
             thread.pool = self;
             thread.idx = i;
             thread.cnt = self.threads.items.len;
+            thread.handle = handle;
         }
 
         const board = try self.gpa.create(Board);
