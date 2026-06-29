@@ -1687,7 +1687,6 @@ pub fn search(self: *Thread) !void {
     var depth: Depth = min_depth;
     var last_depth: Depth = 0;
     var last_seldepth: Depth = 0;
-    var last_pv = self.root_moves.constSlice()[0];
 
     while (depth <= max_depth) : (depth += 1) {
         self.depth = depth;
@@ -1699,13 +1698,10 @@ pub fn search(self: *Thread) !void {
         }
 
         movegen.RootMove.sortSlice(self.root_moves.slice());
-        if (should_print) {
-            last_depth = self.depth;
-            last_seldepth = self.seldepth;
-            last_pv = self.root_moves.constSlice()[0];
-            if (!pool.opts.minimal) {
-                try self.printInfo(&last_pv, last_depth, last_seldepth);
-            }
+        last_depth = self.depth;
+        last_seldepth = self.seldepth;
+        if (should_print and !pool.opts.minimal) {
+            try self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth);
         }
 
         const datagen_soft_stopped = is_datagen and self.datagenStop(.soft);
@@ -1726,8 +1722,8 @@ pub fn search(self: *Thread) !void {
         }
     }
 
-    try self.printInfo(&last_pv, last_depth, last_seldepth);
-    try self.printBest(&last_pv);
+    try self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth);
+    try self.printBest(&self.root_moves.constSlice()[0]);
 }
 
 pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {
