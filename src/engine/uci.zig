@@ -23,20 +23,17 @@ const Command = enum {
 
 pub const Error = error{UnknownCommand};
 
+// TODO: better option parsing
 fn parseGo(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Command {
     const pos = pool.threads.items[0].board.positions.last();
     const stm = pos.stm;
 
-    pool.limits = .{};
+    pool.limits = .default;
     pool.now = .now(pool.stdio, .real);
 
     while (tokens.next()) |token| {
         if (std.mem.eql(u8, token, "infinite")) {
-            if (tokens.peek()) |_| {
-                return error.UnknownCommand;
-            }
-
-            pool.limits = .{};
+            pool.limits = if (tokens.peek()) |_| return error.UnknownCommand else .default;
             continue;
         }
 
@@ -76,6 +73,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Com
     return .go;
 }
 
+// TODO: better option parsing
 fn parseOption(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Command {
     const options = &pool.opts;
     const backup = options.*;
@@ -157,6 +155,24 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) 
         }
 
         pool.setFRC(frc);
+    } else if (std.ascii.eqlIgnoreCase(name, "UCI_Minimal")) {
+        if (!std.mem.eql(u8, aux, "value")) {
+            return error.UnknownCommand;
+        }
+
+        const value = tokens.next() orelse return error.UnknownCommand;
+        const minimal = if (std.mem.eql(u8, value, "false"))
+            false
+        else if (std.mem.eql(u8, value, "true"))
+            true
+        else
+            return error.UnknownCommand;
+
+        if (tokens.peek()) |_| {
+            return error.UnknownCommand;
+        }
+
+        options.minimal = minimal;
     } else if (std.ascii.eqlIgnoreCase(name, "UCI_ShowWDL")) {
         if (!std.mem.eql(u8, aux, "value")) {
             return error.UnknownCommand;

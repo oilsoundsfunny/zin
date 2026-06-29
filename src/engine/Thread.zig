@@ -108,7 +108,7 @@ pub const Pool = struct {
     }
 
     pub fn create(gpa: std.mem.Allocator, stdio: std.Io) !*Pool {
-        const options: Options = .{};
+        const options: Options = .default;
         const pool = try gpa.create(Pool);
 
         pool.* = .{
@@ -128,7 +128,7 @@ pub const Pool = struct {
             .cond = .init,
             .mtx = .init,
 
-            .limits = .{},
+            .limits = .default,
             .opts = options,
 
             .now = .now(stdio, .real),
@@ -208,8 +208,8 @@ pub const Pool = struct {
         self.stopSearch();
         self.sleeping = false;
 
-        self.limits = .{};
-        self.opts = .{};
+        self.limits = .default;
+        self.opts = .default;
         self.now = .now(self.stdio, .real);
 
         for (self.threads.items, 0..) |*thread, i| {
@@ -307,15 +307,25 @@ pub const Pool = struct {
 };
 
 pub const Limits = struct {
-    infinite: bool = true,
-    depth: ?Depth = null,
-    movetime: ?u64 = null,
+    infinite: bool,
+    depth: ?Depth,
+    movetime: ?u64,
 
-    hard_nodes: ?u64 = null,
-    soft_nodes: ?u64 = null,
+    hard_nodes: ?u64,
+    soft_nodes: ?u64,
 
-    incr: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
-    time: std.EnumMap(types.Color, u64) = std.EnumMap(types.Color, u64).init(.{}),
+    incr: std.EnumMap(types.Color, u64),
+    time: std.EnumMap(types.Color, u64),
+
+    pub const default: Limits = .{
+        .infinite = true,
+        .depth = null,
+        .movetime = null,
+        .hard_nodes = null,
+        .soft_nodes = null,
+        .incr = .init(.{}),
+        .time = .init(.{}),
+    };
 
     pub fn set(self: *Limits, overhead: u64, stm: types.Color) void {
         const has_clock = self.incr.get(stm) != null and self.time.get(stm) != null;
@@ -341,12 +351,23 @@ pub const Limits = struct {
 };
 
 pub const Options = struct {
-    frc: bool = false,
-    show_wdl: bool = false,
-    soft_nodes: bool = false,
-    hash: usize = 64,
-    threads: usize = 1,
-    overhead: u64 = 10,
+    frc: bool,
+    minimal: bool,
+    show_wdl: bool,
+    soft_nodes: bool,
+    hash: usize,
+    threads: usize,
+    overhead: u64,
+
+    pub const default: Options = .{
+        .frc = false,
+        .minimal = false,
+        .show_wdl = false,
+        .soft_nodes = false,
+        .hash = 64,
+        .threads = 1,
+        .overhead = 10,
+    };
 };
 
 pub const hist = struct {
@@ -1682,7 +1703,9 @@ pub fn search(self: *Thread) !void {
             last_depth = self.depth;
             last_seldepth = self.seldepth;
             last_pv = self.root_moves.constSlice()[0];
-            try self.printInfo(&last_pv, last_depth, last_seldepth);
+            if (!pool.opts.minimal) {
+                try self.printInfo(&last_pv, last_depth, last_seldepth);
+            }
         }
 
         const datagen_soft_stopped = is_datagen and self.datagenStop(.soft);
