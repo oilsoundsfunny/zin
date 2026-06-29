@@ -926,7 +926,9 @@ fn ab(
 
     // internal iterative reduction (iir)
     // 10.0+0.1: 84.25 +- 20.51
-    const has_ttm = tth and pos.isMovePseudoLegal(tte.move);
+    const has_ttm = tth and
+        pos.isMovePseudoLegal(tte.move) and
+        pos.isMoveLegal(tte.move);
     if (node.hasLower() and depth >= 3 and !has_ttm) {
         d -= 1;
     }
@@ -1031,15 +1033,14 @@ fn ab(
     var searched: usize = 0;
     var bad_noisy_moves: movegen.Move.List = .{};
     var bad_quiet_moves: movegen.Move.List = .{};
-    var mp = movegen.Picker.init(self, if (is_singular) pos.excluded else tte.move);
-
-    const is_ttm_noisy = !mp.ttm.isNone() and mp.ttm.flag.isNoisy();
-    const is_ttm_quiet = !mp.ttm.isNone() and mp.ttm.flag.isQuiet();
+    var mp: movegen.Picker = .init(
+        self,
+        if (is_singular) pos.excluded else if (has_ttm) tte.move else .{},
+    );
 
     move_loop: while (mp.next()) |sm| {
         const m = sm.move;
         const is_ttm = m == mp.ttm;
-
         const is_legal = is_ttm or check: {
             const next_pos = pos.tryMove(m) catch break :check false;
             tt.prefetch(next_pos.key);
@@ -1050,8 +1051,8 @@ fn ab(
         }
 
         const is_direct_check = pos.isDirectCheck(m);
-        const is_noisy = (is_ttm and is_ttm_noisy) or mp.stage.isNoisy();
-        const is_quiet = (is_ttm and is_ttm_quiet) or mp.stage.isQuiet();
+        const is_noisy = m.flag.isNoisy();
+        const is_quiet = m.flag.isQuiet();
 
         const base_lmr = params.lmr.get(d, searched, is_quiet);
         const lmr_d = @max(d * 1024 - base_lmr, 0);
@@ -1229,7 +1230,7 @@ fn ab(
 
                 r += params.values.lmr_non_improving * @intFromBool(!improving);
                 r += params.values.lmr_cutnode * @intFromBool(node == .lowerbound);
-                r += params.values.lmr_noisy_ttm * @intFromBool(is_ttm_noisy);
+                r += params.values.lmr_noisy_ttm * @intFromBool(has_ttm and mp.ttm.flag.isNoisy());
                 r += params.values.lmr_found_pv * @intFromBool(flag == .exact);
 
                 r -= params.values.lmr_gave_check *
@@ -1438,8 +1439,11 @@ fn qs(
     };
     var flag = transposition.Entry.Flag.upperbound;
 
+    const has_ttm = tth and
+        pos.isMovePseudoLegal(tte.move) and
+        pos.isMoveLegal(tte.move);
+    var mp = movegen.Picker.init(self, if (has_ttm) tte.move else .{});
     var searched: usize = 0;
-    var mp = movegen.Picker.init(self, tte.move);
     if (!is_checked) {
         mp.skipQuiets();
     }

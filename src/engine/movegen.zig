@@ -540,11 +540,9 @@ pub const Picker = struct {
             .excluded = pos.excluded,
         };
 
-        const is_excluded = !ttm.isNone() and ttm == mp.excluded;
-        const is_legal = !ttm.isNone() and pos.isMovePseudoLegal(ttm) and pos.isMoveLegal(ttm);
-        if (is_excluded or is_legal) {
+        if (!ttm.isNone()) {
             mp.ttm = ttm;
-            mp.stage = if (!is_excluded) .ttm else .gen_noisy;
+            mp.stage = if (ttm != mp.excluded) .ttm else .gen_noisy;
         }
 
         return mp;
