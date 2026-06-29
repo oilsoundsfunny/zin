@@ -353,6 +353,10 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
         );
         try pool.io.writer().print(
             "option name {s} type {s} default {s}\n",
+            .{ "UCI_Minimal", "check", "false" },
+        );
+        try pool.io.writer().print(
+            "option name {s} type {s} default {s}\n",
             .{ "UCI_ShowWDL", "check", "false" },
         );
         try pool.io.writer().print(
