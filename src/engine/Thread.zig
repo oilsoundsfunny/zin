@@ -108,7 +108,6 @@ pub const Pool = struct {
     }
 
     pub fn create(gpa: std.mem.Allocator, stdio: std.Io) !*Pool {
-        const options: Options = .default;
         const pool = try gpa.create(Pool);
 
         pool.* = .{
@@ -128,8 +127,8 @@ pub const Pool = struct {
             .cond = .init,
             .mtx = .init,
 
-            .limits = .default,
-            .opts = options,
+            .limits = .init,
+            .opts = .init,
 
             .now = .now(stdio, .real),
             .io = try .init(gpa, stdio, null, 65536, null, 65536),
@@ -139,8 +138,8 @@ pub const Pool = struct {
         _ = try pool.threads.addManyAsSliceBounded(1);
         try pool.reset();
         try pool.spawn();
-
         pool.clearHash();
+
         return pool;
     }
 
@@ -209,8 +208,8 @@ pub const Pool = struct {
         self.stopSearch();
         self.sleeping = false;
 
-        self.limits = .default;
-        self.opts = .default;
+        self.limits = .init;
+        self.opts = .init;
         self.now = .now(self.stdio, .real);
 
         for (self.threads.items, 0..) |*thread, i| {
@@ -319,7 +318,7 @@ pub const Limits = struct {
     incr: std.EnumMap(types.Color, u64),
     time: std.EnumMap(types.Color, u64),
 
-    pub const default: Limits = .{
+    pub const init: Limits = .{
         .infinite = true,
         .depth = null,
         .movetime = null,
@@ -361,7 +360,7 @@ pub const Options = struct {
     threads: usize,
     overhead: u64,
 
-    pub const default: Options = .{
+    pub const init: Options = .{
         .frc = false,
         .minimal = false,
         .show_wdl = false,

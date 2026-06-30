@@ -28,12 +28,12 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Com
     const pos = pool.threads.items[0].board.positions.last();
     const stm = pos.stm;
 
-    pool.limits = .default;
+    pool.limits = .init;
     pool.now = .now(pool.stdio, .real);
 
     while (tokens.next()) |token| {
         if (std.mem.eql(u8, token, "infinite")) {
-            pool.limits = if (tokens.peek()) |_| return error.UnknownCommand else .default;
+            pool.limits = if (tokens.peek()) |_| return error.UnknownCommand else .init;
             continue;
         }
 

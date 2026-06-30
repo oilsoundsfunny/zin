@@ -194,7 +194,7 @@ pub const Table = struct {
     }
 
     pub fn init(gpa: std.mem.Allocator, mb: ?usize) !Table {
-        const options: Thread.Options = .default;
+        const options: Thread.Options = .init;
         const len = (mb orelse options.hash) * (1 << 20) / @sizeOf(Cluster);
 
         const page_size = std.heap.pageSize();
