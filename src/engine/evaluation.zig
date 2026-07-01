@@ -18,9 +18,10 @@ pub const score = struct {
     pub const Simd = @Vector(simd_len, Int);
 
     pub const List = struct {
-        array: types.BoundedArray(Int, null, capacity) = .{},
+        array: types.BoundedArray(Int, null, capacity),
 
         pub const capacity = movegen.Move.List.capacity;
+        pub const init: List = .{ .array = .init };
     };
 
     pub const simd_len = std.simd.suggestVectorLength(Int) orelse 1;

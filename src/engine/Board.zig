@@ -13,13 +13,10 @@ const zobrist = @import("zobrist.zig");
 
 const Board = @This();
 
-frc: bool = false,
-finny_table: nnue.FinnyTable = .{},
-perspectives: types.BoundedArray(nnue.Accumulator.Perspective, null, 1024) = .{
-    .buffer = @splat(.{}),
-    .len = 1,
-},
-positions: types.BoundedArray(Position, null, 1024) = .{ .buffer = @splat(.{}), .len = 1 },
+frc: bool,
+finny_table: nnue.FinnyTable,
+perspectives: types.BoundedArray(nnue.Accumulator.Perspective, null, 1024),
+positions: types.BoundedArray(Position, null, 1024),
 
 pub const FenError = error{
     InvalidPiece,
@@ -60,30 +57,57 @@ pub const Castle = struct {
 };
 
 pub const Position = struct {
-    by_color: std.EnumArray(types.Color, types.Square.Set) = .initFill(.none),
-    by_ptype: std.EnumArray(types.Ptype, types.Square.Set) = .initFill(.none),
-    by_square: std.EnumArray(types.Square, types.Piece) = .initFill(.none),
-    castles: std.EnumMap(types.Castle, Castle) = .init(.{}),
+    by_color: std.EnumArray(types.Color, types.Square.Set),
+    by_ptype: std.EnumArray(types.Ptype, types.Square.Set),
+    by_square: std.EnumArray(types.Square, types.Piece),
+    castles: std.EnumMap(types.Castle, Castle),
 
-    stm: types.Color = .white,
-    move: movegen.Move = .{},
-    src_piece: types.Piece = .none,
-    dst_piece: types.Piece = .none,
+    stm: types.Color,
+    move: movegen.Move,
+    src_piece: types.Piece,
+    dst_piece: types.Piece,
 
-    checks: types.Square.Set = .full,
-    en_pas: ?types.Square = null,
-    rule50: u8 = 0,
+    checks: types.Square.Set,
+    en_pas: ?types.Square,
+    rule50: u8,
 
-    key: zobrist.Int = 0,
-    pawn_key: zobrist.Int = 0,
-    minor_key: zobrist.Int = 0,
-    major_key: zobrist.Int = 0,
-    nonpawn_keys: std.EnumArray(types.Color, zobrist.Int) = .initFill(0),
+    key: zobrist.Int,
+    pawn_key: zobrist.Int,
+    minor_key: zobrist.Int,
+    major_key: zobrist.Int,
+    nonpawn_keys: std.EnumArray(types.Color, zobrist.Int),
 
-    corr_eval: evaluation.score.Int = evaluation.score.none,
-    stat_eval: evaluation.score.Int = evaluation.score.none,
-    pv: movegen.RootMove = .{},
-    excluded: movegen.Move = .{},
+    corr_eval: evaluation.score.Int,
+    stat_eval: evaluation.score.Int,
+    pv: movegen.RootMove,
+    excluded: movegen.Move,
+
+    pub const init: Position = .{
+        .by_color = .initFill(.none),
+        .by_ptype = .initFill(.none),
+        .by_square = .initFill(.none),
+        .castles = .init(.{}),
+
+        .stm = .white,
+        .move = .none,
+        .src_piece = .none,
+        .dst_piece = .none,
+
+        .checks = .full,
+        .en_pas = null,
+        .rule50 = 0,
+
+        .key = 0,
+        .pawn_key = 0,
+        .minor_key = 0,
+        .major_key = 0,
+        .nonpawn_keys = .initFill(0),
+
+        .corr_eval = evaluation.score.none,
+        .stat_eval = evaluation.score.none,
+        .pv = .init,
+        .excluded = .none,
+    };
 
     pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
@@ -264,8 +288,6 @@ pub const Position = struct {
     }
 
     fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .scalar)) FenError!void {
-        var pos: Position = .{};
-
         const sa: [types.Square.num]types.Square = .{
             .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
             .a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
@@ -277,8 +299,9 @@ pub const Position = struct {
             .a1, .b1, .c1, .d1, .e1, .f1, .g1, .h1,
         };
         var si: usize = 0;
-        var rooks = std.EnumMap(types.Castle, types.Square).init(.{});
-        var kings = std.EnumMap(types.Color, types.Square).init(.{});
+        var rooks: std.EnumMap(types.Castle, types.Square) = .init(.{});
+        var kings: std.EnumMap(types.Color, types.Square) = .init(.{});
+        var pos: Position = .init;
 
         const psq_token = tokens.next() orelse return error.InvalidFen;
         if (psq_token.len < 17 or psq_token.len > 71) {
@@ -729,7 +752,7 @@ pub const Position = struct {
             return error.InvalidMove;
         }
 
-        pos.excluded = .{};
+        pos.excluded = .none;
         pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
         pos.stm = stm.flip();
         pos.key ^= zobrist.stm();
@@ -770,16 +793,23 @@ pub const Position = struct {
     }
 };
 
+pub const init: Board = .{
+    .frc = false,
+    .finny_table = .init,
+    .perspectives = .{ .buffer = @splat(.init), .len = 1 },
+    .positions = .{ .buffer = @splat(.init), .len = 1 },
+};
+
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
     var tokens = std.mem.tokenizeScalar(u8, fen, ' ');
     return self.parseFenTokens(&tokens);
 }
 
 pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .scalar)) FenError!void {
-    var parsed: Position = .{};
+    var parsed: Position = .init;
     try parsed.parseFenTokens(tokens);
 
-    self.* = .{};
+    self.* = .init;
     self.positions.last().* = parsed;
     self.perspectives.last().dirty = .initFill(true);
 }
@@ -896,14 +926,14 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
 }
 
 pub fn doNull(self: *Board) void {
-    self.positions.last().move = .{};
+    self.positions.last().move = .none;
     self.positions.last().src_piece = .none;
     self.positions.last().dst_piece = .none;
 
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).*;
     pos.checks = .full;
-    pos.excluded = .{};
+    pos.excluded = .none;
     pos.rule50 = 0;
     pos.stm = pos.stm.flip();
     pos.key ^= zobrist.stm();

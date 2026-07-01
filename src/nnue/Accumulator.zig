@@ -7,7 +7,7 @@ const simd = @import("simd.zig");
 
 const Accumulator = @This();
 
-vec: [network.Default.l1s]i16 align(1024) = network.verbatim.l0b,
+vec: [network.Default.l1s]i16 align(1024),
 
 pub const Feature = struct {
     piece: types.Piece,
@@ -59,8 +59,13 @@ pub const Feature = struct {
 };
 
 pub const Perspective = struct {
-    accs: std.EnumArray(types.Color, Accumulator) = .initFill(.{}),
-    dirty: std.EnumArray(types.Color, bool) = .initFill(false),
+    accs: std.EnumArray(types.Color, Accumulator),
+    dirty: std.EnumArray(types.Color, bool),
+
+    pub const init: Perspective = .{
+        .accs = .initFill(.none),
+        .dirty = .initFill(false),
+    };
 
     pub fn before(
         self: anytype,
@@ -76,6 +81,8 @@ pub const Perspective = struct {
         return &(self[0..1].ptr + dist)[0];
     }
 };
+
+pub const none: Accumulator = .{ .vec = network.verbatim.l0b };
 
 pub fn update(
     self: *Accumulator,

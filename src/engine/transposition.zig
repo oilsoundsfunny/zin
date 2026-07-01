@@ -9,27 +9,33 @@ const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
 pub const Entry = packed struct(u64) {
-    depth: u8 = 0,
-    was_pv: bool = false,
-    flag: Flag = .none,
-    age: u5 = 0,
-    eval: i16 = evaluation.score.none,
-    score: i16 = evaluation.score.none,
-    move: movegen.Move = .{},
+    was_pv: bool,
+    flag: Flag,
+    age: u5,
+    depth: u8,
+    eval: i16,
+    score: i16,
+    move: movegen.Move,
+
+    pub const none: Entry = .{
+        .was_pv = false,
+        .flag = .none,
+        .age = 0,
+        .depth = 0,
+        .eval = evaluation.score.none,
+        .score = evaluation.score.none,
+        .move = .none,
+    };
 
     const flags_vec: @Vector(4, u64) = blk: {
-        var entry: Entry = .{};
-        entry = @bitCast(@as(u64, 0));
+        var entry: Entry = .none;
         entry.flag = @enumFromInt(std.math.maxInt(Flag.Tag));
+        entry.eval = evaluation.score.draw;
+        entry.score = evaluation.score.draw;
         break :blk @splat(@bitCast(entry));
     };
 
-    const none_vec: @Vector(4, u64) = blk: {
-        var entry: Entry = .{};
-        entry = @bitCast(@as(u64, 0));
-        entry.flag = .none;
-        break :blk @splat(@bitCast(entry));
-    };
+    const none_vec: @Vector(4, u64) = @splat(0);
 
     pub const Flag = enum(u2) {
         none,
@@ -87,9 +93,11 @@ pub const Entry = packed struct(u64) {
     }
 };
 
-const Cluster = struct {
-    entries: [3]Entry = @splat(.{}),
-    hashes: [4]u16 = @splat(0),
+pub const Cluster = struct {
+    entries: [3]Entry,
+    hashes: [4]u16,
+
+    pub const none: Cluster = .{ .entries = @splat(.none), .hashes = @splat(0) };
 
     fn load(self: *const Cluster) Cluster {
         const p128: [*]const u128 = @ptrCast(@alignCast(self));
@@ -186,7 +194,7 @@ pub const Table = struct {
     }
 
     pub fn init(gpa: std.mem.Allocator, mb: ?usize) !Table {
-        const options: Thread.Options = .default;
+        const options: Thread.Options = .init;
         const len = (mb orelse options.hash) * (1 << 20) / @sizeOf(Cluster);
 
         const page_size = std.heap.pageSize();
@@ -225,7 +233,7 @@ pub const Table = struct {
         const cluster = &self.clusters[self.index(pos_hash)];
         const loaded = cluster.load();
 
-        const entries_vec: @Vector(4, u64) = loaded.entriesVec(.{});
+        const entries_vec: @Vector(4, u64) = loaded.entriesVec(.none);
         const entries: [4]Entry align(32) = @bitCast(entries_vec);
 
         const short_hash: u16 = @truncate(pos_hash);
@@ -242,7 +250,11 @@ pub const Table = struct {
         const cluster = &self.clusters[self.index(pos_hash)];
         const loaded = cluster.load();
 
-        const entries_vec: @Vector(4, u64) = loaded.entriesVec(.{ .flag = .exact });
+        const entries_vec: @Vector(4, u64) = loaded.entriesVec(blk: {
+            var entry: Entry = .none;
+            entry.flag = .exact;
+            break :blk entry;
+        });
         const entries: [4]Entry align(32) = @bitCast(entries_vec);
 
         const short_hash: u16 = @truncate(pos_hash);

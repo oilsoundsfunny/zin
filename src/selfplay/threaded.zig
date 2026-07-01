@@ -61,8 +61,8 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
     const root_moves = &thread.root_moves;
     const rq = &thread.request.datagen;
 
-    data.* = .{ .head = .init(board), .line = .{} };
-    defer data.line.pushUnchecked(.{});
+    data.* = .{ .head = .init(board), .line = .init };
+    defer data.line.pushUnchecked(.init);
 
     while (data.head.result == .none) {
         try thread.search();
