@@ -2,7 +2,7 @@
     .tm_time_mult = 58,
     .tm_incr_mult = 869,
     .nodetm_mult = 1171,
-    .nodetm_bias = 1332,
+    .nodetm_bias = 1559772,
     .base_lmr_noisy_mult = 21,
     .base_lmr_noisy_bias = 327,
     .base_lmr_quiet_mult = 611,

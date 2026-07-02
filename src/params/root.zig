@@ -15,7 +15,7 @@ const Values = blk: {
     var names: [tunables.len][]const u8 = undefined;
     var attrs: [tunables.len]std.builtin.Type.StructField.Attributes = undefined;
     for (tunables[0..], names[0..], attrs[0..]) |*tunable, *name, *attr| {
-        name.* = tunable.init.name[0..];
+        name.* = tunable.name[0..];
         attr.* = .{
             .@"comptime" = !tuning,
             .default_value_ptr = &tunable.value,
@@ -29,7 +29,7 @@ const map = if (!tuning) {} else blk: {
     var kvs: [tunables.len]KV = undefined;
 
     for (tunables[0..], 0..) |*tunable, i| {
-        const name = tunable.init.name[0..];
+        const name = tunable.name[0..];
         kvs[i] = .{ name, .{ .tunable = tunable, .value = &@field(values, name) } };
     }
 
@@ -38,42 +38,28 @@ const map = if (!tuning) {} else blk: {
 
 pub const Int = engine.evaluation.score.Int;
 pub const Tunable = struct {
-    init: Init,
+    name: [:0]const u8,
     value: Int,
+    min: Int,
+    max: Int,
+    c_end: f32,
 
     const Init = struct {
         name: [:0]const u8,
-        min: ?Int = null,
-        max: ?Int = null,
-        c_end: ?f32 = null,
+        min: Int,
+        max: Int,
+        c_end: f32,
 
         fn expand(self: Init, v: Int) Tunable {
             return .{
-                .init = self,
+                .name = self.name,
                 .value = v,
+                .min = self.min,
+                .max = self.max,
+                .c_end = self.c_end,
             };
         }
     };
-
-    fn margin(self: Tunable) Int {
-        const v = self.value;
-        return @divTrunc(if (v < 0) -v else v, 2) + 10;
-    }
-
-    fn min(self: Tunable) Int {
-        return self.init.min orelse if (self.value < 0) self.value - self.margin() else 0;
-    }
-
-    fn max(self: Tunable) Int {
-        return self.init.max orelse if (self.value > 0) self.value + self.margin() else 0;
-    }
-
-    fn cEnd(self: Tunable) f32 {
-        return self.init.c_end orelse blk: {
-            const r: f32 = @floatFromInt(self.max() - self.min());
-            break :blk r * 0.05;
-        };
-    }
 };
 
 const tunables = blk: {
@@ -82,151 +68,155 @@ const tunables = blk: {
 
     const fields = std.meta.fields(Zon);
     const inits: [fields.len]Tunable.Init = .{
-        .{ .name = "tm_time_mult" },
-        .{ .name = "tm_incr_mult" },
+        // zig fmt: off
+        .{ .name = "tm_time_mult", .min = 16, .max =  256, .c_end = 12.0 },
+        .{ .name = "tm_incr_mult", .min =  4, .max = 1024, .c_end = 48.0 },
 
-        .{ .name = "nodetm_mult" },
-        .{ .name = "nodetm_bias" },
+        .{ .name = "nodetm_mult", .min = 0, .max =    1536, .c_end =    72.0 },
+        .{ .name = "nodetm_bias", .min = 0, .max = 1572864, .c_end = 65536.0 },
 
-        .{ .name = "base_lmr_noisy_mult" },
-        .{ .name = "base_lmr_noisy_bias" },
+        .{ .name = "base_lmr_noisy_mult", .min =  8, .max = 128, .c_end =  6.0 },
+        .{ .name = "base_lmr_noisy_bias", .min = 32, .max = 512, .c_end = 24.0 },
 
-        .{ .name = "base_lmr_quiet_mult" },
-        .{ .name = "base_lmr_quiet_bias" },
+        .{ .name = "base_lmr_quiet_mult", .min = 128, .max = 768, .c_end = 32.0 },
+        .{ .name = "base_lmr_quiet_bias", .min = 128, .max = 768, .c_end = 32.0 },
 
-        .{ .name = "ordering_pawn", .min = 0, .max = 16384 },
-        .{ .name = "ordering_knight", .min = 0, .max = 16384 },
-        .{ .name = "ordering_bishop", .min = 0, .max = 16384 },
-        .{ .name = "ordering_rook", .min = 0, .max = 16384 },
-        .{ .name = "ordering_queen", .min = 0, .max = 16384 },
+        .{ .name = "ordering_pawn",   .min = 1024, .max = 16384, .c_end =  64.0 },
+        .{ .name = "ordering_knight", .min = 1024, .max = 16384, .c_end = 128.0 },
+        .{ .name = "ordering_bishop", .min = 1024, .max = 16384, .c_end = 128.0 },
+        .{ .name = "ordering_rook",   .min = 1024, .max = 16384, .c_end = 256.0 },
+        .{ .name = "ordering_queen",  .min = 1024, .max = 16384, .c_end = 512.0 },
 
-        .{ .name = "see_pawn", .min = 0, .max = 16384 },
-        .{ .name = "see_knight", .min = 0, .max = 16384 },
-        .{ .name = "see_bishop", .min = 0, .max = 16384 },
-        .{ .name = "see_rook", .min = 0, .max = 16384 },
-        .{ .name = "see_queen", .min = 0, .max = 16384 },
+        .{ .name = "see_pawn",   .min = 0, .max = 2048, .c_end =  8.0 },
+        .{ .name = "see_knight", .min = 0, .max = 2048, .c_end = 16.0 },
+        .{ .name = "see_bishop", .min = 0, .max = 2048, .c_end = 16.0 },
+        .{ .name = "see_rook",   .min = 0, .max = 2048, .c_end = 32.0 },
+        .{ .name = "see_queen",  .min = 0, .max = 2048, .c_end = 64.0 },
 
-        .{ .name = "quiethist_max_bonus" },
-        .{ .name = "quiethist_bonus_quad" },
-        .{ .name = "quiethist_bonus_mult" },
-        .{ .name = "quiethist_bonus_bias" },
+        .{ .name = "quiethist_max_bonus",  .min =    0, .max = 4096, .c_end = 128.0 },
+        .{ .name = "quiethist_bonus_quad", .min =    8, .max =  128, .c_end =   6.0 },
+        .{ .name = "quiethist_bonus_mult", .min = -512, .max =  512, .c_end =  48.0 },
+        .{ .name = "quiethist_bonus_bias", .min =    0, .max = 2048, .c_end = 128.0 },
 
-        .{ .name = "quiethist_max_malus" },
-        .{ .name = "quiethist_malus_quad" },
-        .{ .name = "quiethist_malus_mult" },
-        .{ .name = "quiethist_malus_bias" },
+        .{ .name = "quiethist_max_malus",  .min =    0, .max = 4096, .c_end = 128.0 },
+        .{ .name = "quiethist_malus_quad", .min =   16, .max =  256, .c_end =   6.0 },
+        .{ .name = "quiethist_malus_mult", .min = -512, .max =  512, .c_end =  48.0 },
+        .{ .name = "quiethist_malus_bias", .min =    0, .max = 2048, .c_end = 128.0 },
 
-        .{ .name = "noisyhist_max_bonus" },
-        .{ .name = "noisyhist_bonus_quad" },
-        .{ .name = "noisyhist_bonus_mult" },
-        .{ .name = "noisyhist_bonus_bias" },
+        .{ .name = "noisyhist_max_bonus",  .min =    0, .max = 4096, .c_end = 128.0 },
+        .{ .name = "noisyhist_bonus_quad", .min =    8, .max =  128, .c_end =   6.0 },
+        .{ .name = "noisyhist_bonus_mult", .min = -512, .max =  512, .c_end =  48.0 },
+        .{ .name = "noisyhist_bonus_bias", .min =    0, .max = 2048, .c_end = 128.0 },
 
-        .{ .name = "noisyhist_max_malus" },
-        .{ .name = "noisyhist_malus_quad" },
-        .{ .name = "noisyhist_malus_mult" },
-        .{ .name = "noisyhist_malus_bias" },
+        .{ .name = "noisyhist_max_malus",  .min =    0, .max = 4096, .c_end = 128.0 },
+        .{ .name = "noisyhist_malus_quad", .min =   16, .max =  256, .c_end =   6.0 },
+        .{ .name = "noisyhist_malus_mult", .min = -512, .max =  512, .c_end =  48.0 },
+        .{ .name = "noisyhist_malus_bias", .min =    0, .max = 2048, .c_end = 128.0 },
 
-        .{ .name = "corr_pawn_w" },
-        .{ .name = "corr_minor_w" },
-        .{ .name = "corr_major_w" },
-        .{ .name = "corr_nonpawn_stm_w" },
-        .{ .name = "corr_nonpawn_ntm_w" },
+        .{ .name = "corr_pawn_w",        .min = 512, .max = 1536, .c_end = 48.0 },
+        .{ .name = "corr_minor_w",       .min = 512, .max = 1536, .c_end = 48.0 },
+        .{ .name = "corr_major_w",       .min = 512, .max = 1536, .c_end = 48.0 },
+        .{ .name = "corr_nonpawn_stm_w", .min = 512, .max = 1536, .c_end = 48.0 },
+        .{ .name = "corr_nonpawn_ntm_w", .min = 512, .max = 1536, .c_end = 48.0 },
 
-        .{ .name = "corr_pawn_update_w" },
-        .{ .name = "corr_minor_update_w" },
-        .{ .name = "corr_major_update_w" },
-        .{ .name = "corr_nonpawn_update_stm_w" },
-        .{ .name = "corr_nonpawn_update_ntm_w" },
+        .{ .name = "corr_pawn_update_w",        .min = 1024, .max = 3072, .c_end = 128.0 },
+        .{ .name = "corr_minor_update_w",       .min = 1024, .max = 3072, .c_end = 128.0 },
+        .{ .name = "corr_major_update_w",       .min = 1024, .max = 3072, .c_end = 128.0 },
+        .{ .name = "corr_nonpawn_update_stm_w", .min = 1024, .max = 3072, .c_end = 128.0 },
+        .{ .name = "corr_nonpawn_update_ntm_w", .min = 1024, .max = 3072, .c_end = 128.0 },
 
-        .{ .name = "asp_window" },
-        .{ .name = "asp_window_mult" },
+        .{ .name = "asp_window",      .min =  8, .max = 128, .c_end =  6.0 },
+        .{ .name = "asp_window_mult", .min = 32, .max = 512, .c_end = 24.0 },
 
-        .{ .name = "tt_depth_w" },
-        .{ .name = "tt_age_w" },
-        .{ .name = "tt_pv_w" },
-        .{ .name = "tt_upperbound_w" },
-        .{ .name = "tt_exact_w" },
-        .{ .name = "tt_lowerbound_w" },
-        .{ .name = "tt_move_w" },
+        .{ .name = "tt_depth_w",      .min = 256, .max = 1536, .c_end =  64.0 },
+        .{ .name = "tt_age_w",        .min = 512, .max = 3072, .c_end = 128.0 },
+        .{ .name = "tt_pv_w",         .min =  32, .max =  512, .c_end =  24.0 },
+        .{ .name = "tt_upperbound_w", .min =  32, .max =  512, .c_end =  24.0 },
+        .{ .name = "tt_exact_w",      .min =  32, .max =  512, .c_end =  24.0 },
+        .{ .name = "tt_lowerbound_w", .min =  32, .max =  512, .c_end =  24.0 },
+        .{ .name = "tt_move_w",       .min =  32, .max =  512, .c_end =  24.0 },
 
-        .{ .name = "rfp_depth_quad" },
-        .{ .name = "rfp_depth_mult" },
-        .{ .name = "rfp_depth_bias" },
-        .{ .name = "rfp_ntm_worsening" },
-        .{ .name = "rfp_fail_firm", .min = 0, .max = 1024 },
+        .{ .name = "rfp_depth_quad", .min =     128, .max =    2048, .c_end =    96.0 },
+        .{ .name = "rfp_depth_mult", .min = -131072, .max =  131072, .c_end =  4096.0 },
+        .{ .name = "rfp_depth_bias", .min =       0, .max = 1048576, .c_end = 16384.0 },
+        .{ .name = "rfp_ntm_worsening", .min = 16, .max =  256, .c_end = 12.0 },
+        .{ .name = "rfp_fail_firm",     .min =  0, .max = 1024, .c_end = 48.0 },
 
-        .{ .name = "nmp_eval_margin" },
-        .{ .name = "nmp_base_r" },
-        .{ .name = "nmp_depth_mult" },
-        .{ .name = "nmp_improving_r" },
-        .{ .name = "nmp_deval_mult" },
-        .{ .name = "nmp_deval_max_r" },
+        .{ .name = "nmp_eval_margin", .min =  16, .max =  256, .c_end = 12.0 },
+        .{ .name = "nmp_base_r",      .min = 512, .max = 2048, .c_end = 64.0 },
+        .{ .name = "nmp_depth_mult",  .min =  32, .max =  128, .c_end =  4.0 },
+        .{ .name = "nmp_improving_r", .min = 128, .max =  512, .c_end = 16.0 },
+        .{ .name = "nmp_deval_mult",  .min = 256, .max = 1024, .c_end = 32.0 },
+        .{ .name = "nmp_deval_max_r", .min = 512, .max = 2048, .c_end = 64.0 },
 
-        .{ .name = "razoring_mult" },
+        .{ .name = "razoring_mult", .min = 128, .max = 512, .c_end = 16.0 },
 
-        .{ .name = "fp_margin_mult" },
-        .{ .name = "fp_margin_bias" },
-        .{ .name = "fp_hist_mult" },
+        .{ .name = "fp_margin_mult", .min =    16, .max =  256, .c_end =  12.0 },
+        .{ .name = "fp_margin_bias", .min = -1024, .max = 1024, .c_end = 128.0 },
+        .{ .name = "fp_hist_mult",   .min =    16, .max =  256, .c_end =  12.0 },
 
-        .{ .name = "bnfp_margin_mult" },
-        .{ .name = "bnfp_margin_bias" },
-        .{ .name = "bnfp_hist_mult" },
+        .{ .name = "bnfp_margin_mult", .min =    32, .max =  512, .c_end =  24.0 },
+        .{ .name = "bnfp_margin_bias", .min = -2048, .max = 2048, .c_end = 256.0 },
+        .{ .name = "bnfp_hist_mult",   .min =    16, .max =  256, .c_end =  12.0 },
 
-        .{ .name = "lmp_improving_quad" },
-        .{ .name = "lmp_improving_mult" },
-        .{ .name = "lmp_improving_bias" },
+        .{ .name = "lmp_improving_quad", .min =    64, .max = 1024, .c_end =  48.0 },
+        .{ .name = "lmp_improving_mult", .min = -1024, .max = 1024, .c_end = 128.0 },
+        .{ .name = "lmp_improving_bias", .min =   512, .max = 8192, .c_end = 384.0 },
 
-        .{ .name = "lmp_nonimproving_quad" },
-        .{ .name = "lmp_nonimproving_mult" },
-        .{ .name = "lmp_nonimproving_bias" },
+        .{ .name = "lmp_nonimproving_quad", .min =    64, .max = 1024, .c_end =  48.0 },
+        .{ .name = "lmp_nonimproving_mult", .min = -1024, .max = 1024, .c_end = 128.0 },
+        .{ .name = "lmp_nonimproving_bias", .min =   512, .max = 8192, .c_end = 384.0 },
 
-        .{ .name = "pvs_see_quiet_mult" },
-        .{ .name = "pvs_see_noisy_mult" },
-        .{ .name = "pvs_see_max_capthist" },
-        .{ .name = "pvs_see_capthist_mult" },
+        .{ .name = "pvs_see_quiet_mult",    .min = -256, .max = -16, .c_end = 12.0 },
+        .{ .name = "pvs_see_noisy_mult",    .min = -256, .max = -16, .c_end = 12.0 },
+        .{ .name = "pvs_see_max_capthist",  .min =   16, .max = 256, .c_end = 12.0 },
+        .{ .name = "pvs_see_capthist_mult", .min =   16, .max = 256, .c_end = 12.0 },
 
-        .{ .name = "quiethist_pruning_lim" },
-        .{ .name = "quiethist_pruning_mult" },
-        .{ .name = "quiethist_pruning_bias" },
+        .{ .name = "quiethist_pruning_lim",  .min =   512, .max = 8192, .c_end =  384.0 },
+        .{ .name = "quiethist_pruning_mult", .min = -8192, .max = -512, .c_end =  384.0 },
+        .{ .name = "quiethist_pruning_bias", .min = -8192, .max = 8192, .c_end = 1024.0 },
 
-        .{ .name = "noisyhist_pruning_lim" },
-        .{ .name = "noisyhist_pruning_mult" },
-        .{ .name = "noisyhist_pruning_bias" },
+        .{ .name = "noisyhist_pruning_lim",  .min =   512, .max = 8192, .c_end =  384.0 },
+        .{ .name = "noisyhist_pruning_mult", .min = -8192, .max = -512, .c_end =  384.0 },
+        .{ .name = "noisyhist_pruning_bias", .min = -8192, .max = 8192, .c_end = 1024.0 },
 
-        .{ .name = "se_beta_mult" },
-        .{ .name = "se_beta_mult_pv" },
-        .{ .name = "se_beta_mult_was_pv" },
-        .{ .name = "se_depth_mult" },
-        .{ .name = "se_depth_bias" },
+        .{ .name = "se_beta_mult",        .min = 128, .max = 2048, .c_end = 96.0 },
+        .{ .name = "se_beta_mult_pv",     .min = 128, .max = 2048, .c_end = 96.0 },
+        .{ .name = "se_beta_mult_was_pv", .min = 128, .max = 2048, .c_end = 96.0 },
+        .{ .name = "se_depth_mult", .min = 128, .max = 2048, .c_end =  96.0 },
+        .{ .name = "se_depth_bias", .min = 256, .max = 4096, .c_end = 192.0 },
 
-        .{ .name = "ldse_margin" },
+        .{ .name = "ldse_margin", .min = 16, .max = 256, .c_end = 12.0 },
 
-        .{ .name = "dext_quiet" },
-        .{ .name = "dext_noisy" },
-        .{ .name = "dext_pv" },
+        .{ .name = "dext_quiet", .min = 4, .max = 64, .c_end = 2.0 },
+        .{ .name = "dext_noisy", .min = 4, .max = 64, .c_end = 2.0 },
+        .{ .name = "dext_pv",    .min = 4, .max = 64, .c_end = 2.0 },
 
-        .{ .name = "text_quiet" },
-        .{ .name = "text_noisy" },
-        .{ .name = "text_pv" },
+        .{ .name = "text_quiet", .min =  8, .max = 128, .c_end =  4.0 },
+        .{ .name = "text_noisy", .min =  8, .max = 128, .c_end =  4.0 },
+        .{ .name = "text_pv",    .min = 32, .max = 512, .c_end = 16.0 },
 
-        .{ .name = "lmr_non_improving" },
-        .{ .name = "lmr_cutnode" },
-        .{ .name = "lmr_noisy_ttm" },
-        .{ .name = "lmr_found_pv" },
-        .{ .name = "lmr_gave_check" },
-        .{ .name = "lmr_is_checked" },
-        .{ .name = "lmr_is_pv" },
-        .{ .name = "lmr_was_pv" },
-        .{ .name = "lmr_was_pv_non_fail_low" },
+        .{ .name = "lmr_non_improving",       .min = 16, .max = 4096, .c_end = 192.0 },
+        .{ .name = "lmr_cutnode",             .min = 16, .max = 4096, .c_end = 192.0 },
+        .{ .name = "lmr_noisy_ttm",           .min = 16, .max = 4096, .c_end = 192.0 },
+        .{ .name = "lmr_found_pv",            .min = 16, .max = 4096, .c_end = 192.0 },
+        .{ .name = "lmr_gave_check",          .min = 16, .max = 4096, .c_end = 192.0 },
+        .{ .name = "lmr_is_checked",          .min = 16, .max = 4096, .c_end = 192.0 },
+        .{ .name = "lmr_is_pv",               .min = 16, .max = 4096, .c_end = 192.0 },
+        .{ .name = "lmr_was_pv",              .min = 16, .max = 4096, .c_end = 192.0 },
+        .{ .name = "lmr_was_pv_non_fail_low", .min = 16, .max = 4096, .c_end = 192.0 },
 
-        .{ .name = "deeper_margin0_mult" },
-        .{ .name = "deeper_margin0_bias" },
-        .{ .name = "deeper_margin1_mult" },
-        .{ .name = "deeper_margin1_bias" },
-        .{ .name = "shallower_margin_mult" },
-        .{ .name = "shallower_margin_bias" },
+        .{ .name = "deeper_margin0_mult", .min = 8192, .max = 49152, .c_end = 2048.0 },
+        .{ .name = "deeper_margin0_bias", .min =  256, .max =  4096, .c_end =  192.0 },
 
-        .{ .name = "qs_fp_margin" },
+        .{ .name = "deeper_margin1_mult", .min = 8192, .max = 49152, .c_end = 2048.0 },
+        .{ .name = "deeper_margin1_bias", .min =  256, .max =  4096, .c_end =  192.0 },
+
+        .{ .name = "shallower_margin_mult", .min = 256, .max = 4096, .c_end = 192.0 },
+        .{ .name = "shallower_margin_bias", .min =  64, .max = 1024, .c_end =  48.0 },
+
+        .{ .name = "qs_fp_margin", .min = 8, .max = 128, .c_end = 6.0 },
+        // zig fmt: on
     };
     var tbl: [fields.len]Tunable = undefined;
 
@@ -235,12 +225,10 @@ const tunables = blk: {
         const v = @field(zon, name);
         tunable.* = tunable_init.expand(v);
 
-        const min = tunable.min();
-        const max = tunable.max();
-        if (v != std.math.clamp(v, min, max)) {
+        if (v != std.math.clamp(v, tunable.min, tunable.max)) {
             const msg = std.fmt.comptimePrint(
                 "tunable {s} has value {} outside of [{}, {}]",
-                .{ name, v, min, max },
+                .{ name, v, tunable.min, tunable.max },
             );
             @compileError(msg);
         }
@@ -278,12 +266,12 @@ pub fn parseTunable(
     }
 
     const value = std.fmt.parseInt(Int, value_token, 10) catch return error.UnknownCommand;
-    if (value != std.math.clamp(value, tunable.min(), tunable.max())) {
+    if (value != std.math.clamp(value, tunable.min, tunable.max)) {
         return error.UnknownCommand;
     }
 
     dst.* = value;
-    if (std.mem.indexOf(u8, name, "base_lmr")) |_| {
+    if (std.mem.startsWith(u8, name, "base_lmr")) {
         try lmr.init();
     }
 }
@@ -291,7 +279,7 @@ pub fn parseTunable(
 pub fn printOptions(writer: *std.Io.Writer) !void {
     const fmt = "option name {s} type spin default {d} min {d} max {d}\n";
     for (tunables[0..]) |*tunable| {
-        try writer.print(fmt, .{ tunable.init.name, tunable.value, tunable.min(), tunable.max() });
+        try writer.print(fmt, .{ tunable.name, tunable.value, tunable.min, tunable.max });
     }
 }
 
@@ -299,8 +287,8 @@ pub fn printValues(writer: *std.Io.Writer) !void {
     const fmt = "{s}, int, {d:.1}, {d:.1}, {d:.1}, {d:.3}, 0.002\n";
     for (tunables[0..]) |*tunable| {
         const val: f32 = @floatFromInt(tunable.value);
-        const min: f32 = @floatFromInt(tunable.min());
-        const max: f32 = @floatFromInt(tunable.max());
-        try writer.print(fmt, .{ tunable.init.name, val, min, max, tunable.cEnd() });
+        const min: f32 = @floatFromInt(tunable.min);
+        const max: f32 = @floatFromInt(tunable.max);
+        try writer.print(fmt, .{ tunable.name, val, min, max, tunable.c_end });
     }
 }

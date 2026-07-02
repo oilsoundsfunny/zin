@@ -28,16 +28,17 @@ pub fn findNonZeroes(l1: []const u8) types.BoundedArray(u16, null, 512) {
     const unroll = @max(8 / simd.Vec(i32).len, 1);
     const chunks = unroll * simd.Vec(i32).len / 8;
 
-    var indices: types.BoundedArray(u16, null, 512) = .{};
+    var indices: types.BoundedArray(u16, null, 512) = .init;
     var offset: @Vector(8, u16) = @splat(0);
     var i: usize = 0;
 
     while (i < l1.len) {
         var mask: u64 = 0;
         for (0..unroll) |k| {
-            const nz_mask = nzMask(.load(l1[i..]));
+            const vec: simd.Vec(u8).ConstSlice = @alignCast(l1[i..]);
+            const nz_mask = nzMask(.load(vec));
             mask |= std.math.shl(u64, nz_mask, k * simd.Vec(i32).len);
-            i += simd.Vec(i8).len;
+            i += simd.Vec(u8).len;
         }
 
         for (0..chunks) |chunk| {
