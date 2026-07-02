@@ -17,5 +17,5 @@ NETWORK =
 endif
 
 default:
-	-zig build --release=fast $(NETWORK)
+	-zig build --release=fast -Dtuning=true $(NETWORK)
 	@$(MV)

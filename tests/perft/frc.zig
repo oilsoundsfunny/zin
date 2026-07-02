@@ -4,7 +4,7 @@ const std = @import("std");
 
 const root = @import("root.zig");
 
-const suite = [_]root.Result{
+const suite: [9]root.Result = .{
     .{
         .fen = "1rqbkrbn/1ppppp1p/1n6/p1N3p1/8/2P4P/PP1PPPP1/1RQBKRBN w KQkq - 0 9",
         .moves = &.{},
