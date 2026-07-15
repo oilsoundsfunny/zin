@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const params = @import("params");
 const std = @import("std");
 const types = @import("types");
@@ -7,6 +8,15 @@ const movegen = @import("movegen.zig");
 const Thread = @import("Thread.zig");
 const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
+
+const BigAtomicInt = @Int(.unsigned, big_atomic_bits);
+
+const big_atomic_size = switch (builtin.cpu.arch) {
+    .x86_64 => if (builtin.cpu.has(.x86, .cx16)) 16 else 8,
+    .aarch64 => 8,
+    else => @compileError("architecture not supported"),
+};
+const big_atomic_bits = big_atomic_size * 8;
 
 pub const Entry = packed struct(u64) {
     was_pv: bool,
@@ -100,12 +110,26 @@ pub const Cluster = struct {
     pub const none: Cluster = .{ .entries = @splat(.none), .hashes = @splat(0) };
 
     fn load(self: *const Cluster) Cluster {
-        const p128: [*]const u128 = @ptrCast(@alignCast(self));
-        const halves: [2]u128 = .{
-            @atomicLoad(u128, &p128[0], .monotonic),
-            @atomicLoad(u128, &p128[1], .monotonic),
+        const quarters: [4]u64 = switch (big_atomic_bits) {
+            128 => blk: {
+                const p128: [*]const u128 = @ptrCast(@alignCast(self));
+                const halves: [2]u128 = .{
+                    @atomicLoad(u128, &p128[0], .monotonic),
+                    @atomicLoad(u128, &p128[1], .monotonic),
+                };
+                break :blk @bitCast(halves);
+            },
+            64 => blk: {
+                const p64: [*]const u64 = @ptrCast(@alignCast(self));
+                break :blk .{
+                    @atomicLoad(u64, &p64[0], .monotonic),
+                    @atomicLoad(u64, &p64[1], .monotonic),
+                    @atomicLoad(u64, &p64[2], .monotonic),
+                    @atomicLoad(u64, &p64[3], .monotonic),
+                };
+            },
+            else => @compileError("here's a nickel, kid. go buy yourself a real computer."),
         };
-        const quarters: [4]u64 = @bitCast(halves);
         return .{ .entries = @bitCast(quarters[0..3].*), .hashes = @bitCast(quarters[3]) };
     }
 
@@ -132,12 +156,18 @@ pub const Table = struct {
     }
 
     fn madviseHugePage(self: *const Table) !void {
-        if (@hasField(std.posix.MADV, "HUGEPAGE")) {
-            try std.posix.madvise(
-                @ptrCast(self.clusters.ptr),
-                @sizeOf(Cluster) * self.clusters.len,
-                std.posix.MADV.HUGEPAGE,
-            );
+        switch (@typeInfo(@TypeOf(std.posix.MADV))) {
+            .@"enum",
+            .@"struct",
+            .@"union",
+            => if (@hasField(std.posix.MADV, "HUGEPAGE")) {
+                try std.posix.madvise(
+                    @ptrCast(self.clusters.ptr),
+                    @sizeOf(Cluster) * self.clusters.len,
+                    std.posix.MADV.HUGEPAGE,
+                );
+            },
+            else => {},
         }
     }
 
@@ -197,7 +227,7 @@ pub const Table = struct {
         const options: Thread.Options = .init;
         const len = (mb orelse options.hash) * (1 << 20) / @sizeOf(Cluster);
 
-        const page_size = std.heap.pageSize();
+        const page_size = std.heap.page_size_max;
         const clusters = try gpa.alignedAlloc(Cluster, .fromByteUnits(page_size), len);
 
         const table: Table = .{ .clusters = clusters, .age = 0 };

@@ -332,7 +332,9 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
         defer mtx.unlock(io);
 
         try pool.io.writer().print("id author {s}\n", .{@import("root").author});
-        try pool.io.writer().print("id name {s}\n", .{@import("root").name});
+        try pool.io.writer().print("id name {s} {s}\n", .{
+            @import("root").name, @import("root").version_string,
+        });
 
         try pool.io.writer().print("option name {s} type {s}\n", .{ "Clear Hash", "button" });
         try pool.io.writer().print(
@@ -387,16 +389,17 @@ pub fn loop(pool: *Thread.Pool) !void {
     const writer = pool.io.writer();
 
     while (reader.takeDelimiterInclusive('\n')) |read| {
-        const comm = parseCommand(read[0 .. read.len - 1], pool) catch |err| sw: switch (err) {
+        const trimmed = std.mem.trim(u8, read, std.ascii.whitespace[0..]);
+        const command = parseCommand(trimmed, pool) catch |err| sw: switch (err) {
             error.UnknownCommand => {
-                try writer.print("Unknown command: '{s}'\n", .{read[0 .. read.len - 1]});
+                try writer.print("Unknown command: '{s}'\n", .{trimmed});
                 try writer.flush();
                 break :sw Command.none;
             },
             else => return err,
         };
 
-        if (comm == .quit) {
+        if (command == .quit) {
             break;
         }
     } else |err| return err;

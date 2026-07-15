@@ -33,7 +33,7 @@ const Request = union(Tag) {
     };
 };
 
-const page_size = std.heap.pageSize();
+const page_size = std.heap.page_size_max;
 
 pub const Depth = evaluation.score.Int;
 

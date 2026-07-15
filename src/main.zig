@@ -56,6 +56,7 @@ const help =
 pub const author = root.author;
 pub const name = root.name;
 pub const version = root.version;
+pub const version_string = root.version_string;
 
 pub const std_options: std.Options = .{
     .side_channels_mitigations = .basic,

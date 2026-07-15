@@ -99,30 +99,15 @@ fn createModule(
     return bld.createModule(opts);
 }
 
-fn releaseTargets(bld: *std.Build) !std.ArrayList(std.Build.ResolvedTarget) {
-    const triples: [2][]const u8 = .{
-        "x86_64-linux-musl",
-        "x86_64-windows-msvc",
-    };
-    const cpus: [9][]const u8 = .{
-        // zig fmt: off
-        "x86_64", "x86_64_v2", "x86_64_v3", "x86_64_v4",
-        "znver1", "znver2", "znver3", "znver4", "znver5",
-        // zig fmt: on
-    };
-
-    var list: std.ArrayList(std.Build.ResolvedTarget) = .empty;
-    for (triples) |triple| {
-        for (cpus) |cpu| {
-            const query: std.Target.Query = try .parse(.{
-                .arch_os_abi = triple,
-                .cpu_features = cpu,
-            });
-            const resolved = bld.resolveTargetQuery(query);
-            try list.append(bld.allocator, resolved);
-        }
-    }
-    return list;
+fn shortHash(bld: *std.Build) ?[]const u8 {
+    const argv: []const []const u8 = if (bld.build_root.path) |root|
+        &.{ "git", "-C", root, "rev-parse", "--short=7", "HEAD" }
+    else
+        &.{ "git", "rev-parse", "--short=7", "HEAD" };
+    var exit: u8 = undefined;
+    const stdout = bld.runAllowFail(argv, &exit, .ignore) catch return null;
+    const short_hash = std.mem.trim(u8, stdout, std.ascii.whitespace[0..]);
+    return if (short_hash.len != 0) short_hash else null;
 }
 
 pub fn build(bld: *std.Build) !void {
@@ -132,9 +117,6 @@ pub fn build(bld: *std.Build) !void {
 
     const optimize = bld.standardOptimizeOption(.{});
     const target = bld.standardTargetOptions(.{});
-
-    var release_targets = try releaseTargets(bld);
-    defer release_targets.deinit(bld.allocator);
 
     const is_debug = optimize == .Debug;
     const has_debuginfo = is_debug or optimize == .ReleaseSafe;
@@ -195,61 +177,75 @@ pub fn build(bld: *std.Build) !void {
             module.addImport(dep_name, dep_module);
         }
 
-        if (m == .nnue) {
-            module.addAnonymousImport("embed.nnue", .{ .root_source_file = network });
-        } else if (m == .params) {
-            const tuning = bld.option(bool, "tuning", "") orelse false;
-            const options = bld.addOptions();
-            options.addOption(bool, "tuning", tuning);
-            module.addOptions("options", options);
+        switch (m) {
+            .nnue => module.addAnonymousImport("embed.nnue", .{ .root_source_file = network }),
+            .params => {
+                const options = bld.addOptions();
+                options.addOption(bool, "tuning", bld.option(bool, "tuning", "") orelse false);
+                module.addOptions("options", options);
+            },
+            else => {},
         }
     }
 
-    const lto: std.zig.LtoMode = bld.option(std.zig.LtoMode, "lto", "") orelse
+    const lto: std.zig.LtoMode =
+        bld.option(std.zig.LtoMode, "lto", "") orelse
         if (has_debuginfo) .none else .thin;
     const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
-    const version = @import("src/root.zig").version;
 
-    var version_buf: [128]u8 align(std.atomic.cache_line) = undefined;
-    const version_string = bld.option([]const u8, "version-string", "") orelse
-        try std.fmt.bufPrint(
-            version_buf[0..],
-            "{}.{}.{}",
-            .{ version.major, version.minor, version.patch },
-        );
+    const version, const version_string, const version_options = blk: {
+        const v: std.SemanticVersion = .{
+            .major = 0,
+            .minor = 3,
+            .patch = 0,
+            .pre = "dev",
+            .build = shortHash(bld),
+        };
+
+        const s = bld.option([]const u8, "version-string", "") orelse inner: {
+            const buf = bld.allocator.alloc(u8, 256) catch @panic("OOM");
+            var w: std.Io.Writer = .fixed(buf);
+            try v.format(&w);
+            break :inner w.buffered();
+        };
+
+        const o = bld.addOptions();
+        o.addOption(@TypeOf(v), "resolved", v);
+        o.addOption(@TypeOf(s), "string", s);
+
+        break :blk .{ v, s, o };
+    };
 
     for (Steps.values) |s| {
         var options = module_defaults;
         options.root_source_file = bld.path(Steps.srcs.get(s));
 
         if (s == .releases) {
-            for (release_targets.items) |release_target| {
-                options.target = release_target;
+            const release_targets = @import("tools/release.zig").targets;
+            for (release_targets) |release_target| {
+                const resolved = try release_target.resolve(bld);
+                options.target = resolved;
+
                 const module = bld.createModule(options);
-                const deps = Steps.dependencies.get(s);
+                module.addOptions("version", version_options);
+
+                const deps = Steps.dependencies.get(.releases);
                 for (deps) |dep| {
                     const dep_name = Modules.names.get(dep);
                     const dep_module = modules.get(dep);
                     module.addImport(dep_name, dep_module);
                 }
 
-                // TODO: ts lowkirkuinely leaks memory
-                const name = try std.mem.concat(bld.allocator, u8, &.{
-                    exe_name, "-", version_string, "-", release_target.result.cpu.model.name,
+                const exe = bld.addExecutable(.{
+                    .root_module = module,
+                    .name = release_target.name(bld, exe_name, version_string),
+                    .version = version,
+                    .use_lld = resolved.result.os.tag != .macos,
+                    .use_llvm = true,
                 });
+                exe.lto = if (resolved.result.os.tag == .linux) lto else .none;
 
-                const comp = add_exe: {
-                    const exe = bld.addExecutable(.{
-                        .root_module = module,
-                        .name = name,
-                        .version = version,
-                        .use_lld = true,
-                        .use_llvm = true,
-                    });
-                    exe.lto = if (release_target.result.os.tag != .windows) lto else .none;
-                    break :add_exe exe;
-                };
-                const sub_step = &bld.addInstallArtifact(comp, .{}).step;
+                const sub_step = &bld.addInstallArtifact(exe, .{}).step;
                 steps.get(s).dependOn(sub_step);
             }
         } else {
@@ -261,15 +257,16 @@ pub fn build(bld: *std.Build) !void {
                 module.addImport(dep_name, dep_module);
             }
 
-            const comp = if (s == .install) add_exe: {
+            const artifact = if (s == .install) add_exe: {
+                module.addOptions("version", version_options);
                 const exe = bld.addExecutable(.{
                     .root_module = module,
                     .name = exe_name,
                     .version = version,
-                    .use_lld = true,
+                    .use_lld = target.result.os.tag != .macos,
                     .use_llvm = true,
                 });
-                exe.lto = if (target.result.os.tag != .windows) lto else .none;
+                exe.lto = if (target.result.os.tag == .linux) lto else .none;
                 break :add_exe exe;
             } else bld.addTest(.{
                 .root_module = module,
@@ -279,9 +276,9 @@ pub fn build(bld: *std.Build) !void {
             });
 
             const sub_step = if (s == .install)
-                &bld.addInstallArtifact(comp, .{}).step
+                &bld.addInstallArtifact(artifact, .{}).step
             else
-                &bld.addRunArtifact(comp).step;
+                &bld.addRunArtifact(artifact).step;
             steps.get(s).dependOn(sub_step);
         }
     }
