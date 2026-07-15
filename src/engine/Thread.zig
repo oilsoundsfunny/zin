@@ -1227,12 +1227,8 @@ fn ab(
                 const min = evaluation.score.loss + 1;
                 const max = evaluation.score.win - 1;
                 return std.math.clamp(sb, min, max);
-            } else if (ttscore <= a) {
-                e -= 3;
-                e -= @intFromBool(node == .lowerbound);
-            } else if (ttscore >= b) {
-                e -= 2;
-                e -= @intFromBool(node == .lowerbound);
+            } else if (a + 1 > b - 1 or ttscore != std.math.clamp(ttscore, a + 1, b - 1)) {
+                e -= 4;
             }
         } else if (!is_checked and
             node == .lowerbound and
