@@ -6,13 +6,11 @@ pub const nnue = @import("nnue");
 pub const params = @import("params");
 pub const types = @import("types");
 
+pub const version = @import("version").resolved;
+pub const version_string = @import("version").string;
+
 pub const author = "oilsoundsfunny";
 pub const name = "zin";
-pub const version: std.SemanticVersion = .{
-    .major = 0,
-    .minor = 2,
-    .patch = 1,
-};
 
 pub fn deinit() void {
     defer bitboard.deinit();

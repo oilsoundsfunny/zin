@@ -26,8 +26,7 @@ pub fn init(gpa: std.mem.Allocator, io: std.Io, opt_path: ?[]const u8) !Book {
     const file = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer file.close(io);
 
-    const page_size = std.heap.pageSize();
-    var buffer: [65536]u8 align(page_size) = undefined;
+    var buffer: [65536]u8 align(std.heap.page_size_max) = undefined;
     var file_r = file.reader(io, buffer[0..]);
     const reader = &file_r.interface;
 

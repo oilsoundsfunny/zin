@@ -7,8 +7,7 @@ const Accumulator = @import("Accumulator.zig");
 const simd = @import("simd.zig");
 const sparse = @import("sparse.zig");
 
-const page_size = std.heap.pageSize();
-const embedded align(page_size) = @embedFile("embed.nnue").*;
+const embedded align(std.heap.page_size_max) = @embedFile("embed.nnue").*;
 
 pub const verbatim = if (embedded.len == @sizeOf(Default))
     std.mem.bytesAsValue(Default, embedded[0..])
