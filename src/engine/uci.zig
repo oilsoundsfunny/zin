@@ -24,7 +24,7 @@ const Command = enum {
 pub const Error = error{UnknownCommand};
 
 // TODO: better option parsing
-fn parseGo(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Command {
+fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
     const pos = pool.threads.items[0].board.positions.last();
     const stm = pos.stm;
 
@@ -69,12 +69,12 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Com
     }
 
     pool.limits.set(pool.opts.overhead, stm);
-    pool.search();
+    try pool.search();
     return .go;
 }
 
 // TODO: better option parsing
-fn parseOption(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Command {
+fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
     const options = &pool.opts;
     const backup = options.*;
     errdefer options.* = backup;
@@ -93,7 +93,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) 
             return error.UnknownCommand;
         }
 
-        pool.clearHash();
+        try pool.clearHash();
     } else if (std.ascii.eqlIgnoreCase(name, "Hash")) {
         if (!std.mem.eql(u8, aux, "value")) {
             return error.UnknownCommand;
@@ -216,7 +216,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) 
     return .setoption;
 }
 
-fn parsePosition(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool) !Command {
+fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
     const frc = pool.threads.items[0].board.frc;
     const board = try pool.gpa.create(Board);
     defer pool.gpa.destroy(board);
@@ -262,10 +262,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .scalar), pool: *Thread.Pool
 }
 
 fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
-    const io = pool.stdio;
-    const mtx = &pool.mtx;
-
-    var tokens = std.mem.tokenizeScalar(u8, command, ' ');
+    var tokens = std.mem.tokenizeAny(u8, command, &std.ascii.whitespace);
     const first = tokens.next() orelse return error.UnknownCommand;
 
     if (std.mem.eql(u8, first, "debug")) {
@@ -276,8 +273,8 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
         var board_buf: [8192]u8 align(std.atomic.cache_line) = undefined;
         const board = try pool.threads.items[0].board.printSelf(board_buf[0..]);
 
-        mtx.lockUncancelable(io);
-        defer mtx.unlock(io);
+        try pool.io.lockWriter();
+        defer pool.io.unlockWriter();
 
         try pool.io.writer().print("{s}", .{board});
         try pool.io.writer().flush();
@@ -290,8 +287,8 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
             return error.UnknownCommand;
         }
 
-        mtx.lockUncancelable(io);
-        defer mtx.unlock(io);
+        try pool.io.lockWriter();
+        defer pool.io.unlockWriter();
 
         try pool.io.writer().print("readyok\n", .{});
         try pool.io.writer().flush();
@@ -304,21 +301,17 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
             return error.UnknownCommand;
         }
 
-        pool.stopSearch();
+        pool.group.cancel(pool.stdio);
         return if (std.mem.eql(u8, first, "quit")) .quit else .stop;
     } else if (std.mem.eql(u8, first, "setoption")) {
         return parseOption(&tokens, pool);
     } else if (std.mem.eql(u8, first, "spsa_inputs")) {
-        if (!params.tuning) {
+        if (!params.tuning or tokens.peek() != null) {
             return error.UnknownCommand;
         }
 
-        if (tokens.peek()) |_| {
-            return error.UnknownCommand;
-        }
-
-        mtx.lockUncancelable(io);
-        defer mtx.unlock(io);
+        try pool.io.lockWriter();
+        defer pool.io.unlockWriter();
 
         try params.printValues(pool.io.writer());
         try pool.io.writer().flush();
@@ -328,8 +321,8 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
             return error.UnknownCommand;
         }
 
-        mtx.lockUncancelable(io);
-        defer mtx.unlock(io);
+        try pool.io.lockWriter();
+        defer pool.io.unlockWriter();
 
         try pool.io.writer().print("id author {s}\n", .{@import("root").author});
         try pool.io.writer().print("id name {s} {s}\n", .{
@@ -387,6 +380,9 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
 pub fn loop(pool: *Thread.Pool) !void {
     const reader = pool.io.reader();
     const writer = pool.io.writer();
+
+    try pool.io.lockReader();
+    defer pool.io.unlockReader();
 
     while (reader.takeDelimiterInclusive('\n')) |read| {
         const trimmed = std.mem.trim(u8, read, std.ascii.whitespace[0..]);

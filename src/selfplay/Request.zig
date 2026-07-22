@@ -19,10 +19,7 @@ pub const Adj = struct {
     ply_num: usize,
     score: engine.evaluation.score.Int,
 
-    pub const Error = error{
-        InvalidPlyNum,
-        InvalidScore,
-    };
+    pub const Error = error{ InvalidPlyNum, InvalidScore };
 
     pub fn init(min_ply: usize, ply_num: usize, score: engine.evaluation.score.Int) Error!Adj {
         if (ply_num > @min(min_ply, ViriFormat.Move.Scored.Line.capacity)) {
@@ -50,15 +47,12 @@ pub fn adjudicate(
     };
 
     const line = data.line.constSlice();
-    if (line.len < cond.min_ply) {
+    var iter = if (line.len > cond.min_ply)
+        std.mem.reverseIterator(line[line.len - cond.min_ply - 1 ..][0..cond.min_ply])
+    else
         return false;
-    }
 
-    var i: usize = 0;
-    var iter = std.mem.reverseIterator(line);
     return loop: while (iter.next()) |sm| {
-        i += if (i < cond.ply_num) 1 else break :loop true;
-
         const lhs = @abs(sm.score);
         const rhs = @abs(cond.score);
         if (!std.math.compare(lhs, op, rhs)) {

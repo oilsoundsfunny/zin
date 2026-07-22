@@ -44,7 +44,7 @@
     .corr_nonpawn_update_stm_w = 1642,
     .corr_nonpawn_update_ntm_w = 1642,
     .asp_window = 17,
-    .asp_window_mult = 173,
+    .asp_window_mult = 429,
     .tt_depth_w = 1321,
     .tt_age_w = 2815,
     .tt_pv_w = 68,

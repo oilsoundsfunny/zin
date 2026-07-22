@@ -1,4 +1,3 @@
-const bounded_array = @import("bounded_array");
 const params = @import("params");
 const selfplay = @import("selfplay");
 const std = @import("std");
@@ -15,85 +14,40 @@ const Thread = @This();
 
 const Node = transposition.Entry.Flag;
 
-const Request = union(Tag) {
+const Command = union(Tag) {
     bench: void,
-    clear_hash: void,
     datagen: selfplay.Request,
     go: void,
-    quit: void,
-    sleep: void,
 
-    const Tag = enum {
-        bench,
-        clear_hash,
-        datagen,
-        go,
-        quit,
-        sleep,
-    };
+    const Tag = enum { bench, datagen, go };
 };
 
+const cache_line = std.atomic.cache_line;
 const page_size = std.heap.page_size_max;
 
 pub const Depth = evaluation.score.Int;
 
 pub const Pool = struct {
     gpa: std.mem.Allocator,
-    stdio: std.Io,
     threads: std.ArrayList(Thread),
+
+    stdio: std.Io,
+    group: std.Io.Group,
+    now: std.Io.Timestamp,
 
     pawn_corrhist: []align(page_size) hist.Corr.Pawn,
     minor_corrhist: []align(page_size) hist.Corr.Minor,
     major_corrhist: []align(page_size) hist.Corr.Major,
     nonpawn_corrhist: []align(page_size) hist.Corr.NonPawn,
 
-    searching: bool align(std.atomic.cache_line),
-    sleeping: bool align(std.atomic.cache_line),
-    stopped: bool align(std.atomic.cache_line),
+    limits: Limits align(cache_line),
+    opts: Options align(cache_line),
 
-    cond: std.Io.Condition align(std.atomic.cache_line),
-    mtx: std.Io.Mutex align(std.atomic.cache_line),
-
-    limits: Limits align(std.atomic.cache_line),
-    opts: Options align(std.atomic.cache_line),
-
-    now: std.Io.Timestamp,
     io: types.IO,
     tt: transposition.Table,
 
-    fn spawn(self: *Pool) !void {
-        const config: std.Thread.SpawnConfig = .{ .allocator = self.gpa };
-        for (self.threads.items) |*thread| {
-            thread.handle = try std.Thread.spawn(config, Thread.loop, .{thread});
-        }
-    }
-
-    fn waitHelpers(self: *Pool) void {
-        if (self.threads.items.len > 1) {
-            for (self.threads.items[1..]) |*thread| {
-                thread.waitSleep();
-            }
-        }
-    }
-
-    fn waitMain(self: *Pool) void {
-        self.threads.items[0].waitSleep();
-    }
-
-    fn wakeHelpers(self: *Pool, rq: Request) void {
-        if (self.threads.items.len > 1) {
-            for (self.threads.items[1..]) |*thread| {
-                thread.wake(rq);
-            }
-        }
-    }
-
-    fn wakeMain(self: *Pool, rq: Request) void {
-        self.threads.items[0].wake(rq);
-    }
-
     pub fn destroy(self: *Pool) void {
-        self.join();
+        self.group.cancel(self.stdio);
         self.threads.deinit(self.gpa);
 
         self.gpa.free(self.pawn_corrhist);
@@ -112,113 +66,73 @@ pub const Pool = struct {
 
         pool.* = .{
             .gpa = gpa,
-            .stdio = stdio,
             .threads = try .initCapacity(gpa, 1),
+
+            .stdio = stdio,
+            .group = .init,
+            .now = .now(stdio, .real),
 
             .pawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Pawn, 1),
             .minor_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Minor, 1),
             .major_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Major, 1),
             .nonpawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.NonPawn, 1),
 
-            .searching = false,
-            .sleeping = false,
-            .stopped = true,
-
-            .cond = .init,
-            .mtx = .init,
-
             .limits = .init,
             .opts = .init,
 
-            .now = .now(stdio, .real),
             .io = try .init(gpa, stdio, null, 65536, null, 65536),
             .tt = try .init(gpa, null),
         };
 
-        _ = try pool.threads.addManyAsSliceBounded(1);
+        _ = try pool.threads.addOneBounded();
         try pool.reset();
-        try pool.spawn();
-        pool.clearHash();
+        try pool.clearHash();
 
         return pool;
     }
 
-    pub fn join(self: *Pool) void {
-        self.stopSearch();
-        for (self.threads.items) |*thread| {
-            thread.wake(.quit);
-            thread.handle.join();
-        }
-    }
-
     pub fn realloc(self: *Pool, num: usize) !void {
-        const board = try self.gpa.create(Board);
-        board.* = self.threads.items[0].board;
-        defer self.gpa.destroy(board);
-
         const prev_num = self.threads.items.len;
         if (prev_num == num) {
             return;
         }
 
-        self.stopSearch();
-        self.join();
+        const board = try self.gpa.create(Board);
+        defer self.gpa.destroy(board);
 
-        if (prev_num < num) {
-            const add_n = num - prev_num;
-            _ = try self.threads.addManyAsSlice(self.gpa, add_n);
-        } else {
-            self.threads.items.len -= prev_num - num;
-        }
+        self.group.cancel(self.stdio);
+        board.* = self.threads.items[0].board;
 
-        self.pawn_corrhist = try self.gpa.realloc(
-            self.pawn_corrhist,
-            hist.Corr.per_thread * num,
-        );
+        try self.threads.resize(self.gpa, num);
 
-        self.minor_corrhist = try self.gpa.realloc(
-            self.minor_corrhist,
-            hist.Corr.per_thread * num,
-        );
-
-        self.major_corrhist = try self.gpa.realloc(
-            self.major_corrhist,
-            hist.Corr.per_thread * num,
-        );
-
-        self.nonpawn_corrhist = try self.gpa.realloc(
-            self.nonpawn_corrhist,
-            hist.Corr.per_thread * num,
-        );
+        const corrhist_len = hist.Corr.per_thread * num;
+        self.pawn_corrhist = try self.gpa.realloc(self.pawn_corrhist, corrhist_len);
+        self.minor_corrhist = try self.gpa.realloc(self.minor_corrhist, corrhist_len);
+        self.major_corrhist = try self.gpa.realloc(self.major_corrhist, corrhist_len);
+        self.nonpawn_corrhist = try self.gpa.realloc(self.nonpawn_corrhist, corrhist_len);
 
         for (self.threads.items, 0..) |*thread, i| {
-            const handle = thread.handle;
             thread.* = .init;
-            thread.board = board.*;
             thread.pool = self;
             thread.idx = i;
-            thread.cnt = num;
-            thread.handle = handle;
+            thread.cnt = self.threads.items.len;
+            if (i >= prev_num) {
+                thread.board = board.*;
+            }
         }
-        try self.spawn();
-        self.clearHash();
     }
 
     pub fn reset(self: *Pool) !void {
-        self.stopSearch();
-        self.sleeping = false;
-
+        self.group.cancel(self.stdio);
         self.limits = .init;
         self.opts = .init;
         self.now = .now(self.stdio, .real);
 
         for (self.threads.items, 0..) |*thread, i| {
-            const handle = thread.handle;
             thread.* = .init;
             thread.pool = self;
             thread.idx = i;
             thread.cnt = self.threads.items.len;
-            thread.handle = handle;
         }
 
         const board = try self.gpa.create(Board);
@@ -236,13 +150,6 @@ pub const Pool = struct {
         return n;
     }
 
-    pub fn setFRC(self: *Pool, frc: bool) void {
-        self.opts.frc = frc;
-        for (self.threads.items) |*thread| {
-            thread.board.frc = frc;
-        }
-    }
-
     pub fn setBoard(self: *Pool, board: *const Board, frc: bool) void {
         defer self.setFRC(frc);
         for (self.threads.items) |*thread| {
@@ -250,55 +157,46 @@ pub const Pool = struct {
         }
     }
 
-    pub fn bench(self: *Pool) u64 {
-        self.stopSearch();
-        self.tt.doAge();
-
-        self.stopped = false;
-        self.searching = true;
-        self.wakeMain(.bench);
-        self.waitMain();
-        return self.nodes();
-    }
-
-    pub fn clearHash(self: *Pool) void {
-        self.stopSearch();
-        self.wakeMain(.clear_hash);
-        self.wakeHelpers(.clear_hash);
-        self.waitSleep();
-    }
-
-    pub fn datagen(self: *Pool, rq: selfplay.Request) void {
-        self.stopSearch();
-        self.tt.doAge();
-        self.now = .now(self.stdio, .real);
-
-        self.stopped = false;
-        self.searching = true;
-
-        self.wakeMain(.{ .datagen = rq });
-        self.wakeHelpers(.{ .datagen = rq });
-    }
-
-    pub fn search(self: *Pool) void {
-        self.stopSearch();
-        self.tt.doAge();
-
-        self.stopped = false;
-        self.searching = true;
-        self.wakeMain(.go);
-    }
-
-    pub fn stopSearch(self: *Pool) void {
-        if (self.searching) {
-            self.stopped = true;
-            self.waitMain();
+    pub fn setFRC(self: *Pool, frc: bool) void {
+        self.opts.frc = frc;
+        for (self.threads.items) |*thread| {
+            thread.board.frc = frc;
         }
     }
 
-    pub fn waitSleep(self: *Pool) void {
-        self.waitMain();
-        self.waitHelpers();
+    pub fn bench(self: *Pool) u64 {
+        self.group.cancel(self.stdio);
+        self.tt.doAge();
+
+        self.group.async(self.stdio, Thread.search, .{ &self.threads.items[0], .bench });
+        self.group.await(self.stdio) catch {};
+        return self.nodes();
+    }
+
+    pub fn clearHash(self: *Pool) !void {
+        self.group.cancel(self.stdio);
+        for (self.threads.items) |*thread| {
+            try self.group.concurrent(self.stdio, Thread.clearHash, .{thread});
+        }
+        self.group.await(self.stdio) catch {};
+    }
+
+    pub fn datagen(self: *Pool, rq: selfplay.Request) !void {
+        self.group.cancel(self.stdio);
+        self.tt.doAge();
+        self.now = .now(self.stdio, .real);
+        for (self.threads.items) |*thread| {
+            try self.group.concurrent(self.stdio, Thread.datagen, .{ thread, rq });
+        }
+        self.group.await(self.stdio) catch {};
+    }
+
+    pub fn search(self: *Pool) !void {
+        self.group.cancel(self.stdio);
+        self.tt.doAge();
+        for (self.threads.items) |*thread| {
+            _ = try self.group.concurrent(self.stdio, Thread.search, .{ thread, .go });
+        }
     }
 
     pub fn elapsedNanosecs(self: *const Pool) u64 {
@@ -455,10 +353,9 @@ pool: *Pool,
 idx: usize,
 cnt: usize,
 
-handle: std.Thread,
-request: Request align(std.atomic.cache_line),
-
 board: Board,
+command: Command,
+cancelled: bool,
 
 nodes: u64,
 tbhits: u64,
@@ -478,10 +375,9 @@ pub const init: Thread = .{
     .idx = 0,
     .cnt = 0,
 
-    .handle = undefined,
-    .request = .sleep,
-
     .board = .init,
+    .command = .go,
+    .cancelled = true,
 
     .nodes = 0,
     .tbhits = 0,
@@ -496,6 +392,13 @@ pub const init: Thread = .{
     .noisyhist = @splat(@splat(@splat(@splat(0)))),
     .conthist = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
 };
+
+fn isCancelled(self: *Thread) bool {
+    return self.cancelled or if (self.pool.stdio.checkCancel()) |_| false else |_| blk: {
+        self.cancelled = true;
+        break :blk self.cancelled;
+    };
+}
 
 fn quietHistPtr(
     self: anytype,
@@ -696,8 +599,8 @@ fn printInfo(
     const io = &self.pool.io;
     const tt = &self.pool.tt;
 
-    self.pool.mtx.lockUncancelable(self.pool.stdio);
-    defer self.pool.mtx.unlock(self.pool.stdio);
+    try io.lockWriter();
+    defer io.unlockWriter();
 
     const writer = io.writer();
     const pv = opt_pv orelse {
@@ -760,8 +663,9 @@ fn printInfo(
 }
 
 fn printBest(self: *const Thread, opt_pv: ?*const movegen.RootMove) !void {
-    self.pool.mtx.lockUncancelable(self.pool.stdio);
-    defer self.pool.mtx.unlock(self.pool.stdio);
+    const io = &self.pool.io;
+    try io.lockWriter();
+    defer io.unlockWriter();
 
     const pv = opt_pv orelse {
         try self.pool.io.writer().print("bestmove 0000\n", .{});
@@ -778,8 +682,8 @@ fn printBest(self: *const Thread, opt_pv: ?*const movegen.RootMove) !void {
 
 fn datagenStop(self: *Thread, comptime which: enum { hard, soft }) bool {
     const limits = &self.pool.limits;
-    const nodes_lim = if (which == .hard) limits.hard_nodes else limits.soft_nodes;
-    return if (nodes_lim) |lim| self.nodes >= lim else false;
+    const opt_lim = if (which == .hard) limits.hard_nodes else limits.soft_nodes;
+    return if (opt_lim) |lim| self.nodes >= lim else false;
 }
 
 fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
@@ -809,11 +713,12 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
 }
 
 fn asp(self: *Thread) void {
+    const is_datagen = self.command == .datagen;
     const pv = &self.root_moves.constSlice()[0];
     const pvs: evaluation.score.Int = @intCast(pv.score);
 
-    var s: @TypeOf(pvs) = evaluation.score.none;
-    var w: @TypeOf(pvs) = params.values.asp_window;
+    var s: evaluation.score.Int = evaluation.score.none;
+    var w: evaluation.score.Int = params.values.asp_window;
 
     const d = self.depth;
     var a: @TypeOf(pvs) = evaluation.score.mated;
@@ -824,14 +729,11 @@ fn asp(self: *Thread) void {
     }
 
     while (true) : ({
-        w = w + @divTrunc(w * params.values.asp_window_mult, 256);
+        w = @divTrunc(w * params.values.asp_window_mult, 256);
         w = std.math.clamp(w, evaluation.score.mated, evaluation.score.mate);
     }) {
         s = self.ab(.exact, 0, a, b, d);
-
-        const datagen_stop = self.request == .datagen and self.datagenStop(.hard);
-        const go_stop = self.request != .datagen and self.pool.stopped;
-        if (datagen_stop or go_stop) {
+        if (!is_datagen and self.isCancelled()) {
             break;
         }
 
@@ -859,18 +761,16 @@ fn ab(
     self.nodes += 1;
     pos.pv.line.resize(0) catch unreachable;
 
-    const is_datagen = self.request == .datagen;
-    if (is_datagen and self.datagenStop(.hard)) {
+    if (self.isCancelled()) {
         return alpha;
     }
 
-    if (!is_datagen and self.pool.stopped) {
-        return alpha;
-    }
-
+    const is_datagen = self.command == .datagen;
     const is_main = self.idx == 0;
-    if (!is_datagen and is_main and self.searchStop(.hard)) {
-        self.pool.stopped = true;
+    if (is_datagen and self.datagenStop(.hard) or
+        !is_datagen and is_main and self.searchStop(.hard))
+    {
+        self.pool.group.cancel(self.pool.stdio);
         return alpha;
     }
 
@@ -1315,9 +1215,7 @@ fn ab(
             break :recur score;
         };
 
-        const datagen_stop = is_datagen and self.datagenStop(.hard);
-        const go_stop = !is_datagen and self.pool.stopped;
-        if (datagen_stop or go_stop) {
+        if (self.isCancelled()) {
             return a;
         }
 
@@ -1411,18 +1309,16 @@ fn qs(
     self.nodes += 1;
     pos.pv.line.resize(0) catch unreachable;
 
-    const is_datagen = self.request == .datagen;
-    if (is_datagen and self.datagenStop(.hard)) {
+    if (self.isCancelled()) {
         return alpha;
     }
 
-    if (!is_datagen and self.pool.stopped) {
-        return alpha;
-    }
-
+    const is_datagen = self.command == .datagen;
     const is_main = self.idx == 0;
-    if (!is_datagen and is_main and self.searchStop(.hard)) {
-        self.pool.stopped = true;
+    if (is_datagen and self.datagenStop(.hard) or
+        !is_datagen and is_main and self.searchStop(.hard))
+    {
+        self.pool.group.cancel(self.pool.stdio);
         return alpha;
     }
 
@@ -1532,9 +1428,7 @@ fn qs(
             break :recur -self.qs(ply + 1, -b, -a);
         };
 
-        const datagen_stop = is_datagen and self.datagenStop(.hard);
-        const go_stop = !is_datagen and self.pool.stopped;
-        if (datagen_stop or go_stop) {
+        if (self.isCancelled()) {
             return a;
         }
 
@@ -1570,70 +1464,6 @@ fn qs(
     return best.score;
 }
 
-fn loop(self: *Thread) !void {
-    const io = self.pool.stdio;
-    const cond = &self.pool.cond;
-    const mtx = &self.pool.mtx;
-
-    idle: while (true) {
-        mtx.lockUncancelable(io);
-        while (self.request == .sleep) {
-            cond.signal(io);
-            cond.waitUncancelable(io, mtx);
-        }
-        mtx.unlock(io);
-
-        defer self.request = .sleep;
-        switch (self.request) {
-            .bench, .go => try self.search(),
-            .clear_hash => self.clearHash(),
-            .datagen => try self.datagen(),
-            .quit => break :idle,
-            .sleep => continue :idle,
-        }
-    }
-}
-
-fn waitBool(self: *Thread, sleep_cond: *bool) void {
-    const io = self.pool.stdio;
-    const cond = &self.pool.cond;
-    const mtx = &self.pool.mtx;
-
-    mtx.lockUncancelable(io);
-    defer mtx.unlock(io);
-    while (!sleep_cond.*) {
-        cond.waitUncancelable(io, mtx);
-    }
-}
-
-fn waitSleep(self: *Thread) void {
-    const io = self.pool.stdio;
-    const cond = &self.pool.cond;
-    const mtx = &self.pool.mtx;
-
-    mtx.lockUncancelable(io);
-    while (self.request != .sleep) {
-        cond.signal(io);
-        cond.waitUncancelable(io, mtx);
-    }
-    mtx.unlock(io);
-
-    if (self.idx == 0) {
-        self.pool.searching = false;
-    }
-}
-
-fn wake(self: *Thread, request: Request) void {
-    const io = self.pool.stdio;
-    const cond = &self.pool.cond;
-    const mtx = &self.pool.mtx;
-
-    mtx.lockUncancelable(io);
-    defer mtx.unlock(io);
-    self.request = request;
-    cond.signal(io);
-}
-
 fn clearHash(self: *Thread) void {
     const tt = self.pool.tt.clusters;
     const i = self.idx;
@@ -1665,41 +1495,43 @@ fn clearHash(self: *Thread) void {
         @splat(@splat(@splat(0)));
 }
 
-fn datagen(self: *Thread) !void {
-    return selfplay.threaded.datagen(self);
+fn datagen(self: *Thread, rq: selfplay.Request) void {
+    self.command = .{ .datagen = rq };
+    self.cancelled = false;
+    defer self.cancelled = true;
+    selfplay.threaded.run(self) catch |err|
+        std.log.err("selfplay.threaded.run() failed: '{t}'", .{err});
 }
 
-pub fn search(self: *Thread) !void {
+pub fn search(self: *Thread, comm: Command) void {
     self.nodes = 0;
     self.tbhits = 0;
     self.tthits = 0;
+    self.command = comm;
     self.root_moves = movegen.RootMove.List.init(&self.board);
 
-    const pool = self.pool;
-    const rq = self.request;
+    self.cancelled = false;
+    defer self.cancelled = true;
 
     const is_main = self.idx == 0;
-    const is_threaded = self.cnt > 1;
-
-    const is_datagen = rq == .datagen;
-    const is_go = rq == .go;
+    const is_datagen, const is_go = switch (comm) {
+        .datagen => .{ true, false },
+        .go => .{ false, true },
+        else => .{ false, false },
+    };
     const should_print = is_go and is_main;
 
-    // TODO: might(?) shit itself if self.board overflows
     if (self.root_moves.constSlice().len == 0) {
         if (should_print) {
-            try self.printInfo(null, 0, 0);
-            try self.printBest(null);
+            self.printInfo(null, 0, 0) catch |err|
+                std.log.err("engine.Thread.printInfo() failed: '{t}'", .{err});
+            self.printBest(null) catch |err|
+                std.log.err("engine.Thread.printBest() failed: '{t}'", .{err});
         }
         return;
     }
 
-    if (is_go and is_main and is_threaded) {
-        for (pool.threads.items[1..]) |*thread| {
-            thread.wake(.go);
-        }
-    }
-
+    const pool = self.pool;
     const max_depth = pool.limits.depth orelse movegen.RootMove.capacity;
     const min_depth = 1;
 
@@ -1712,7 +1544,7 @@ pub fn search(self: *Thread) !void {
         self.seldepth = 0;
         self.asp();
 
-        if (is_go and self.pool.stopped) {
+        if (self.isCancelled()) {
             break;
         }
 
@@ -1720,29 +1552,21 @@ pub fn search(self: *Thread) !void {
         last_depth = self.depth;
         last_seldepth = self.seldepth;
         if (should_print and !pool.opts.minimal) {
-            try self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth);
+            self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth) catch |err|
+                std.log.err("engine.Thread.printInfo() failed: '{t}'", .{err});
         }
 
-        const datagen_soft_stopped = is_datagen and self.datagenStop(.soft);
-        const go_soft_stopped = is_go and self.searchStop(.soft);
-        if (datagen_soft_stopped or go_soft_stopped) {
+        if (is_datagen and self.datagenStop(.soft) or is_go and self.searchStop(.soft)) {
             break;
         }
     }
 
-    if (!should_print) {
-        return;
+    if (should_print) {
+        self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth) catch |err|
+            std.log.err("engine.Thread.printInfo() failed: '{t}'", .{err});
+        self.printBest(&self.root_moves.constSlice()[0]) catch |err|
+            std.log.err("engine.Thread.printBest() failed: '{t}'", .{err});
     }
-
-    pool.stopped = true;
-    if (is_threaded) {
-        for (pool.threads.items[1..]) |*thread| {
-            thread.waitSleep();
-        }
-    }
-
-    try self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth);
-    try self.printBest(&self.root_moves.constSlice()[0]);
 }
 
 pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {

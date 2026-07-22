@@ -7,23 +7,20 @@ const ViriFormat = @import("ViriFormat.zig");
 
 fn terminalResult(thread: *engine.Thread) ViriFormat.Result {
     const board = &thread.board;
-    const rq = &thread.request.datagen;
+    const pos = board.positions.last();
 
+    const mat = pos.material();
     const eval = board.evaluate();
-    const mat = board.positions.last().material();
-    const w, _, const l = engine.evaluation.score.wdl(eval, mat);
+    const norm = engine.evaluation.score.normalize(eval, mat);
 
-    const r = rq.rng.random().float(f32);
-    const is_w = r < w;
-    const is_l = r > 1.0 - l;
-    return switch (board.positions.last().stm) {
-        .white => if (is_w) .white else if (is_l) .black else .draw,
-        .black => if (is_w) .black else if (is_l) .white else .draw,
+    return switch (pos.stm) {
+        .white => if (norm > 200) .white else if (norm < -200) .black else .draw,
+        .black => if (norm > 200) .black else if (norm < -200) .white else .draw,
     };
 }
 
 fn playRandom(thread: *engine.Thread) !void {
-    const rq = &thread.request.datagen;
+    const rq = &thread.command.datagen;
     const random_moves = rq.random_moves;
 
     const board = try thread.pool.gpa.create(engine.Board);
@@ -59,13 +56,13 @@ fn playRandom(thread: *engine.Thread) !void {
 fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
     const board = &thread.board;
     const root_moves = &thread.root_moves;
-    const rq = &thread.request.datagen;
+    const rq = &thread.command.datagen;
 
     data.* = .{ .head = .init(board), .line = .init };
     defer data.line.pushUnchecked(.init);
 
     while (data.head.result == .none) {
-        try thread.search();
+        thread.search(.{ .datagen = rq.* });
 
         const is_terminal = board.isTerminal();
         data.head.result = if (root_moves.constSlice().len == 0) no_moves: {
@@ -107,17 +104,19 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
 }
 
 fn readOpening(thread: *engine.Thread) ![]const u8 {
-    thread.pool.mtx.lockUncancelable(thread.pool.stdio);
-    defer thread.pool.mtx.unlock(thread.pool.stdio);
+    const io = &thread.pool.io;
+    try io.lockReader();
+    defer io.unlockReader();
 
     const line = try thread.pool.io.reader().takeDelimiterInclusive('\n');
-    const dupe = try thread.pool.gpa.dupe(u8, line);
-    return dupe;
+    const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+    return try thread.pool.gpa.dupe(u8, trimmed);
 }
 
 fn writeData(thread: *engine.Thread, data: *const ViriFormat) !void {
-    thread.pool.mtx.lockUncancelable(thread.pool.stdio);
-    defer thread.pool.mtx.unlock(thread.pool.stdio);
+    const io = &thread.pool.io;
+    try io.lockWriter();
+    defer io.unlockWriter();
 
     const writer = thread.pool.io.writer();
     try writer.writeAll(std.mem.asBytes(&data.head));
@@ -128,13 +127,10 @@ fn writeData(thread: *engine.Thread, data: *const ViriFormat) !void {
     }
 }
 
-pub fn datagen(thread: *engine.Thread) !void {
+pub fn run(thread: *engine.Thread) !void {
     const i = thread.idx;
     const n = thread.cnt;
-    const rq = switch (thread.request) {
-        .datagen => |*rq| rq,
-        else => return,
-    };
+    const rq = &thread.command.datagen;
     var data: ViriFormat = undefined;
 
     const games = rq.games / n + @intFromBool(rq.games % n != 0);
@@ -143,11 +139,10 @@ pub fn datagen(thread: *engine.Thread) !void {
 
     while (played < games) {
         const opening = rq.book.getRandom(rq.rng.random());
-        thread.board.parseFen(opening) catch continue;
-
-        playRandom(thread) catch continue;
-        playOut(thread, &data) catch continue;
-        writeData(thread, &data) catch continue;
+        try thread.board.parseFen(opening);
+        try playRandom(thread);
+        try playOut(thread, &data);
+        try writeData(thread, &data);
 
         played += 1;
         positions += data.line.constSlice().len -| 1;
@@ -155,12 +150,12 @@ pub fn datagen(thread: *engine.Thread) !void {
         if (played % 256 == 0 or played >= games) {
             const ntime = thread.pool.elapsedNanosecs();
             const pps =
-                @as(f32, @floatFromInt(positions)) /
-                @as(f32, @floatFromInt(ntime)) *
+                @as(f64, @floatFromInt(positions)) /
+                @as(f64, @floatFromInt(ntime)) *
                 std.time.ns_per_s;
 
             std.log.info(
-                "thread {} played {} games cont. {} positions @ {} pps",
+                "thread {} finished {} games, generated {} positions @ {:.4} pps",
                 .{ i, played, positions, pps },
             );
         }

@@ -74,11 +74,7 @@ pub fn main(init: std.process.Init) !void {
 
     _ = args.skip();
     if (args.next()) |arg| {
-        if (std.mem.indexOf(u8, arg, "genfens")) |index_of| {
-            if (index_of != 0) {
-                std.process.fatal("unknown arg '{s}'", .{arg});
-            }
-
+        if (std.mem.startsWith(u8, arg, "genfens")) {
             const aux = args.next() orelse std.process.fatal("expected arg after '{s}'", .{arg});
             if (!std.mem.eql(u8, aux, "quit")) {
                 std.process.fatal("unknown arg '{s}'", .{aux});

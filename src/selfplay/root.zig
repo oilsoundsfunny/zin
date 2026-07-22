@@ -173,10 +173,11 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
     const hash = options.hash orelse 128;
     const threads = options.threads orelse 1;
 
-    try pool.realloc(threads);
     pool.tt.deinit(pool.gpa);
     pool.tt = try .init(pool.gpa, hash);
-    pool.clearHash();
+    try pool.realloc(threads);
+    try pool.clearHash();
+    pool.setFRC(true);
 
     pool.limits.depth = options.depth;
     pool.limits.soft_nodes, pool.limits.hard_nodes = if (options.depth) |_| .{ null, null } else .{
@@ -185,8 +186,7 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
     };
     pool.limits.set(pool.opts.overhead, .white);
 
-    pool.setFRC(true);
-    pool.datagen(.{
+    try pool.datagen(.{
         .rng = .init(options.seed orelse 0x5555555555555555),
         .book = book,
         .games = games,
@@ -202,6 +202,5 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
             options.draw_adj_score orelse 25,
         ),
     });
-    pool.waitSleep();
     try pool.io.writer().flush();
 }

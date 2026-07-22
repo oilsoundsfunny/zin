@@ -287,7 +287,7 @@ pub const Position = struct {
         self.checks = if (ka != .none) ka else .full;
     }
 
-    fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .scalar)) FenError!void {
+    fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
         const sa: [types.Square.num]types.Square = .{
             .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
             .a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
@@ -521,12 +521,133 @@ pub const Position = struct {
         return list.items;
     }
 
-    pub fn see(
-        self: *const Position,
-        move: movegen.Move,
-        min: evaluation.score.Int,
-    ) bool {
-        return @import("see.zig").func(self, move, min);
+    // TODO: less crine
+    pub fn see(self: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
+        if (move.flag == .none or move.flag == .torped) {
+            return min <= evaluation.score.draw;
+        } else if (move.flag != .noisy) {
+            return true;
+        }
+
+        const ptypeValue = struct {
+            fn ptypeInner(p: types.Ptype) evaluation.score.Int {
+                return switch (p) {
+                    .king => evaluation.score.draw,
+                    inline else => |e| @field(params.values, "see_" ++ @tagName(e)),
+                };
+            }
+        }.ptypeInner;
+
+        const pieceValue = struct {
+            fn pieceInner(p: types.Piece) evaluation.score.Int {
+                return if (p != .none) ptypeValue(p.ptype()) else evaluation.score.draw;
+            }
+        }.pieceInner;
+
+        const s = move.src;
+        const d = move.dst;
+
+        const sp = self.getSq(s);
+        const dp = self.getSq(d);
+
+        var v = pieceValue(dp) - min;
+        if (v < 0) {
+            return false;
+        }
+
+        v = pieceValue(sp) - v;
+        if (v <= 0) {
+            return true;
+        }
+
+        const diag = self.ptypeOcc(.queen).bwo(self.ptypeOcc(.bishop));
+        const line = self.ptypeOcc(.queen).bwo(self.ptypeOcc(.rook));
+
+        var ret = true;
+        var stm = self.stm;
+        var occ = self.bothOcc()
+            .bwx(s.toSet())
+            .bwx(d.toSet());
+        var atkers = types.Square.Set.none
+            .bwo(bitboard.pAtk(d.toSet(), .white).bwa(self.pieceOcc(.b_pawn)))
+            .bwo(bitboard.pAtk(d.toSet(), .black).bwa(self.pieceOcc(.w_pawn)))
+            .bwo(bitboard.nAtk(d).bwa(self.ptypeOcc(.knight)))
+            .bwo(bitboard.kAtk(d).bwa(self.ptypeOcc(.king)))
+            .bwo(bitboard.bAtk(d, occ).bwa(diag))
+            .bwo(bitboard.rAtk(d, occ).bwa(line));
+
+        while (true) {
+            atkers.popOther(occ.flip());
+            stm = stm.flip();
+
+            const ours = atkers.bwa(self.colorOcc(stm));
+            ret = if (ours == .none) break else !ret;
+
+            var least = ours.bwa(self.ptypeOcc(.pawn));
+            if (least != .none) {
+                v = ptypeValue(.pawn) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+                continue;
+            }
+
+            least = ours.bwa(self.ptypeOcc(.knight));
+            if (least != .none) {
+                v = ptypeValue(.knight) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                continue;
+            }
+
+            least = ours.bwa(self.ptypeOcc(.bishop));
+            if (least != .none) {
+                v = ptypeValue(.bishop) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+                continue;
+            }
+
+            least = ours.bwa(self.ptypeOcc(.rook));
+            if (least != .none) {
+                v = ptypeValue(.rook) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
+                continue;
+            }
+
+            least = ours.bwa(self.ptypeOcc(.queen));
+            if (least != .none) {
+                v = ptypeValue(.queen) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+                atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
+                continue;
+            }
+
+            ret = if (atkers.bwx(ours) == .none) ret else !ret;
+            break;
+        }
+
+        return ret;
     }
 
     pub fn after(
@@ -801,11 +922,11 @@ pub const init: Board = .{
 };
 
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
-    var tokens = std.mem.tokenizeScalar(u8, fen, ' ');
+    var tokens = std.mem.tokenizeAny(u8, fen, &std.ascii.whitespace);
     return self.parseFenTokens(&tokens);
 }
 
-pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .scalar)) FenError!void {
+pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
     var parsed: Position = .init;
     try parsed.parseFenTokens(tokens);
 
