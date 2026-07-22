@@ -51,7 +51,9 @@ fn playRandom(board: *engine.Board, rng: *std.Random.Xoroshiro128, random_moves:
         while (ply < random_moves) : (ply += 1) {
             const root_moves: engine.movegen.RootMove.List = .init(board);
             const rms = root_moves.constSlice();
-            const i = if (rms.len > 0) rng.random().uintLessThan(usize, rms.len) else
+            const i = if (rms.len > 0)
+                rng.random().uintLessThan(usize, rms.len)
+            else
                 continue :find_line;
             const m = rms[i].constSlice()[0];
             board.doMove(m);
