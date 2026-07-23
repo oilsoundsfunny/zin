@@ -301,7 +301,7 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
             return error.UnknownCommand;
         }
 
-        pool.group.cancel(pool.stdio);
+        pool.cancel();
         return if (std.mem.eql(u8, first, "quit")) .quit else .stop;
     } else if (std.mem.eql(u8, first, "setoption")) {
         return parseOption(&tokens, pool);

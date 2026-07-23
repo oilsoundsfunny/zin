@@ -16,10 +16,12 @@ const Node = transposition.Entry.Flag;
 
 const Command = union(Tag) {
     bench: void,
+    cancel: void,
+    clear_hash: void,
     datagen: selfplay.Request,
     go: void,
 
-    const Tag = enum { bench, datagen, go };
+    const Tag = enum { bench, cancel, clear_hash, datagen, go };
 };
 
 const cache_line = std.atomic.cache_line;
@@ -40,6 +42,7 @@ pub const Pool = struct {
     major_corrhist: []align(page_size) hist.Corr.Major,
     nonpawn_corrhist: []align(page_size) hist.Corr.NonPawn,
 
+    command: Command align(cache_line),
     limits: Limits align(cache_line),
     opts: Options align(cache_line),
 
@@ -47,7 +50,7 @@ pub const Pool = struct {
     tt: transposition.Table,
 
     pub fn destroy(self: *Pool) void {
-        self.group.cancel(self.stdio);
+        self.cancel();
         self.threads.deinit(self.gpa);
 
         self.gpa.free(self.pawn_corrhist);
@@ -77,6 +80,7 @@ pub const Pool = struct {
             .major_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Major, 1),
             .nonpawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.NonPawn, 1),
 
+            .command = .cancel,
             .limits = .init,
             .opts = .init,
 
@@ -91,6 +95,20 @@ pub const Pool = struct {
         return pool;
     }
 
+    pub fn await(self: *Pool) void {
+        if (self.command != .cancel) {
+            self.group.await(self.stdio) catch {};
+            self.command = .cancel;
+        }
+    }
+
+    pub fn cancel(self: *Pool) void {
+        if (self.command != .cancel) {
+            self.group.cancel(self.stdio);
+            self.command = .cancel;
+        }
+    }
+
     pub fn realloc(self: *Pool, num: usize) !void {
         const prev_num = self.threads.items.len;
         if (prev_num == num) {
@@ -100,7 +118,7 @@ pub const Pool = struct {
         const board = try self.gpa.create(Board);
         defer self.gpa.destroy(board);
 
-        self.group.cancel(self.stdio);
+        self.cancel();
         board.* = self.threads.items[0].board;
 
         try self.threads.resize(self.gpa, num);
@@ -123,7 +141,7 @@ pub const Pool = struct {
     }
 
     pub fn reset(self: *Pool) !void {
-        self.group.cancel(self.stdio);
+        self.cancel();
         self.limits = .init;
         self.opts = .init;
         self.now = .now(self.stdio, .real);
@@ -165,35 +183,38 @@ pub const Pool = struct {
     }
 
     pub fn bench(self: *Pool) u64 {
-        self.group.cancel(self.stdio);
+        self.cancel();
         self.tt.doAge();
-
+        self.command = .bench;
         self.group.async(self.stdio, Thread.search, .{ &self.threads.items[0], .bench });
-        self.group.await(self.stdio) catch {};
+        self.await();
         return self.nodes();
     }
 
     pub fn clearHash(self: *Pool) !void {
-        self.group.cancel(self.stdio);
+        self.cancel();
+        self.command = .clear_hash;
         for (self.threads.items) |*thread| {
             try self.group.concurrent(self.stdio, Thread.clearHash, .{thread});
         }
-        self.group.await(self.stdio) catch {};
+        self.await();
     }
 
     pub fn datagen(self: *Pool, rq: selfplay.Request) !void {
-        self.group.cancel(self.stdio);
+        self.cancel();
         self.tt.doAge();
         self.now = .now(self.stdio, .real);
+        self.command = .{ .datagen = rq };
         for (self.threads.items) |*thread| {
             try self.group.concurrent(self.stdio, Thread.datagen, .{ thread, rq });
         }
-        self.group.await(self.stdio) catch {};
+        self.await();
     }
 
     pub fn search(self: *Pool) !void {
-        self.group.cancel(self.stdio);
+        self.cancel();
         self.tt.doAge();
+        self.command = .go;
         for (self.threads.items) |*thread| {
             _ = try self.group.concurrent(self.stdio, Thread.search, .{ thread, .go });
         }
@@ -394,10 +415,13 @@ pub const init: Thread = .{
 };
 
 fn isCancelled(self: *Thread) bool {
-    return self.cancelled or if (self.pool.stdio.checkCancel()) |_| false else |_| blk: {
-        self.cancelled = true;
-        break :blk self.cancelled;
-    };
+    return self.command == .cancel or
+        if (self.pool.stdio.checkCancel()) |_|
+            false
+        else |_| blk: {
+            self.command = .cancel;
+            break :blk true;
+        };
 }
 
 fn quietHistPtr(
@@ -761,16 +785,16 @@ fn ab(
     self.nodes += 1;
     pos.pv.line.resize(0) catch unreachable;
 
-    if (self.isCancelled()) {
-        return alpha;
-    }
-
     const is_datagen = self.command == .datagen;
     const is_main = self.idx == 0;
     if (is_datagen and self.datagenStop(.hard) or
         !is_datagen and is_main and self.searchStop(.hard))
     {
-        self.pool.group.cancel(self.pool.stdio);
+        self.command = .cancel;
+        return alpha;
+    }
+
+    if (self.isCancelled()) {
         return alpha;
     }
 
@@ -1309,16 +1333,16 @@ fn qs(
     self.nodes += 1;
     pos.pv.line.resize(0) catch unreachable;
 
-    if (self.isCancelled()) {
-        return alpha;
-    }
-
     const is_datagen = self.command == .datagen;
     const is_main = self.idx == 0;
     if (is_datagen and self.datagenStop(.hard) or
         !is_datagen and is_main and self.searchStop(.hard))
     {
-        self.pool.group.cancel(self.pool.stdio);
+        self.command = .cancel;
+        return alpha;
+    }
+
+    if (self.isCancelled()) {
         return alpha;
     }
 
@@ -1476,6 +1500,9 @@ fn clearHash(self: *Thread) void {
         return;
     }
 
+    self.command = .clear_hash;
+    defer self.command = .cancel;
+
     for (0..i) |it| {
         p += if (it < m) d + 1 else d;
     }
@@ -1497,8 +1524,7 @@ fn clearHash(self: *Thread) void {
 
 fn datagen(self: *Thread, rq: selfplay.Request) void {
     self.command = .{ .datagen = rq };
-    self.cancelled = false;
-    defer self.cancelled = true;
+    defer self.command = .cancel;
     selfplay.threaded.run(self) catch |err|
         std.log.err("selfplay.threaded.run() failed: '{t}'", .{err});
 }
@@ -1507,11 +1533,10 @@ pub fn search(self: *Thread, comm: Command) void {
     self.nodes = 0;
     self.tbhits = 0;
     self.tthits = 0;
-    self.command = comm;
     self.root_moves = movegen.RootMove.List.init(&self.board);
 
-    self.cancelled = false;
-    defer self.cancelled = true;
+    self.command = comm;
+    defer self.command = .cancel;
 
     const is_main = self.idx == 0;
     const is_datagen, const is_go = switch (comm) {
@@ -1519,7 +1544,12 @@ pub fn search(self: *Thread, comm: Command) void {
         .go => .{ false, true },
         else => .{ false, false },
     };
+
+    // TODO: might race
     const should_print = is_go and is_main;
+    defer if (should_print) {
+        self.pool.command = .cancel;
+    };
 
     if (self.root_moves.constSlice().len == 0) {
         if (should_print) {
