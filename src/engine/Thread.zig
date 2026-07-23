@@ -415,7 +415,7 @@ pub const init: Thread = .{
 };
 
 fn isCancelled(self: *Thread) bool {
-    return self.command == .cancel or
+    return self.command == .cancel or self.pool.command == .cancel or
         if (self.pool.stdio.checkCancel()) |_|
             false
         else |_| blk: {
@@ -1544,12 +1544,7 @@ pub fn search(self: *Thread, comm: Command) void {
         .go => .{ false, true },
         else => .{ false, false },
     };
-
-    // TODO: might race
     const should_print = is_go and is_main;
-    defer if (should_print) {
-        self.pool.command = .cancel;
-    };
 
     if (self.root_moves.constSlice().len == 0) {
         if (should_print) {
@@ -1568,6 +1563,14 @@ pub fn search(self: *Thread, comm: Command) void {
     var depth: Depth = min_depth;
     var last_depth: Depth = 0;
     var last_seldepth: Depth = 0;
+
+    defer if (should_print) {
+        self.pool.command = .cancel;
+        self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth) catch |err|
+            std.log.err("engine.Thread.printInfo() failed: '{t}'", .{err});
+        self.printBest(&self.root_moves.constSlice()[0]) catch |err|
+            std.log.err("engine.Thread.printBest() failed: '{t}'", .{err});
+    };
 
     while (depth <= max_depth) : (depth += 1) {
         self.depth = depth;
@@ -1589,13 +1592,6 @@ pub fn search(self: *Thread, comm: Command) void {
         if (is_datagen and self.datagenStop(.soft) or is_go and self.searchStop(.soft)) {
             break;
         }
-    }
-
-    if (should_print) {
-        self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth) catch |err|
-            std.log.err("engine.Thread.printInfo() failed: '{t}'", .{err});
-        self.printBest(&self.root_moves.constSlice()[0]) catch |err|
-            std.log.err("engine.Thread.printBest() failed: '{t}'", .{err});
     }
 }
 
