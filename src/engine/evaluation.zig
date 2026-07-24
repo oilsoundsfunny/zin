@@ -131,9 +131,9 @@ pub const score = struct {
 };
 
 pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
-    pool.io.deinit(pool.gpa, pool.stdio);
-    pool.io = try types.IO.init(pool.gpa, pool.stdio, path, 65536, null, 65536);
-    pool.now = .now(pool.stdio, .real);
+    pool.io.deinit(pool.gpa, pool.zio_rt);
+    pool.io = try types.IO.init(pool.gpa, pool.zio_rt, path, 65536, null, 65536);
+    pool.now = .now(.real);
 
     const board = try pool.gpa.create(Board);
     defer pool.gpa.destroy(board);

@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const engine = @import("engine");
 const selfplay = @import("selfplay");
 const std = @import("std");
+const zio = @import("zio");
 
 const bench = @import("bench.zig");
 const genfens = @import("genfens.zig");
@@ -62,14 +63,27 @@ pub const std_options: std.Options = .{
     .side_channels_mitigations = .basic,
 };
 
-pub fn main(init: std.process.Init) !void {
+pub fn main(init: std.process.Init.Minimal) !void {
     try root.init();
     defer root.deinit();
 
-    const pool = try engine.Thread.Pool.create(init.gpa, init.io);
+    const gpa = std.heap.smp_allocator;
+    const cpu_count = std.Thread.getCpuCount() catch 1;
+    const zio_rt = try zio.Runtime.init(gpa, .{
+        .stack_pool = .{
+            .maximum_size = 16 * 1024 * 1024,
+            .committed_size = 16 * 1024 * 1024,
+            .max_unused_stacks = 600,
+            .max_age = .fromSeconds(60),
+        },
+        .executors = .exact(@truncate(cpu_count + 1)),
+    });
+    defer zio_rt.deinit();
+
+    const pool = try engine.Thread.Pool.create(gpa, zio_rt);
     defer pool.destroy();
 
-    var args = try init.minimal.args.iterateAllocator(init.gpa);
+    var args = try init.args.iterateAllocator(gpa);
     defer args.deinit();
 
     _ = args.skip();
@@ -97,7 +111,7 @@ pub fn main(init: std.process.Init) !void {
             const epd = args.next() orelse std.process.fatal("expected arg after '{s}'", .{arg});
             return engine.evaluation.printStats(pool, epd);
         } else if (std.mem.eql(u8, arg, "help")) {
-            try std.Io.File.stdout().writeStreamingAll(init.io, help);
+            try std.Io.File.stdout().writeStreamingAll(zio_rt.io(), help);
             std.process.exit(0);
         } else std.process.fatal("unknown arg '{s}'", .{arg});
     } else try engine.uci.loop(pool);

@@ -1,92 +1,95 @@
 const std = @import("std");
+const zio = @import("zio");
 
 const Self = @This();
 
 const capacity = 65536;
 
-ipath: ?[]const u8,
-opath: ?[]const u8,
+inp_path: ?[]const u8,
+out_path: ?[]const u8,
 
-stdio: std.Io,
-imtx: std.Io.Mutex,
-omtx: std.Io.Mutex,
+inp_mtx: zio.Mutex,
+out_mtx: zio.Mutex,
 
-fr: std.Io.File.Reader,
-fw: std.Io.File.Writer,
+zio_rt: *zio.Runtime,
+file_reader: std.Io.File.Reader,
+file_writer: std.Io.File.Writer,
 
-pub fn deinit(self: *Self, gpa: std.mem.Allocator, io: std.Io) void {
-    gpa.free(self.fr.interface.buffer);
-    gpa.free(self.fw.interface.buffer);
+pub fn deinit(self: *Self, gpa: std.mem.Allocator, zio_rt: *zio.Runtime) void {
+    gpa.free(self.file_reader.interface.buffer);
+    gpa.free(self.file_writer.interface.buffer);
 
-    if (self.ipath) |_| {
-        self.fr.file.close(io);
+    if (self.inp_path) |_| {
+        self.file_reader.file.close(zio_rt.io());
     }
 
-    if (self.opath) |_| {
-        self.fw.file.close(io);
+    if (self.out_path) |_| {
+        self.file_writer.file.close(zio_rt.io());
     }
 }
 
 pub fn init(
     gpa: std.mem.Allocator,
-    stdio: std.Io,
+    zio_rt: *zio.Runtime,
     inp_path: ?[]const u8,
     inp_len: usize,
     out_path: ?[]const u8,
     out_len: usize,
 ) !Self {
-    const ibuf = try gpa.alignedAlloc(u8, .@"64", inp_len);
-    const obuf = try gpa.alignedAlloc(u8, .@"64", out_len);
+    const inp_buf = try gpa.alignedAlloc(u8, .@"64", inp_len);
+    const out_buf = try gpa.alignedAlloc(u8, .@"64", out_len);
 
-    const cwd = std.Io.Dir.cwd();
+    const cwd: std.Io.Dir = .cwd();
+    const io = zio_rt.io();
     return .{
-        .ipath = inp_path,
-        .opath = out_path,
+        .inp_path = inp_path,
+        .out_path = out_path,
 
-        .stdio = stdio,
-        .imtx = .init,
-        .omtx = .init,
+        .inp_mtx = .init,
+        .out_mtx = .init,
 
-        .fr = if (inp_path) |path| open: {
-            const file = try cwd.openFile(stdio, path, .{});
-            break :open file.reader(stdio, ibuf);
-        } else std.Io.File.stdin().readerStreaming(stdio, ibuf),
+        .zio_rt = zio_rt,
 
-        .fw = if (out_path) |path| create: {
-            const file = try cwd.createFile(stdio, path, .{});
-            break :create file.writer(stdio, obuf);
-        } else std.Io.File.stdout().writerStreaming(stdio, obuf),
+        .file_reader = if (inp_path) |path| open: {
+            const file = try cwd.openFile(io, path, .{});
+            break :open file.reader(io, inp_buf);
+        } else std.Io.File.stdin().readerStreaming(io, inp_buf),
+
+        .file_writer = if (out_path) |path| create: {
+            const file = try cwd.createFile(io, path, .{});
+            break :create file.writer(io, out_buf);
+        } else std.Io.File.stdout().writerStreaming(io, out_buf),
     };
 }
 
 pub fn reader(self: *Self) *std.Io.Reader {
-    return &self.fr.interface;
+    return &self.file_reader.interface;
 }
 
 pub fn writer(self: *Self) *std.Io.Writer {
-    return &self.fw.interface;
+    return &self.file_writer.interface;
 }
 
 pub fn lockReader(self: *Self) !void {
-    try self.imtx.lock(self.stdio);
+    try self.inp_mtx.lock();
 }
 
 pub fn lockWriter(self: *Self) !void {
-    try self.omtx.lock(self.stdio);
+    try self.out_mtx.lock();
 }
 
 pub fn lockReaderUncancelable(self: *Self) void {
-    self.imtx.lockUncancelable(self.stdio);
+    self.inp_mtx.lockUncancelable();
 }
 
 pub fn lockWriterUncancelable(self: *Self) void {
-    self.omtx.lockUncancelable(self.stdio);
+    self.out_mtx.lockUncancelable();
 }
 
 pub fn unlockReader(self: *Self) void {
-    self.imtx.unlock(self.stdio);
+    self.inp_mtx.unlock();
 }
 
 pub fn unlockWriter(self: *Self) void {
-    self.omtx.unlock(self.stdio);
+    self.out_mtx.unlock();
 }

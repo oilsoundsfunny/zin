@@ -128,8 +128,8 @@ fn writeData(thread: *engine.Thread, data: *const ViriFormat) !void {
 }
 
 pub fn run(thread: *engine.Thread) !void {
-    const i = thread.idx;
-    const n = thread.cnt;
+    const i = thread - &thread.pool.threads.items[0];
+    const n = thread.pool.threads.items.len;
     const rq = &thread.command.datagen;
     var data: ViriFormat = undefined;
 

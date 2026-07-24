@@ -29,7 +29,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Comman
     const stm = pos.stm;
 
     pool.limits = .init;
-    pool.now = .now(pool.stdio, .real);
+    pool.now = .now(.real);
 
     while (tokens.next()) |token| {
         if (std.mem.eql(u8, token, "infinite")) {
@@ -136,7 +136,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
             return error.UnknownCommand;
         }
 
-        try pool.realloc(options.threads);
+        pool.realloc(options.threads) catch return error.UnknownCommand;
     } else if (std.ascii.eqlIgnoreCase(name, "UCI_Chess960")) {
         if (!std.mem.eql(u8, aux, "value")) {
             return error.UnknownCommand;
