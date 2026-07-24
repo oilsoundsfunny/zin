@@ -58,14 +58,18 @@ pub const name = root.name;
 pub const version = root.version;
 pub const version_string = root.version_string;
 
-pub fn main(init: std.process.Init) !void {
+pub fn main(init: std.process.Init.Minimal) !void {
     try root.init();
     defer root.deinit();
 
-    const pool = try engine.Thread.Pool.create(init.gpa, init.io);
+    const gpa = std.heap.smp_allocator;
+    var threaded_io: std.Io.Threaded = .init(gpa, .{});
+    const io = threaded_io.io();
+
+    const pool = try engine.Thread.Pool.create(gpa, io);
     defer pool.destroy();
 
-    var args = try init.minimal.args.iterateAllocator(init.gpa);
+    var args = try init.args.iterateAllocator(gpa);
     defer args.deinit();
 
     _ = args.skip();
@@ -93,7 +97,7 @@ pub fn main(init: std.process.Init) !void {
             const epd = args.next() orelse std.process.fatal("expected arg after '{s}'", .{arg});
             return engine.evaluation.printStats(pool, epd);
         } else if (std.mem.eql(u8, arg, "help")) {
-            try std.Io.File.stdout().writeStreamingAll(init.io, help);
+            try std.Io.File.stdout().writeStreamingAll(io, help);
             std.process.exit(0);
         } else std.process.fatal("unknown arg '{s}'", .{arg});
     } else try engine.uci.loop(pool);
