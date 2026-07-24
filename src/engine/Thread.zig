@@ -3,7 +3,6 @@ const params = @import("params");
 const selfplay = @import("selfplay");
 const std = @import("std");
 const types = @import("types");
-const zio = @import("zio");
 
 const Board = @import("Board.zig");
 const evaluation = @import("evaluation.zig");
@@ -37,9 +36,9 @@ pub const Pool = struct {
     gpa: std.mem.Allocator,
     threads: std.ArrayList(Thread),
 
-    zio_rt: *zio.Runtime,
-    group: zio.Group,
-    now: zio.Timestamp,
+    stdio: std.Io,
+    group: std.Io.Group,
+    now: std.Io.Timestamp,
 
     pawn_corrhist: []align(page_size) hist.Corr.Pawn,
     minor_corrhist: []align(page_size) hist.Corr.Minor,
@@ -62,22 +61,22 @@ pub const Pool = struct {
         self.gpa.free(self.major_corrhist);
         self.gpa.free(self.nonpawn_corrhist);
 
-        self.io.deinit(self.gpa, self.zio_rt);
+        self.io.deinit(self.gpa, self.stdio);
         self.tt.deinit(self.gpa);
 
         self.gpa.destroy(self);
     }
 
-    pub fn create(gpa: std.mem.Allocator, zio_rt: *zio.Runtime) !*Pool {
+    pub fn create(gpa: std.mem.Allocator, stdio: std.Io) !*Pool {
         const pool = try gpa.create(Pool);
 
         pool.* = .{
             .gpa = gpa,
             .threads = try .initCapacity(gpa, 1),
 
-            .zio_rt = zio_rt,
+            .stdio = stdio,
             .group = .init,
-            .now = .now(.real),
+            .now = .now(stdio, .real),
 
             .pawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Pawn, 1),
             .minor_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Minor, 1),
@@ -88,7 +87,7 @@ pub const Pool = struct {
             .limits = .init,
             .opts = .init,
 
-            .io = try .init(gpa, zio_rt, null, 65536, null, 65536),
+            .io = try .init(gpa, stdio, null, 65536, null, 65536),
             .tt = try .init(gpa, null),
         };
 
@@ -99,17 +98,17 @@ pub const Pool = struct {
         return pool;
     }
 
-    pub fn wait(self: *Pool) void {
+    pub fn await(self: *Pool) void {
         if (self.command != .cancel) {
             self.command = .cancel;
-            self.group.wait() catch {};
+            self.group.await(self.stdio) catch {};
         }
     }
 
     pub fn cancel(self: *Pool) void {
         if (self.command != .cancel) {
             self.command = .cancel;
-            self.group.cancel();
+            self.group.cancel(self.stdio);
         }
     }
 
@@ -149,7 +148,7 @@ pub const Pool = struct {
         self.cancel();
         self.limits = .init;
         self.opts = .init;
-        self.now = .now(.real);
+        self.now = .now(self.stdio, .real);
 
         for (self.threads.items) |*thread| {
             thread.* = .init;
@@ -197,20 +196,20 @@ pub const Pool = struct {
         self.cancel();
         self.command = .clear_hash;
         for (self.threads.items) |*thread| {
-            try self.group.spawn(Thread.clearHash, .{thread});
+            try self.group.concurrent(self.stdio, Thread.clearHash, .{thread});
         }
-        self.wait();
+        self.await();
     }
 
     pub fn datagen(self: *Pool, rq: selfplay.Request) !void {
         self.cancel();
         self.tt.doAge();
-        self.now = .now(.real);
+        self.now = .now(self.stdio, .real);
         self.command = .{ .datagen = rq };
         for (self.threads.items) |*thread| {
-            try self.group.spawn(Thread.datagen, .{ thread, rq });
+            try self.group.concurrent(self.stdio, Thread.datagen, .{ thread, rq });
         }
-        self.wait();
+        self.await();
     }
 
     pub fn search(self: *Pool) !void {
@@ -218,12 +217,12 @@ pub const Pool = struct {
         self.tt.doAge();
         self.command = .go;
         for (self.threads.items) |*thread| {
-            try self.group.spawn(Thread.search, .{ thread, .go });
+            try self.group.concurrent(self.stdio, Thread.search, .{ thread, .go });
         }
     }
 
     pub fn elapsedNanosecs(self: *const Pool) u64 {
-        const now: zio.Timestamp = .now(.real);
+        const now: std.Io.Timestamp = .now(self.stdio, .real);
         return @intCast(self.now.durationTo(now).toNanoseconds());
     }
 };

@@ -166,7 +166,6 @@ pub fn build(bld: *std.Build) !void {
         .{ .cwd_relative = path }
     else
         bld.dependency("nets", .{}).path("1024hl-16b-8ob-100426.nnue");
-    const zio = bld.dependency("zio", .{}).module("zio");
 
     for (Modules.values) |m| {
         const deps = Modules.dependencies.get(m);
@@ -179,7 +178,6 @@ pub fn build(bld: *std.Build) !void {
         }
 
         switch (m) {
-            .engine, .types => module.addImport("zio", zio),
             .nnue => module.addAnonymousImport("embed.nnue", .{ .root_source_file = network }),
             .params => {
                 const options = bld.addOptions();
@@ -229,7 +227,6 @@ pub fn build(bld: *std.Build) !void {
                 options.target = resolved;
 
                 const module = bld.createModule(options);
-                module.addImport("zio", zio);
                 module.addOptions("version", version_options);
 
                 const deps = Steps.dependencies.get(.releases);
@@ -261,7 +258,6 @@ pub fn build(bld: *std.Build) !void {
             }
 
             const artifact = if (s == .install) add_exe: {
-                module.addImport("zio", zio);
                 module.addOptions("version", version_options);
                 const exe = bld.addExecutable(.{
                     .root_module = module,

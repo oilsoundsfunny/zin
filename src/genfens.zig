@@ -70,10 +70,9 @@ fn playRandom(board: *engine.Board, rng: *std.Random.Xoroshiro128, random_moves:
 
 pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
     const opts = try parseArgs(args);
-    const io = pool.zio_rt.io();
 
     var rng: std.Random.Xoroshiro128 = .init(opts.seed);
-    var book: selfplay.Book = try .init(pool.gpa, io, opts.book);
+    var book: selfplay.Book = try .init(pool.gpa, pool.stdio, opts.book);
     defer book.deinit(pool.gpa);
 
     pool.setFRC(true);
@@ -81,7 +80,7 @@ pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
     defer pool.gpa.destroy(board);
 
     var buffer: [65536]u8 = undefined;
-    var writer = std.Io.File.stdout().writer(io, buffer[0..]);
+    var writer = std.Io.File.stdout().writer(pool.stdio, buffer[0..]);
 
     for (0..opts.num) |_| {
         const fen = book.getRandom(rng.random());

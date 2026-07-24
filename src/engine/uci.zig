@@ -29,7 +29,7 @@ fn parseGo(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Comman
     const stm = pos.stm;
 
     pool.limits = .init;
-    pool.now = .now(.real);
+    pool.now = .now(pool.stdio, .real);
 
     while (tokens.next()) |token| {
         if (std.mem.eql(u8, token, "infinite")) {

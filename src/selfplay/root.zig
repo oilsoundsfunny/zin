@@ -165,11 +165,11 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
     const data = options.data orelse std.process.fatal("missing arg '--data'", .{});
     const games = options.games orelse std.process.fatal("missing arg '--games'", .{});
 
-    var book = try Book.init(pool.gpa, pool.zio_rt.io(), options.book);
+    var book = try Book.init(pool.gpa, pool.stdio, options.book);
     defer book.deinit(pool.gpa);
 
-    pool.io.deinit(pool.gpa, pool.zio_rt);
-    pool.io = try .init(pool.gpa, pool.zio_rt, null, std.atomic.cache_line, data, 65536);
+    pool.io.deinit(pool.gpa, pool.stdio);
+    pool.io = try .init(pool.gpa, pool.stdio, null, std.atomic.cache_line, data, 65536);
 
     const hash = options.hash orelse 128;
     const threads = options.threads orelse 1;
