@@ -185,7 +185,6 @@ pub const Pool = struct {
 
     pub fn reset(self: *Pool) !void {
         self.limits = .init;
-        self.opts = .init;
         self.now = .now(self.stdio, .real);
 
         if (self.initing) {
@@ -194,10 +193,10 @@ pub const Pool = struct {
                 thread.pool = self;
                 if (i == 0) {
                     try thread.board.parseFen(Board.Position.startpos);
+                    thread.board.frc = Options.init.frc;
                 } else {
                     thread.board = self.threads.items[0].board;
                 }
-                thread.board.frc = false;
             }
             try self.spawn();
         } else {
@@ -855,6 +854,10 @@ fn ab(
     beta: evaluation.score.Int,
     depth: Depth,
 ) evaluation.score.Int {
+    if (depth <= 0) {
+        return self.qs(ply, alpha, beta);
+    }
+
     const board = &self.board;
     const pos = board.positions.last();
 
@@ -887,10 +890,6 @@ fn ab(
     b = @min(b, mate + 1);
     if (a >= b) {
         return a;
-    }
-
-    if (d <= 0) {
-        return self.qs(ply, a, b);
     }
 
     const is_pv = node == .exact;
@@ -1597,7 +1596,7 @@ fn reset(self: *Thread) !void {
     self.* = .init;
     self.pool = pool;
     try self.board.parseFen(Board.Position.startpos);
-    self.board.frc = false;
+    self.board.frc = self.pool.opts.frc;
 }
 
 pub fn search(self: *Thread) !void {
