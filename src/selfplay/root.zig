@@ -171,14 +171,14 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
     pool.io.deinit(pool.gpa, pool.stdio);
     pool.io = try .init(pool.gpa, pool.stdio, null, std.atomic.cache_line, data, 65536);
 
-    const hash = options.hash orelse 128;
     const threads = options.threads orelse 1;
+    try pool.realloc(threads);
+    pool.setFRC(true);
 
+    const hash = options.hash orelse 128;
     pool.tt.deinit(pool.gpa);
     pool.tt = try .init(pool.gpa, hash);
-    try pool.realloc(threads);
-    try pool.clearHash();
-    pool.setFRC(true);
+    pool.clearHash();
 
     pool.limits.depth = options.depth;
     pool.limits.soft_nodes, pool.limits.hard_nodes = if (options.depth) |_| .{ null, null } else .{

@@ -93,7 +93,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
             return error.UnknownCommand;
         }
 
-        try pool.clearHash();
+        pool.clearHash();
     } else if (std.ascii.eqlIgnoreCase(name, "Hash")) {
         if (!std.mem.eql(u8, aux, "value")) {
             return error.UnknownCommand;
@@ -301,7 +301,7 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
             return error.UnknownCommand;
         }
 
-        pool.cancel();
+        pool.stop();
         return if (std.mem.eql(u8, first, "quit")) .quit else .stop;
     } else if (std.mem.eql(u8, first, "setoption")) {
         return parseOption(&tokens, pool);

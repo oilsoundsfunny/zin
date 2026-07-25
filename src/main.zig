@@ -66,7 +66,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var threaded_io: std.Io.Threaded = .init(gpa, .{});
     const io = threaded_io.io();
 
-    const pool = try engine.Thread.Pool.create(gpa, io);
+    const pool: *engine.Thread.Pool = try .create(gpa, io);
     defer pool.destroy();
 
     var args = try init.args.iterateAllocator(gpa);

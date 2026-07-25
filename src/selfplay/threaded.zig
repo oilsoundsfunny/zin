@@ -20,7 +20,7 @@ fn terminalResult(thread: *engine.Thread) ViriFormat.Result {
 }
 
 fn playRandom(thread: *engine.Thread) !void {
-    const rq = &thread.command.datagen;
+    const rq = &thread.job.datagen;
     const random_moves = rq.random_moves;
 
     const board = try thread.pool.gpa.create(engine.Board);
@@ -56,13 +56,13 @@ fn playRandom(thread: *engine.Thread) !void {
 fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
     const board = &thread.board;
     const root_moves = &thread.root_moves;
-    const rq = &thread.command.datagen;
+    const rq = &thread.job.datagen;
 
     data.* = .{ .head = .init(board), .line = .init };
     defer data.line.pushUnchecked(.init);
 
     while (data.head.result == .none) {
-        thread.search(.{ .datagen = rq.* });
+        try thread.search();
 
         const is_terminal = board.isTerminal();
         data.head.result = if (root_moves.constSlice().len == 0) no_moves: {
@@ -130,7 +130,7 @@ fn writeData(thread: *engine.Thread, data: *const ViriFormat) !void {
 pub fn run(thread: *engine.Thread) !void {
     const i = thread - &thread.pool.threads.items[0];
     const n = thread.pool.threads.items.len;
-    const rq = &thread.command.datagen;
+    const rq = &thread.job.datagen;
     var data: ViriFormat = undefined;
 
     const games = rq.games / n + @intFromBool(rq.games % n != 0);
