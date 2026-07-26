@@ -229,7 +229,6 @@ pub const Pool = struct {
 
     pub fn bench(self: *Pool) u64 {
         self.stop();
-        self.tt.doAge();
         self.searching = true;
         self.stopped = false;
         self.wake(.bench);
@@ -245,7 +244,6 @@ pub const Pool = struct {
 
     pub fn datagen(self: *Pool, rq: selfplay.Request) !void {
         self.stop();
-        self.tt.doAge();
         self.now = .now(self.stdio, .real);
         self.searching = true;
         self.stopped = false;
@@ -255,7 +253,6 @@ pub const Pool = struct {
 
     pub fn search(self: *Pool) !void {
         self.stop();
-        self.tt.doAge();
         self.searching = true;
         self.stopped = false;
         self.wake(.go);
@@ -1612,13 +1609,22 @@ pub fn search(self: *Thread) !void {
         .go => .{ false, true },
         else => .{ false, false },
     };
+    defer if (is_datagen or is_main) {
+        self.pool.tt.doAge();
+    };
 
     const should_print = is_go and is_main;
     defer if (should_print) {
         self.pool.stopped = true;
+        if (self.pool.threads.items.len > 1) {
+            for (self.pool.threads.items[1..]) |*helper| {
+                helper.wait();
+            }
+        }
     };
 
-    if (self.root_moves.constSlice().len == 0) {
+    const root_moves = self.root_moves.slice();
+    if (root_moves.len == 0) {
         if (should_print) {
             try self.printInfo(null, 0, 0);
             try self.printBest(null);
@@ -1633,7 +1639,7 @@ pub fn search(self: *Thread) !void {
     var depth: Depth = min_depth;
     var last_depth: Depth = 0;
     var last_seldepth: Depth = 0;
-    var last_pv: movegen.RootMove = .init;
+    var last_pv: movegen.RootMove = root_moves[0];
 
     while (depth <= max_depth) : (depth += 1) {
         self.depth = depth;
@@ -1644,10 +1650,10 @@ pub fn search(self: *Thread) !void {
             break;
         }
 
-        movegen.RootMove.sortSlice(self.root_moves.slice());
+        movegen.RootMove.sortSlice(root_moves);
         last_depth = self.depth;
         last_seldepth = self.seldepth;
-        last_pv = self.root_moves.constSlice()[0];
+        last_pv = root_moves[0];
         if (should_print and !pool.opts.minimal) {
             try self.printInfo(&last_pv, last_depth, last_seldepth);
         }
