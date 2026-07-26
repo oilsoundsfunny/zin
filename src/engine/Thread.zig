@@ -187,6 +187,7 @@ pub const Pool = struct {
         self.limits = .init;
         self.now = .now(self.stdio, .real);
 
+        // TODO: might not finish before return(?)
         if (self.initing) {
             for (self.threads.items, 0..) |*thread, i| {
                 thread.* = .init;
@@ -201,7 +202,6 @@ pub const Pool = struct {
             try self.spawn();
         } else {
             self.wake(.{ .reset = self });
-            self.wait();
         }
     }
 
@@ -978,7 +978,6 @@ fn ab(
     }
 
     // reverse futility pruning (rfp)
-    // TODO: remove min margin
     if (!is_pv and
         !is_singular and
         !is_checked and
