@@ -44,7 +44,6 @@ pub const Pool = struct {
     mtx: std.Io.Mutex,
     now: std.Io.Timestamp,
 
-    initing: bool,
     searching: bool align(cache_line),
     sleeping: bool align(cache_line),
     stopped: bool align(cache_line),
@@ -74,7 +73,6 @@ pub const Pool = struct {
 
     pub fn create(gpa: std.mem.Allocator, stdio: std.Io) !*Pool {
         const pool = try gpa.create(Pool);
-
         pool.* = .{
             .gpa = gpa,
             .handles = try .initCapacity(gpa, 1),
@@ -85,7 +83,6 @@ pub const Pool = struct {
             .mtx = .init,
             .now = .now(stdio, .real),
 
-            .initing = true,
             .searching = false,
             .sleeping = false,
             .stopped = true,
@@ -102,12 +99,16 @@ pub const Pool = struct {
             .tt = try .init(gpa, null),
         };
 
+        const board = try gpa.create(Board);
+        try board.parseFen(Board.Position.startpos);
+        defer gpa.destroy(board);
+
         _ = try pool.handles.addOneBounded();
         _ = try pool.threads.addOneBounded();
 
-        try pool.reset();
+        try pool.spawn();
+        pool.setBoard(board, false);
         pool.clearHash();
-        pool.initing = false;
         return pool;
     }
 
@@ -129,6 +130,9 @@ pub const Pool = struct {
     pub fn spawn(self: *Pool) !void {
         const config: std.Thread.SpawnConfig = .{ .allocator = self.gpa };
         for (self.handles.items, self.threads.items) |*handle, *thread| {
+            // TODO: let threads reset their own data
+            thread.* = .init;
+            thread.pool = self;
             handle.* = try std.Thread.spawn(config, Thread.loop, .{thread});
         }
     }
@@ -174,34 +178,20 @@ pub const Pool = struct {
         self.major_corrhist = try self.gpa.realloc(self.major_corrhist, corrhist_len);
         self.nonpawn_corrhist = try self.gpa.realloc(self.nonpawn_corrhist, corrhist_len);
 
-        for (self.threads.items) |*thread| {
-            thread.* = .init;
-            thread.pool = self;
-            thread.board = board.*;
-        }
-
         try self.spawn();
+        self.setBoard(board, self.opts.frc);
     }
 
     pub fn reset(self: *Pool) !void {
         self.limits = .init;
         self.now = .now(self.stdio, .real);
-
-        // TODO: might not finish before return(?)
-        if (self.initing) {
-            for (self.threads.items, 0..) |*thread, i| {
-                thread.* = .init;
-                thread.pool = self;
-                if (i == 0) {
-                    try thread.board.parseFen(Board.Position.startpos);
-                    thread.board.frc = Options.init.frc;
-                } else {
-                    thread.board = self.threads.items[0].board;
-                }
+        self.wake(.{ .reset = self });
+        for (self.threads.items) |*thread| {
+            self.mtx.lockUncancelable(self.stdio);
+            while (thread.job != .sleep) {
+                self.cond.waitUncancelable(self.stdio, &self.mtx);
             }
-            try self.spawn();
-        } else {
-            self.wake(.{ .reset = self });
+            self.mtx.unlock(self.stdio);
         }
     }
 
@@ -351,10 +341,6 @@ pub const hist = struct {
         fn alloc(gpa: std.mem.Allocator, comptime T: type, threads: usize) ![]align(page_size) T {
             return gpa.alignedAlloc(T, .fromByteUnits(page_size), per_thread * threads);
         }
-
-        fn realloc(gpa: std.mem.Allocator, old_mem: anytype, threads: usize) !@TypeOf(old_mem) {
-            return gpa.realloc(old_mem, per_thread * threads);
-        }
     };
 
     const color_n = 1 << types.Color.int_info.bits;
@@ -476,7 +462,6 @@ fn wait(self: *Thread) void {
 
     mtx.lockUncancelable(stdio);
     while (self.job != .sleep) {
-        cond.signal(stdio);
         cond.waitUncancelable(stdio, mtx);
     }
     mtx.unlock(stdio);

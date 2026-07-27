@@ -1015,6 +1015,7 @@ pub fn printSelf(self: *Board, buffer: []u8) ![]const u8 {
     const fen = try self.printFen(fen_buf[0..]);
     try list.printBounded("fen: {s}\n", .{fen});
 
+    try list.printBounded("frc: {s}\n", .{if (self.frc) "true" else "false"});
     try list.printBounded("key: {x:016}\n", .{pos.key});
 
     const mat = pos.material();
