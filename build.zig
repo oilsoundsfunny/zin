@@ -35,7 +35,7 @@ const Modules = enum {
         .types = "src/types/root.zig",
     });
 
-    const test_files = std.EnumArray(Modules, []const u8).init(.{
+    const test_srcs = std.EnumArray(Modules, []const u8).init(.{
         .bitboard = "tests/bitboard/root.zig",
         .engine = "tests/engine/root.zig",
         .nnue = "tests/nnue/root.zig",
@@ -46,24 +46,15 @@ const Modules = enum {
 
     const values = std.enums.values(Modules);
 
-    const Options = struct {
-        omit_frame_pointer: bool,
-        stack_check: bool,
-        strip: bool,
-        valgrind: bool,
-
-        fn init(bld: *std.Build) Options {
-            const optimize = bld.standardOptimizeOption(.{});
-            const is_debug = optimize == .Debug;
-            const has_debuginfo = is_debug or optimize == .ReleaseSafe;
-            return .{
-                .omit_frame_pointer = bld.option(bool, "omit-fp", "") orelse !has_debuginfo,
-                .stack_check = bld.option(bool, "stack-check", "") orelse is_debug,
-                .strip = bld.option(bool, "strip", "Strip executable(s)") orelse !has_debuginfo,
-                .valgrind = bld.option(bool, "valgrind", "") orelse false,
-            };
-        }
-    };
+    fn create(
+        self: Modules,
+        bld: *std.Build,
+        defaults: std.Build.Module.CreateOptions,
+    ) *std.Build.Module {
+        var options = defaults;
+        options.root_source_file = bld.path(srcs.get(self));
+        return bld.createModule(options);
+    }
 };
 
 const Steps = enum {
@@ -80,24 +71,94 @@ const Steps = enum {
     });
 
     const srcs = std.EnumArray(Steps, []const u8).init(.{
-        .install = "src/main.zig",
-        .releases = "src/main.zig",
+        .install = "src/root.zig",
+        .releases = "src/root.zig",
         .perft = "tests/perft/root.zig",
         .tests = "tests/root.zig",
     });
 
     const values = std.enums.values(Steps);
+
+    fn create(
+        self: Steps,
+        bld: *std.Build,
+        defaults: std.Build.Module.CreateOptions,
+        target: std.Build.ResolvedTarget,
+        modules: *const std.EnumArray(Modules, *std.Build.Module),
+        lto: std.zig.LtoMode,
+        name: []const u8,
+        version: Version,
+    ) *std.Build.Step {
+        var options = defaults;
+        options.root_source_file = bld.path(srcs.get(self));
+        options.target = target;
+        switch (target.result.os.tag) {
+            .openbsd => options.link_libc = true,
+            .windows => options.stack_check = false,
+            else => {},
+        }
+
+        const module = bld.createModule(options);
+        for (dependencies.get(self)) |dependency| {
+            const n = Modules.names.get(dependency);
+            const m = modules.get(dependency);
+            module.addImport(n, m);
+        }
+
+        return switch (self) {
+            .install, .releases => blk: {
+                module.addOptions("version", version.options);
+                const exe = bld.addExecutable(.{
+                    .root_module = module,
+                    .name = name,
+                    .version = version.raw,
+                    .use_lld = target.result.os.tag != .macos,
+                    .use_llvm = true,
+                });
+                exe.lto = switch (target.result.os.tag) {
+                    .linux, .openbsd => lto,
+                    else => .none,
+                };
+                break :blk &bld.addInstallArtifact(exe, .{}).step;
+            },
+            else => blk: {
+                const tests = bld.addTest(.{
+                    .root_module = module,
+                    .name = name,
+                    .use_lld = target.result.os.tag != .macos,
+                    .use_llvm = true,
+                });
+                break :blk &bld.addRunArtifact(tests).step;
+            },
+        };
+    }
 };
 
-fn createModule(
-    bld: *std.Build,
-    root_source_file: []const u8,
-    defaults: std.Build.Module.CreateOptions,
-) *std.Build.Module {
-    var opts = defaults;
-    opts.root_source_file = bld.path(root_source_file);
-    return bld.createModule(opts);
-}
+const Version = struct {
+    raw: std.SemanticVersion,
+    string: []const u8,
+    options: *std.Build.Step.Options,
+
+    fn init(bld: *std.Build) !Version {
+        const v: std.SemanticVersion = .{
+            .major = 0,
+            .minor = 3,
+            .patch = 0,
+            .pre = "dev",
+            .build = shortHash(bld),
+        };
+        const s = bld.option([]const u8, "version-string", "") orelse inner: {
+            const buf = bld.allocator.alloc(u8, 256) catch @panic("OOM");
+            var w: std.Io.Writer = .fixed(buf);
+            try v.format(&w);
+            break :inner w.buffered();
+        };
+        const o = bld.addOptions();
+        o.addOption(@TypeOf(v), "resolved", v);
+        o.addOption(@TypeOf(s), "string", s);
+        return .{ .raw = v, .string = s, .options = o };
+    }
+};
 
 fn shortHash(bld: *std.Build) ?[]const u8 {
     const argv: []const []const u8 = if (bld.build_root.path) |root|
@@ -111,23 +172,23 @@ fn shortHash(bld: *std.Build) ?[]const u8 {
 }
 
 pub fn build(bld: *std.Build) !void {
-    const root = bld.addModule("root", .{
-        .root_source_file = bld.path("src/root.zig"),
-    });
-
     const optimize = bld.standardOptimizeOption(.{});
     const target = bld.standardTargetOptions(.{});
+    const is_debug, const has_debuginfo = switch (optimize) {
+        .Debug => .{ true, true },
+        .ReleaseSafe => .{ false, true },
+        else => .{ false, false },
+    };
 
-    const is_debug = optimize == .Debug;
-    const has_debuginfo = is_debug or optimize == .ReleaseSafe;
-
-    const omit_frame_pointer = bld.option(bool, "omit-fp", "") orelse !has_debuginfo;
+    const omit_frame_pointer =
+        bld.option(bool, "omit-fp", "Omit frame pointer") orelse
+        !has_debuginfo;
     const stack_check = bld.option(bool, "stack-check", "") orelse is_debug;
     const strip = bld.option(bool, "strip", "Strip executable(s)") orelse !has_debuginfo;
     const valgrind = bld.option(bool, "valgrind", "") orelse false;
 
-    const Unwind = std.builtin.UnwindTables;
-    const unwind_tables: Unwind = bld.option(Unwind, "unwind-tables", "") orelse
+    const unwind_tables: std.builtin.UnwindTables =
+        bld.option(std.builtin.UnwindTables, "unwind-tables", "") orelse
         if (has_debuginfo) .async else .none;
 
     const module_defaults: std.Build.Module.CreateOptions = .{
@@ -153,12 +214,7 @@ pub fn build(bld: *std.Build) !void {
     var modules = std.EnumArray(Modules, *std.Build.Module).initUndefined();
 
     for (Modules.values) |m| {
-        const src = Modules.srcs.get(m);
-        const module = createModule(bld, src, module_defaults);
-        modules.set(m, module);
-
-        const name = Modules.names.get(m);
-        root.addImport(name, module);
+        modules.set(m, m.create(bld, module_defaults));
     }
 
     const evalfile = bld.option([]const u8, "evalfile", "");
@@ -168,15 +224,10 @@ pub fn build(bld: *std.Build) !void {
         bld.dependency("nets", .{}).path("1024hl-16b-8ob-100426.nnue");
 
     for (Modules.values) |m| {
-        const deps = Modules.dependencies.get(m);
         const module = modules.get(m);
-
-        for (deps) |dep| {
-            const dep_name = Modules.names.get(dep);
-            const dep_module = modules.get(dep);
-            module.addImport(dep_name, dep_module);
+        for (Modules.dependencies.get(m)) |dependency| {
+            module.addImport(Modules.names.get(dependency), modules.get(dependency));
         }
-
         switch (m) {
             .nnue => module.addAnonymousImport("embed.nnue", .{ .root_source_file = network }),
             .params => {
@@ -188,98 +239,38 @@ pub fn build(bld: *std.Build) !void {
         }
     }
 
+    const version: Version = try .init(bld);
     const lto: std.zig.LtoMode =
-        bld.option(std.zig.LtoMode, "lto", "") orelse
-        if (has_debuginfo) .none else .thin;
+        bld.option(std.zig.LtoMode, "lto", "Perform link-time optimizations") orelse
+        if (!has_debuginfo) .thin else .none;
     const exe_name = bld.option([]const u8, "name", "") orelse @import("src/root.zig").name;
 
-    const version, const version_string, const version_options = blk: {
-        const v: std.SemanticVersion = .{
-            .major = 0,
-            .minor = 3,
-            .patch = 0,
-            .pre = "dev",
-            .build = shortHash(bld),
-        };
-
-        const s = bld.option([]const u8, "version-string", "") orelse inner: {
-            const buf = bld.allocator.alloc(u8, 256) catch @panic("OOM");
-            var w: std.Io.Writer = .fixed(buf);
-            try v.format(&w);
-            break :inner w.buffered();
-        };
-
-        const o = bld.addOptions();
-        o.addOption(@TypeOf(v), "resolved", v);
-        o.addOption(@TypeOf(s), "string", s);
-
-        break :blk .{ v, s, o };
-    };
-
     for (Steps.values) |s| {
-        var options = module_defaults;
-        options.root_source_file = bld.path(Steps.srcs.get(s));
-
-        if (s == .releases) {
-            const release_targets = @import("tools/release.zig").targets;
-            for (release_targets) |release_target| {
-                const resolved = try release_target.resolve(bld);
-                options.target = resolved;
-
-                const module = bld.createModule(options);
-                module.addOptions("version", version_options);
-
-                const deps = Steps.dependencies.get(.releases);
-                for (deps) |dep| {
-                    const dep_name = Modules.names.get(dep);
-                    const dep_module = modules.get(dep);
-                    module.addImport(dep_name, dep_module);
+        const step = steps.get(s);
+        switch (s) {
+            // zig fmt: off
+            .releases => {
+                const release_targets = @import("tools/release.zig").targets;
+                for (release_targets) |release_target| {
+                    const resolved = try release_target.resolve(bld);
+                    const bin_name = release_target.name(bld, exe_name, version.string);
+                    step.dependOn(s.create(
+                        bld, module_defaults, resolved, &modules, lto, bin_name, version,
+                    ));
                 }
-
-                const exe = bld.addExecutable(.{
-                    .root_module = module,
-                    .name = release_target.name(bld, exe_name, version_string),
-                    .version = version,
-                    .use_lld = resolved.result.os.tag != .macos,
-                    .use_llvm = true,
-                });
-                exe.lto = if (resolved.result.os.tag == .linux) lto else .none;
-
-                const sub_step = &bld.addInstallArtifact(exe, .{}).step;
-                steps.get(s).dependOn(sub_step);
-            }
-        } else {
-            const module = bld.createModule(options);
-            const deps = Steps.dependencies.get(s);
-            for (deps) |dep| {
-                const dep_name = Modules.names.get(dep);
-                const dep_module = modules.get(dep);
-                module.addImport(dep_name, dep_module);
-            }
-
-            const artifact = if (s == .install) add_exe: {
-                module.addOptions("version", version_options);
-                const exe = bld.addExecutable(.{
-                    .root_module = module,
-                    .name = exe_name,
-                    .version = version,
-                    .use_lld = target.result.os.tag != .macos,
-                    .use_llvm = true,
-                });
-                exe.lto = if (target.result.os.tag == .linux) lto else .none;
-                break :add_exe exe;
-            } else bld.addTest(.{
-                .root_module = module,
-                .name = if (s == .perft) "perft" else "test",
-                .use_lld = true,
-                .use_llvm = true,
-            });
-
-            const sub_step = if (s == .install)
-                &bld.addInstallArtifact(artifact, .{}).step
-            else
-                &bld.addRunArtifact(artifact).step;
-            steps.get(s).dependOn(sub_step);
+            },
+            else => {
+                const bin_name = switch (s) {
+                    .install => exe_name,
+                    .perft => "perft",
+                    .tests => "tests",
+                    else => unreachable,
+                };
+                step.dependOn(s.create(
+                    bld, module_defaults, target, &modules, lto, bin_name, version,
+                ));
+            },
+            // zig fmt: on
         }
     }
 }

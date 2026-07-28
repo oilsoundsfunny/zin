@@ -532,37 +532,34 @@ fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score
     inline for (hist.Corr.values) |t| {
         correction += switch (t) {
             .nonpawn => blk: {
-                const len = hist.Corr.per_thread * self.pool.threads.items.len;
-                const keys = pos.nonpawn_keys;
+                const tbl = self.pool.nonpawn_corrhist;
+                const keys = &pos.nonpawn_keys;
 
-                const stm_i = zobrist.index(keys.getPtrConst(stm).*, len);
-                const stm_c = self.pool.nonpawn_corrhist[stm_i][stm.int()][stm.int()] *
-                    params.values.corr_nonpawn_stm_w;
+                const stm_i = zobrist.index(keys.getPtrConst(stm).*, tbl.len);
+                const stm_c = tbl[stm_i][stm.int()][stm.int()] * params.values.corr_nonpawn_stm_w;
 
                 const ntm = stm.flip();
-                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, len);
-                const ntm_c = self.pool.nonpawn_corrhist[ntm_i][stm.int()][ntm.int()] *
-                    params.values.corr_nonpawn_ntm_w;
+                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, tbl.len);
+                const ntm_c = tbl[ntm_i][stm.int()][ntm.int()] * params.values.corr_nonpawn_ntm_w;
 
                 break :blk stm_c + ntm_c;
             },
 
             else => blk: {
-                const key = switch (t) {
-                    .pawn => pos.pawn_key,
-                    .minor => pos.minor_key,
-                    .major => pos.major_key,
+                const key, const tbl, const w = switch (t) {
+                    .pawn => .{
+                        pos.pawn_key, self.pool.pawn_corrhist, params.values.corr_pawn_w,
+                    },
+                    .minor => .{
+                        pos.minor_key, self.pool.minor_corrhist, params.values.corr_minor_w,
+                    },
+                    .major => .{
+                        pos.major_key, self.pool.major_corrhist, params.values.corr_major_w,
+                    },
                     else => unreachable,
                 };
-                const len = hist.Corr.per_thread * self.pool.threads.items.len;
-                const idx = zobrist.index(key, len);
-
-                break :blk switch (t) {
-                    .pawn => params.values.corr_pawn_w * self.pool.pawn_corrhist[idx][stm.int()],
-                    .minor => params.values.corr_minor_w * self.pool.minor_corrhist[idx][stm.int()],
-                    .major => params.values.corr_major_w * self.pool.major_corrhist[idx][stm.int()],
-                    else => unreachable,
-                };
+                const idx = zobrist.index(key, tbl.len);
+                break :blk w * tbl[idx][stm.int()];
             },
         };
     }
@@ -587,49 +584,46 @@ fn updateCorrHists(
     inline for (hist.Corr.values) |t| {
         switch (t) {
             .nonpawn => {
-                const len = hist.Corr.per_thread * self.pool.threads.items.len;
+                const tbl = self.pool.nonpawn_corrhist[0..];
                 const keys = pos.nonpawn_keys;
 
-                const ntm = stm.flip();
-                const stm_i = zobrist.index(keys.getPtrConst(stm).*, len);
-                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, len);
-
+                const stm_i = zobrist.index(keys.getPtrConst(stm).*, tbl.len);
                 const stm_scaled = @divTrunc(bonus * params.values.corr_nonpawn_stm_w, 1024);
                 const stm_clamped = std.math.clamp(stm_scaled, -16000, 16000);
 
+                const ntm = stm.flip();
+                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, tbl.len);
                 const ntm_scaled = @divTrunc(bonus * params.values.corr_nonpawn_ntm_w, 1024);
                 const ntm_clamped = std.math.clamp(ntm_scaled, -16000, 16000);
 
-                hist.gravity(&self.pool.nonpawn_corrhist[stm_i][stm.int()][stm.int()], stm_clamped);
-                hist.gravity(&self.pool.nonpawn_corrhist[ntm_i][stm.int()][ntm.int()], ntm_clamped);
+                hist.gravity(&tbl[stm_i][stm.int()][stm.int()], stm_clamped);
+                hist.gravity(&tbl[ntm_i][stm.int()][ntm.int()], ntm_clamped);
             },
 
             else => {
-                const w = switch (t) {
-                    .pawn => params.values.corr_pawn_update_w,
-                    .minor => params.values.corr_minor_update_w,
-                    .major => params.values.corr_major_update_w,
+                const w, const key, const tbl = switch (t) {
+                    .pawn => .{
+                        params.values.corr_pawn_update_w,
+                        pos.pawn_key,
+                        self.pool.pawn_corrhist,
+                    },
+                    .minor => .{
+                        params.values.corr_minor_update_w,
+                        pos.minor_key,
+                        self.pool.minor_corrhist,
+                    },
+                    .major => .{
+                        params.values.corr_major_update_w,
+                        pos.major_key,
+                        self.pool.major_corrhist,
+                    },
                     else => unreachable,
                 };
+                const idx = zobrist.index(key, tbl.len);
+
                 const scaled = @divTrunc(bonus * w, 1024);
                 const clamped = std.math.clamp(scaled, -16000, 16000);
-
-                const key = switch (t) {
-                    .pawn => pos.pawn_key,
-                    .minor => pos.minor_key,
-                    .major => pos.major_key,
-                    else => unreachable,
-                };
-                const len = hist.Corr.per_thread * self.pool.threads.items.len;
-                const idx = zobrist.index(key, len);
-
-                const p = switch (t) {
-                    .pawn => &self.pool.pawn_corrhist[idx][stm.int()],
-                    .minor => &self.pool.minor_corrhist[idx][stm.int()],
-                    .major => &self.pool.major_corrhist[idx][stm.int()],
-                    else => unreachable,
-                };
-                hist.gravity(p, clamped);
+                hist.gravity(&tbl[idx][stm.int()], clamped);
             },
         }
     }
