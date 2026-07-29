@@ -4,7 +4,7 @@ const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
-test {
+test "zin.engine.Board.parseFen" {
     try bitboard.init();
     defer bitboard.deinit();
 
@@ -14,11 +14,11 @@ test {
     try engine.init();
     defer engine.deinit();
 
-    var board: engine.Board = .{};
+    var board: engine.Board = .init;
     try board.parseFen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
 }
 
-test {
+test "zin.engine.Board.Position.isMovePseudoLegal" {
     try bitboard.init();
     defer bitboard.deinit();
 
@@ -99,12 +99,12 @@ test {
     };
 
     for (fens) |fen| {
-        var board: engine.Board = .{};
+        var board: engine.Board = .init;
         try board.parseFen(fen);
 
         const pos = board.positions.last();
         var rma: [1 << 16]bool = @splat(false);
-        var list: engine.movegen.Move.List = .{};
+        var list: engine.movegen.Move.List = .init;
         _ = list.genNoisy(pos);
         _ = list.genQuiet(pos);
 

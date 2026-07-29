@@ -4,7 +4,7 @@ const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
-test {
+test "zin.engine.Board.Position.see0" {
     try bitboard.init();
     defer bitboard.deinit();
 
@@ -14,7 +14,7 @@ test {
     try engine.init();
     defer engine.deinit();
 
-    var board: engine.Board = .{};
+    var board: engine.Board = .init;
     try board.parseFen("1k1r4/1pp4p/p7/4p3/8/P5P1/1PP4P/2K1R3 w - - 0 1");
 
     const move: engine.movegen.Move = .{
@@ -26,7 +26,7 @@ test {
     try std.testing.expect(board.positions.last().see(move, pawn));
 }
 
-test {
+test "zin.engine.Board.Position.see1" {
     try bitboard.init();
     defer bitboard.deinit();
 
@@ -36,7 +36,7 @@ test {
     try engine.init();
     defer engine.deinit();
 
-    var board: engine.Board = .{};
+    var board: engine.Board = .init;
     try board.parseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1");
 
     const move: engine.movegen.Move = .{

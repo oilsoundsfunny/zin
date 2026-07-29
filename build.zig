@@ -205,13 +205,13 @@ pub fn build(bld: *std.Build) !void {
         .omit_frame_pointer = omit_frame_pointer,
     };
 
-    const steps = std.EnumArray(Steps, *std.Build.Step).init(.{
+    const steps: std.EnumArray(Steps, *std.Build.Step) = .init(.{
         .install = bld.getInstallStep(),
         .releases = bld.step("releases", ""),
         .perft = bld.step("perft", ""),
-        .tests = bld.step("test", ""),
+        .tests = bld.step("tests", ""),
     });
-    var modules = std.EnumArray(Modules, *std.Build.Module).initUndefined();
+    var modules: std.EnumArray(Modules, *std.Build.Module) = .initUndefined();
 
     for (Modules.values) |m| {
         modules.set(m, m.create(bld, module_defaults));
