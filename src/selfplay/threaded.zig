@@ -19,14 +19,14 @@ fn terminalResult(thread: *engine.Thread) ViriFormat.Result {
     };
 }
 
-fn playRandom(thread: *engine.Thread) !void {
+fn playRandom(thread: *engine.Thread, pool: *const engine.Thread.Pool) !void {
     const rq = &thread.job.datagen;
     const random_moves = rq.random_moves;
 
-    const board = try thread.pool.gpa.create(engine.Board);
+    const board = try pool.gpa.create(engine.Board);
     defer {
         thread.board = board.*;
-        thread.pool.gpa.destroy(board);
+        pool.gpa.destroy(board);
     }
 
     find_line: while (true) : (board.* = thread.board) {
@@ -53,7 +53,7 @@ fn playRandom(thread: *engine.Thread) !void {
     }
 }
 
-fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
+fn playOut(thread: *engine.Thread, pool: *engine.Thread.Pool, data: *ViriFormat) !void {
     const board = &thread.board;
     const root_moves = &thread.root_moves;
     const rq = &thread.job.datagen;
@@ -62,7 +62,7 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
     defer data.line.pushUnchecked(.init);
 
     while (data.head.result == .none) {
-        try thread.search();
+        try thread.search(pool);
 
         const is_terminal = board.isTerminal();
         data.head.result = if (root_moves.constSlice().len == 0) no_moves: {
@@ -103,22 +103,20 @@ fn playOut(thread: *engine.Thread, data: *ViriFormat) !void {
     }
 }
 
-fn readOpening(thread: *engine.Thread) ![]const u8 {
-    const io = &thread.pool.io;
-    try io.lockReader();
-    defer io.unlockReader();
+fn readOpening(pool: *engine.Thread.Pool) ![]const u8 {
+    try pool.io.lockReader();
+    defer pool.io.unlockReader();
 
-    const line = try thread.pool.io.reader().takeDelimiterInclusive('\n');
+    const line = try pool.io.reader().takeDelimiterInclusive('\n');
     const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
-    return try thread.pool.gpa.dupe(u8, trimmed);
+    return pool.gpa.dupe(u8, trimmed);
 }
 
-fn writeData(thread: *engine.Thread, data: *const ViriFormat) !void {
-    const io = &thread.pool.io;
-    try io.lockWriter();
-    defer io.unlockWriter();
+fn writeData(pool: *engine.Thread.Pool, data: *const ViriFormat) !void {
+    try pool.io.lockWriter();
+    defer pool.io.unlockWriter();
 
-    const writer = thread.pool.io.writer();
+    const writer = pool.io.writer();
     try writer.writeAll(std.mem.asBytes(&data.head));
     try writer.writeAll(std.mem.sliceAsBytes(data.line.constSlice()));
 
@@ -127,9 +125,9 @@ fn writeData(thread: *engine.Thread, data: *const ViriFormat) !void {
     }
 }
 
-pub fn run(thread: *engine.Thread) !void {
-    const i = thread - &thread.pool.threads.items[0];
-    const n = thread.pool.threads.items.len;
+pub fn run(thread: *engine.Thread, pool: *engine.Thread.Pool) !void {
+    const i = thread - &pool.threads.items[0];
+    const n = pool.threads.items.len;
     const rq = &thread.job.datagen;
     var data: ViriFormat = undefined;
 
@@ -140,15 +138,15 @@ pub fn run(thread: *engine.Thread) !void {
     while (played < games) {
         const opening = rq.book.getRandom(rq.rng.random());
         try thread.board.parseFen(opening);
-        try playRandom(thread);
-        try playOut(thread, &data);
-        try writeData(thread, &data);
+        try playRandom(thread, pool);
+        try playOut(thread, pool, &data);
+        try writeData(pool, &data);
 
         played += 1;
         positions += data.line.constSlice().len -| 1;
 
         if (played % 256 == 0 or played >= games) {
-            const ntime = thread.pool.elapsedNanosecs();
+            const ntime = pool.elapsedNanosecs();
             const pps =
                 @as(f64, @floatFromInt(positions)) /
                 @as(f64, @floatFromInt(ntime)) *

@@ -368,12 +368,10 @@ fn parseCommand(command: []const u8, pool: *Thread.Pool) !Command {
 
         return .uci;
     } else if (std.mem.eql(u8, first, "ucinewgame")) {
-        if (tokens.peek()) |_| {
-            return error.UnknownCommand;
-        }
-
-        try pool.reset();
-        return .ucinewgame;
+        return if (tokens.peek()) |_| error.UnknownCommand else blk: {
+            pool.reset();
+            break :blk .ucinewgame;
+        };
     } else return error.UnknownCommand;
 }
 
