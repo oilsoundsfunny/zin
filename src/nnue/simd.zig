@@ -22,11 +22,10 @@ pub fn Vec(comptime T: type) switch (T) {
 
         pub fn bitCast(vec: anytype) Self {
             if (@bitSizeOf(@TypeOf(vec.v)) != @bitSizeOf(Inner)) {
-                const msg = std.fmt.comptimePrint(
+                @compileError(std.fmt.comptimePrint(
                     "expected {}bit vector type, found {s}",
                     .{ @bitSizeOf(Inner), @typeName(@TypeOf(vec.v)) },
-                );
-                @compileError(msg);
+                ));
             }
 
             return .{ .v = @bitCast(vec.v) };
@@ -53,13 +52,10 @@ pub fn Vec(comptime T: type) switch (T) {
                 comptime_int, T => .{ .v = std.math.shl(Inner, self.v, amt) },
                 Inner => .{ .v = self.v << amt },
                 Self => .{ .v = self.v << amt.v },
-                else => |A| {
-                    const msg = std.fmt.comptimePrint(
-                        "expected {s}, {s} or {s}, found {s}",
-                        .{ @typeName(T), @typeName(Inner), @typeName(Self), @typeName(A) },
-                    );
-                    @compileError(msg);
-                },
+                else => |A| @compileError(std.fmt.comptimePrint(
+                    "expected {s}, {s} or {s}, found {s}",
+                    .{ @typeName(T), @typeName(Inner), @typeName(Self), @typeName(A) },
+                )),
             };
         }
 
@@ -68,13 +64,10 @@ pub fn Vec(comptime T: type) switch (T) {
                 comptime_int, T => .{ .v = std.math.shr(Inner, self.v, amt) },
                 Inner => .{ .v = self.v >> amt },
                 Self => .{ .v = self.v >> amt.v },
-                else => |A| {
-                    const msg = std.fmt.comptimePrint(
-                        "expected {s}, {s} or {s}, found {s}",
-                        .{ @typeName(T), @typeName(Inner), @typeName(Self), @typeName(A) },
-                    );
-                    @compileError(msg);
-                },
+                else => |A| @compileError(std.fmt.comptimePrint(
+                    "expected {s}, {s} or {s}, found {s}",
+                    .{ @typeName(T), @typeName(Inner), @typeName(Self), @typeName(A) },
+                )),
             };
         }
 
@@ -103,18 +96,15 @@ pub fn Vec(comptime T: type) switch (T) {
                 []align(bytes) const T => @bitCast(p[0..len].*),
                 *const Inner => p.*,
                 *const Self => p.v,
-                else => |P| {
-                    const msg = std.fmt.comptimePrint(
-                        "expected {s} or {s} or {s}, found {s}",
-                        .{
-                            @typeName(ConstSlice),
-                            @typeName(*const Inner),
-                            @typeName(*const Self),
-                            @typeName(P),
-                        },
-                    );
-                    @compileError(msg);
-                },
+                else => |P| @compileError(std.fmt.comptimePrint(
+                    "expected {s} or {s} or {s}, found {s}",
+                    .{
+                        @typeName(ConstSlice),
+                        @typeName(*const Inner),
+                        @typeName(*const Self),
+                        @typeName(P),
+                    },
+                )),
             } };
         }
 
@@ -123,13 +113,10 @@ pub fn Vec(comptime T: type) switch (T) {
                 []align(bytes) T => p[0..len].* = @bitCast(self.v),
                 *Inner => p.* = self.v,
                 *Self => p.* = self.*,
-                else => |P| {
-                    const msg = std.fmt.comptimePrint(
-                        "expected {s} or {s} or {s}, found {s}",
-                        .{ @typeName(Slice), @typeName(*Inner), @typeName(*Self), @typeName(P) },
-                    );
-                    @compileError(msg);
-                },
+                else => |P| @compileError(std.fmt.comptimePrint(
+                    "expected {s} or {s} or {s}, found {s}",
+                    .{ @typeName(Slice), @typeName(*Inner), @typeName(*Self), @typeName(P) },
+                )),
             }
         }
     };
