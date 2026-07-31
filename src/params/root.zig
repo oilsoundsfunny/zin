@@ -14,10 +14,10 @@ const Values = blk: {
     const Types: [tunables.len]type = @splat(Int);
     var names: [tunables.len][]const u8 = undefined;
     var attrs: [tunables.len]std.builtin.Type.StructField.Attributes = undefined;
-    for (tunables[0..], names[0..], attrs[0..], 0..) |*tunable, *name, *attr, i| {
+    for (tunables[0..], names[0..], attrs[0..]) |*tunable, *name, *attr| {
         name.* = tunable.name[0..];
         attr.* = .{
-            .@"comptime" = !tuning and i != tunables.len - 1,
+            .@"comptime" = !tuning,
             .default_value_ptr = &tunable.value,
         };
     }
@@ -64,11 +64,11 @@ pub const Tunable = struct {
 
 const tunables = blk: {
     const zon = @import("spsa.zig.zon");
-    const Zon = @TypeOf(zon);
-
-    const fields = std.meta.fields(Zon);
+    const fields = std.meta.fields(@TypeOf(zon));
     const inits: [fields.len]Tunable.Init = .{
         // zig fmt: off
+        .{ .name = "nnue_scale", .min = 100, .max = 650, .c_end = 12.0 },
+
         .{ .name = "tm_time_mult", .min = 16, .max =  256, .c_end = 12.0 },
         .{ .name = "tm_incr_mult", .min =  4, .max = 1024, .c_end = 48.0 },
 
@@ -219,7 +219,7 @@ const tunables = blk: {
         // zig fmt: on
     };
 
-    var tbl: [fields.len + 1]Tunable = undefined;
+    var tbl: [fields.len]Tunable = undefined;
     for (tbl[0..fields.len], inits[0..]) |*tunable, tunable_init| {
         const name = tunable_init.name[0..];
         const v = @field(zon, name);
@@ -231,7 +231,6 @@ const tunables = blk: {
             ));
         }
     }
-    tbl[fields.len] = .{ .name = "nnue_scale", .value = 255, .min = 100, .max = 650, .c_end = 8.0 };
     break :blk tbl;
 };
 

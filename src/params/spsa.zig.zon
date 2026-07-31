@@ -1,4 +1,5 @@
 .{
+    .nnue_scale = 255,
     .tm_time_mult = 58,
     .tm_incr_mult = 869,
     .nodetm_mult = 1171,
