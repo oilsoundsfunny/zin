@@ -14,10 +14,10 @@ const Values = blk: {
     const Types: [tunables.len]type = @splat(Int);
     var names: [tunables.len][]const u8 = undefined;
     var attrs: [tunables.len]std.builtin.Type.StructField.Attributes = undefined;
-    for (tunables[0..], names[0..], attrs[0..]) |*tunable, *name, *attr| {
+    for (tunables[0..], names[0..], attrs[0..], 0..) |*tunable, *name, *attr, i| {
         name.* = tunable.name[0..];
         attr.* = .{
-            .@"comptime" = !tuning,
+            .@"comptime" = !tuning and i != tunables.len - 1,
             .default_value_ptr = &tunable.value,
         };
     }
@@ -218,22 +218,20 @@ const tunables = blk: {
         .{ .name = "qs_fp_margin", .min = 8, .max = 128, .c_end = 6.0 },
         // zig fmt: on
     };
-    var tbl: [fields.len]Tunable = undefined;
 
-    for (tbl[0..], inits[0..]) |*tunable, tunable_init| {
+    var tbl: [fields.len + 1]Tunable = undefined;
+    for (tbl[0..fields.len], inits[0..]) |*tunable, tunable_init| {
         const name = tunable_init.name[0..];
         const v = @field(zon, name);
         tunable.* = tunable_init.expand(v);
-
         if (v != std.math.clamp(v, tunable.min, tunable.max)) {
-            const msg = std.fmt.comptimePrint(
+            @compileError(std.fmt.comptimePrint(
                 "tunable {s} has value {} outside of [{}, {}]",
                 .{ name, v, tunable.min, tunable.max },
-            );
-            @compileError(msg);
+            ));
         }
     }
-
+    tbl[fields.len] = .{ .name = "nnue_scale", .value = 255, .min = 100, .max = 650, .c_end = 8.0 };
     break :blk tbl;
 };
 

@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const engine = @import("engine");
 const options = @import("options");
+const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
@@ -14,16 +15,6 @@ const embedded align(page_size) =
         @embedFile("avx2.nnue").*
     else
         @embedFile("scalar.nnue").*;
-
-pub const verbatim = if (embedded.len == @sizeOf(Default))
-    std.mem.bytesAsValue(Default, embedded[0..])
-else {
-    const msg = std.fmt.comptimePrint(
-        "expected {} bytes, found {}",
-        .{ @sizeOf(Default), embedded.len },
-    );
-    @compileError(msg);
-};
 
 pub const Default = extern struct {
     l0w: [ibn][inp][l1s]i16,
@@ -185,9 +176,11 @@ pub const Default = extern struct {
             const hi: simd.Vec(i32) = .splat(1 << shift + q.bits());
             const nh = lo.sub(hi);
 
+            // TODO: retrain/requantize a net with (q << precision) l1b
             const bias: simd.Vec(i32).ConstSlice =
                 @alignCast(self.l1b[ob][k * simd.Vec(i32).len ..]);
-            const biased = sum.add(.load(bias));
+            const loaded_bias: simd.Vec(i32) = .load(bias);
+            const biased = sum.add(loaded_bias.shl(precision));
             const clamped = biased.clamp(nh, hi);
 
             first.* = biased.clamp(lo, hi).shr(shift - q.bits() - precision);
@@ -233,7 +226,7 @@ pub const Default = extern struct {
         }
 
         out.* = acc.reduce(.Add) + self.l3b[ob];
-        out.* = @divTrunc(out.* * scale, q.pow(4));
+        out.* = @divTrunc(out.* * params.values.nnue_scale, q.pow(4));
     }
 
     pub fn infer(
@@ -269,3 +262,12 @@ pub const Default = extern struct {
         return @intCast(out);
     }
 };
+
+pub const verbatim =
+    if (embedded.len == @sizeOf(Default))
+        std.mem.bytesAsValue(Default, embedded[0..])
+    else
+        @compileError(std.fmt.comptimePrint(
+            "expected {} bytes, found {}",
+            .{ @sizeOf(Default), embedded.len },
+        ));
