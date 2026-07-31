@@ -10,7 +10,6 @@ const uci = @import("uci.zig");
 const zobrist = @import("zobrist.zig");
 
 const BigAtomicInt = @Int(.unsigned, big_atomic_bits);
-
 const big_atomic_size = switch (builtin.cpu.arch) {
     .x86_64 => if (builtin.cpu.has(.x86, .cx16)) 16 else 8,
     .aarch64 => 8,

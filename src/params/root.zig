@@ -16,10 +16,7 @@ const Values = blk: {
     var attrs: [tunables.len]std.builtin.Type.StructField.Attributes = undefined;
     for (tunables[0..], names[0..], attrs[0..]) |*tunable, *name, *attr| {
         name.* = tunable.name[0..];
-        attr.* = .{
-            .@"comptime" = !tuning,
-            .default_value_ptr = &tunable.value,
-        };
+        attr.* = .{ .@"comptime" = !tuning, .default_value_ptr = &tunable.value };
     }
     break :blk @Struct(.auto, null, names[0..], Types[0..], attrs[0..]);
 };

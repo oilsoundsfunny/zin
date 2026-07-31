@@ -244,10 +244,9 @@ pub const Default = extern struct {
                 const m = std.math.mulWide(u8, 63 - n, 32 - n);
                 break :blk @min(m / 225, obn - 1);
             },
-            else => {
-                const msg = std.fmt.comptimePrint("unsupported no. output buckets {}", .{obn});
-                @compileError(msg);
-            },
+            else => @compileError(
+                std.fmt.comptimePrint("unsupported no. output buckets {}", .{obn}),
+            ),
         };
 
         var l1: [l1s]u8 align(page_size) = @splat(0);
@@ -263,11 +262,10 @@ pub const Default = extern struct {
     }
 };
 
-pub const verbatim =
-    if (embedded.len == @sizeOf(Default))
-        std.mem.bytesAsValue(Default, embedded[0..])
-    else
-        @compileError(std.fmt.comptimePrint(
-            "expected {} bytes, found {}",
-            .{ @sizeOf(Default), embedded.len },
-        ));
+pub const verbatim = if (embedded.len == @sizeOf(Default))
+    std.mem.bytesAsValue(Default, embedded[0..])
+else
+    @compileError(std.fmt.comptimePrint(
+        "expected {} bytes, found {}",
+        .{ @sizeOf(Default), embedded.len },
+    ));
