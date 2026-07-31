@@ -389,29 +389,24 @@ pub const Move = packed struct(u16) {
         return self == none;
     }
 
-    pub fn toString(self: Move, board: *const Board) [8]u8 {
+    pub fn toString(self: Move, board: *const Board, frc: bool) [8]u8 {
         var buf: [8]u8 = undefined;
-
         buf[0], buf[1] = .{ self.src.file().char(), self.src.rank().char() };
         buf[2], buf[3] = if (self.flag.isCastle()) castle: {
-            const frc = board.frc;
             const stm: types.Color = switch (self.src.rank()) {
                 .rank_1 => .white,
                 .rank_8 => .black,
                 else => std.debug.panic("invalid castle rank", .{}),
             };
-
             const right: types.Castle = switch (stm) {
                 .white => if (self.flag == .castle_q) .wq else .wk,
                 .black => if (self.flag == .castle_q) .bq else .bk,
             };
             const castle = board.positions.last().castles.getAssertContains(right);
-
             const s = if (frc) castle.rs else castle.kd;
             break :castle .{ s.file().char(), s.rank().char() };
         } else .{ self.dst.file().char(), self.dst.rank().char() };
         buf[4] = if (self.flag.promotion()) |pt| pt.char() else buf[4];
-
         return buf;
     }
 

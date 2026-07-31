@@ -4,7 +4,7 @@ const params = @import("params");
 const std = @import("std");
 const types = @import("types");
 
-test {
+test "zin.engine.movegen.sizeOf" {
     try std.testing.expectEqual(@sizeOf(u16), @sizeOf(engine.movegen.Move));
     try std.testing.expectEqual(@sizeOf(u16) * 256, @sizeOf(engine.movegen.Move.List));
 
@@ -12,7 +12,7 @@ test {
     try std.testing.expectEqual(@sizeOf(u16) * 256, @sizeOf(engine.movegen.Move.Root));
 }
 
-test {
+test "zin.engine.movegen.Picker" {
     try bitboard.init();
     defer bitboard.deinit();
 
@@ -26,7 +26,7 @@ test {
     const thread = try allocator.create(engine.Thread);
     defer allocator.destroy(thread);
 
-    thread.board = .{};
+    thread.board = .init;
     try thread.board.parseFen(engine.Board.Position.startpos);
 
     const seq = [_]engine.movegen.Move{
@@ -60,8 +60,8 @@ test {
         try map.put(m, true);
     }
 
-    var nmp = engine.movegen.Picker.init(thread, .{});
-    var qmp = engine.movegen.Picker.init(thread, .{});
+    var nmp = engine.movegen.Picker.init(thread, .none);
+    var qmp = engine.movegen.Picker.init(thread, .none);
 
     nmp.skipQuiets();
     if (nmp.next()) |_| {

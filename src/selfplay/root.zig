@@ -164,16 +164,17 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
 
     const data = options.data orelse std.process.fatal("missing arg '--data'", .{});
     const games = options.games orelse std.process.fatal("missing arg '--games'", .{});
+
     var book = try Book.init(pool.gpa, pool.stdio, options.book);
     defer book.deinit(pool.gpa);
 
     pool.io.deinit(pool.gpa, pool.stdio);
     pool.io = try .init(pool.gpa, pool.stdio, null, std.atomic.cache_line, data, 65536);
 
-    const hash = options.hash orelse 128;
     const threads = options.threads orelse 1;
-
     try pool.realloc(threads);
+
+    const hash = options.hash orelse 128;
     pool.tt.deinit(pool.gpa);
     pool.tt = try .init(pool.gpa, hash);
     pool.clearHash();
@@ -184,9 +185,9 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
         options.hard_nodes orelse pool.limits.soft_nodes.? * 50,
     };
     pool.limits.set(pool.opts.overhead, .white);
+    pool.opts.frc = true;
 
-    pool.setFRC(true);
-    pool.datagen(.{
+    try pool.datagen(.{
         .rng = .init(options.seed orelse 0x5555555555555555),
         .book = book,
         .games = games,
@@ -202,6 +203,5 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
             options.draw_adj_score orelse 25,
         ),
     });
-    pool.waitSleep();
     try pool.io.writer().flush();
 }

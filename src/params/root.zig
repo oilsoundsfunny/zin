@@ -262,7 +262,7 @@ pub fn init() !void {
 pub fn parseTunable(
     name: []const u8,
     aux: []const u8,
-    tokens: *std.mem.TokenIterator(u8, .scalar),
+    tokens: *std.mem.TokenIterator(u8, .any),
 ) engine.uci.Error!void {
     const tv = map.get(name) orelse return error.UnknownCommand;
     const tunable = tv.tunable;

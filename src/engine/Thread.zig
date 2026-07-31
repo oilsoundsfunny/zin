@@ -1,4 +1,4 @@
-const bounded_array = @import("bounded_array");
+const builtin = @import("builtin");
 const params = @import("params");
 const selfplay = @import("selfplay");
 const std = @import("std");
@@ -15,81 +15,95 @@ const Thread = @This();
 
 const Node = transposition.Entry.Flag;
 
-const Request = union(Tag) {
+const Job = union(Tag) {
     bench: void,
     clear_hash: void,
     datagen: selfplay.Request,
     go: void,
     quit: void,
+    reset: void,
     sleep: void,
 
-    const Tag = enum {
-        bench,
-        clear_hash,
-        datagen,
-        go,
-        quit,
-        sleep,
-    };
+    const Tag = enum { bench, clear_hash, datagen, go, quit, reset, sleep };
 };
 
+const cache_line = std.atomic.cache_line;
 const page_size = std.heap.page_size_max;
 
 pub const Depth = evaluation.score.Int;
 
 pub const Pool = struct {
     gpa: std.mem.Allocator,
-    stdio: std.Io,
+    handles: std.ArrayList(std.Thread),
     threads: std.ArrayList(Thread),
+
+    stdio: std.Io,
+    cond: std.Io.Condition,
+    mtx: std.Io.Mutex,
+    now: std.Io.Timestamp,
+
+    searching: bool align(cache_line),
+    sleeping: bool align(cache_line),
+    stopped: bool align(cache_line),
 
     pawn_corrhist: []align(page_size) hist.Corr.Pawn,
     minor_corrhist: []align(page_size) hist.Corr.Minor,
     major_corrhist: []align(page_size) hist.Corr.Major,
     nonpawn_corrhist: []align(page_size) hist.Corr.NonPawn,
 
-    searching: bool align(std.atomic.cache_line),
-    sleeping: bool align(std.atomic.cache_line),
-    stopped: bool align(std.atomic.cache_line),
+    limits: Limits align(cache_line),
+    opts: Options align(cache_line),
 
-    cond: std.Io.Condition align(std.atomic.cache_line),
-    mtx: std.Io.Mutex align(std.atomic.cache_line),
-
-    limits: Limits align(std.atomic.cache_line),
-    opts: Options align(std.atomic.cache_line),
-
-    now: std.Io.Timestamp,
     io: types.IO,
     tt: transposition.Table,
 
-    fn spawn(self: *Pool) !void {
-        const config: std.Thread.SpawnConfig = .{ .allocator = self.gpa };
+    fn wait(self: *Pool) void {
         for (self.threads.items) |*thread| {
-            thread.handle = try std.Thread.spawn(config, Thread.loop, .{thread});
+            thread.wait(self);
         }
     }
 
-    fn waitHelpers(self: *Pool) void {
-        if (self.threads.items.len > 1) {
-            for (self.threads.items[1..]) |*thread| {
-                thread.waitSleep();
-            }
+    fn wake(self: *Pool, job: Job) void {
+        for (self.threads.items) |*thread| {
+            thread.wake(self, job);
         }
     }
 
-    fn waitMain(self: *Pool) void {
-        self.threads.items[0].waitSleep();
-    }
+    pub fn create(gpa: std.mem.Allocator, stdio: std.Io) !*Pool {
+        const pool = try gpa.create(Pool);
+        pool.* = .{
+            .gpa = gpa,
+            .handles = try .initCapacity(gpa, 1),
+            .threads = try .initCapacity(gpa, 1),
 
-    fn wakeHelpers(self: *Pool, rq: Request) void {
-        if (self.threads.items.len > 1) {
-            for (self.threads.items[1..]) |*thread| {
-                thread.wake(rq);
-            }
-        }
-    }
+            .stdio = stdio,
+            .cond = .init,
+            .mtx = .init,
+            .now = .now(stdio, .real),
 
-    fn wakeMain(self: *Pool, rq: Request) void {
-        self.threads.items[0].wake(rq);
+            .searching = false,
+            .sleeping = false,
+            .stopped = true,
+
+            .pawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Pawn, 1),
+            .minor_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Minor, 1),
+            .major_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Major, 1),
+            .nonpawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.NonPawn, 1),
+
+            .limits = .init,
+            .opts = .init,
+
+            .io = try .init(gpa, stdio, null, 65536, null, 65536),
+            .tt = try .init(gpa, null),
+        };
+
+        _ = try pool.handles.addOneBounded();
+        _ = try pool.threads.addOneBounded();
+
+        try pool.spawn();
+        pool.reset();
+        pool.clearHash();
+        return pool;
     }
 
     pub fn destroy(self: *Pool) void {
@@ -107,125 +121,66 @@ pub const Pool = struct {
         self.gpa.destroy(self);
     }
 
-    pub fn create(gpa: std.mem.Allocator, stdio: std.Io) !*Pool {
-        const pool = try gpa.create(Pool);
+    pub fn spawn(self: *Pool) !void {
+        const config: std.Thread.SpawnConfig = .{ .allocator = self.gpa };
+        for (self.handles.items, self.threads.items) |*handle, *thread| {
+            thread.* = .init;
+            handle.* = try std.Thread.spawn(config, Thread.loop, .{ thread, self });
+        }
+    }
 
-        pool.* = .{
-            .gpa = gpa,
-            .stdio = stdio,
-            .threads = try .initCapacity(gpa, 1),
-
-            .pawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Pawn, 1),
-            .minor_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Minor, 1),
-            .major_corrhist = try hist.Corr.alloc(gpa, hist.Corr.Major, 1),
-            .nonpawn_corrhist = try hist.Corr.alloc(gpa, hist.Corr.NonPawn, 1),
-
-            .searching = false,
-            .sleeping = false,
-            .stopped = true,
-
-            .cond = .init,
-            .mtx = .init,
-
-            .limits = .init,
-            .opts = .init,
-
-            .now = .now(stdio, .real),
-            .io = try .init(gpa, stdio, null, 65536, null, 65536),
-            .tt = try .init(gpa, null),
-        };
-
-        _ = try pool.threads.addManyAsSliceBounded(1);
-        try pool.reset();
-        try pool.spawn();
-        pool.clearHash();
-
-        return pool;
+    pub fn stop(self: *Pool) void {
+        if (self.searching) {
+            self.stopped = true;
+            self.wait();
+        }
     }
 
     pub fn join(self: *Pool) void {
-        self.stopSearch();
-        for (self.threads.items) |*thread| {
-            thread.wake(.quit);
-            thread.handle.join();
+        self.stop();
+        self.wake(.quit);
+        for (self.handles.items) |*handle| {
+            handle.join();
         }
     }
 
     pub fn realloc(self: *Pool, num: usize) !void {
-        const board = try self.gpa.create(Board);
-        board.* = self.threads.items[0].board;
-        defer self.gpa.destroy(board);
-
         const prev_num = self.threads.items.len;
         if (prev_num == num) {
             return;
         }
 
-        self.stopSearch();
+        const cpu_count = std.Thread.getCpuCount() catch 1;
+        if (num > cpu_count) {
+            return error.ConcurrencyUnavailable;
+        }
+
         self.join();
 
-        if (prev_num < num) {
-            const add_n = num - prev_num;
-            _ = try self.threads.addManyAsSlice(self.gpa, add_n);
-        } else {
-            self.threads.items.len -= prev_num - num;
+        const board = try self.gpa.create(Board);
+        board.* = self.threads.items[0].board;
+        defer {
+            self.setBoard(board);
+            self.gpa.destroy(board);
         }
 
-        self.pawn_corrhist = try self.gpa.realloc(
-            self.pawn_corrhist,
-            hist.Corr.per_thread * num,
-        );
+        try self.handles.resize(self.gpa, num);
+        try self.threads.resize(self.gpa, num);
 
-        self.minor_corrhist = try self.gpa.realloc(
-            self.minor_corrhist,
-            hist.Corr.per_thread * num,
-        );
+        self.pawn_corrhist = try hist.Corr.realloc(self.gpa, self.pawn_corrhist, num);
+        self.minor_corrhist = try hist.Corr.realloc(self.gpa, self.minor_corrhist, num);
+        self.major_corrhist = try hist.Corr.realloc(self.gpa, self.major_corrhist, num);
+        self.nonpawn_corrhist = try hist.Corr.realloc(self.gpa, self.nonpawn_corrhist, num);
 
-        self.major_corrhist = try self.gpa.realloc(
-            self.major_corrhist,
-            hist.Corr.per_thread * num,
-        );
-
-        self.nonpawn_corrhist = try self.gpa.realloc(
-            self.nonpawn_corrhist,
-            hist.Corr.per_thread * num,
-        );
-
-        for (self.threads.items, 0..) |*thread, i| {
-            const handle = thread.handle;
-            thread.* = .init;
-            thread.board = board.*;
-            thread.pool = self;
-            thread.idx = i;
-            thread.cnt = num;
-            thread.handle = handle;
-        }
         try self.spawn();
-        self.clearHash();
     }
 
-    pub fn reset(self: *Pool) !void {
-        self.stopSearch();
-        self.sleeping = false;
-
+    pub fn reset(self: *Pool) void {
+        self.stop();
         self.limits = .init;
-        self.opts = .init;
         self.now = .now(self.stdio, .real);
-
-        for (self.threads.items, 0..) |*thread, i| {
-            const handle = thread.handle;
-            thread.* = .init;
-            thread.pool = self;
-            thread.idx = i;
-            thread.cnt = self.threads.items.len;
-            thread.handle = handle;
-        }
-
-        const board = try self.gpa.create(Board);
-        defer self.gpa.destroy(board);
-
-        try board.parseFen(Board.Position.startpos);
-        self.setBoard(board, false);
+        self.wake(.reset);
+        self.wait();
     }
 
     pub fn nodes(self: *const Pool) u64 {
@@ -236,73 +191,45 @@ pub const Pool = struct {
         return n;
     }
 
-    pub fn setFRC(self: *Pool, frc: bool) void {
-        self.opts.frc = frc;
-        for (self.threads.items) |*thread| {
-            thread.board.frc = frc;
-        }
-    }
-
-    pub fn setBoard(self: *Pool, board: *const Board, frc: bool) void {
-        defer self.setFRC(frc);
+    pub fn setBoard(self: *Pool, board: *const Board) void {
         for (self.threads.items) |*thread| {
             thread.board = board.*;
         }
     }
 
     pub fn bench(self: *Pool) u64 {
-        self.stopSearch();
-        self.tt.doAge();
-
-        self.stopped = false;
+        self.stop();
         self.searching = true;
-        self.wakeMain(.bench);
-        self.waitMain();
+        self.stopped = false;
+        self.wake(.bench);
+        self.wait();
         return self.nodes();
     }
 
     pub fn clearHash(self: *Pool) void {
-        self.stopSearch();
-        self.wakeMain(.clear_hash);
-        self.wakeHelpers(.clear_hash);
-        self.waitSleep();
+        self.stop();
+        self.wake(.clear_hash);
+        self.wait();
     }
 
-    pub fn datagen(self: *Pool, rq: selfplay.Request) void {
-        self.stopSearch();
-        self.tt.doAge();
+    pub fn datagen(self: *Pool, rq: selfplay.Request) !void {
+        self.stop();
         self.now = .now(self.stdio, .real);
-
-        self.stopped = false;
         self.searching = true;
-
-        self.wakeMain(.{ .datagen = rq });
-        self.wakeHelpers(.{ .datagen = rq });
-    }
-
-    pub fn search(self: *Pool) void {
-        self.stopSearch();
-        self.tt.doAge();
-
         self.stopped = false;
+        self.wake(.{ .datagen = rq });
+        self.wait();
+    }
+
+    pub fn search(self: *Pool) !void {
+        self.stop();
         self.searching = true;
-        self.wakeMain(.go);
-    }
-
-    pub fn stopSearch(self: *Pool) void {
-        if (self.searching) {
-            self.stopped = true;
-            self.waitMain();
-        }
-    }
-
-    pub fn waitSleep(self: *Pool) void {
-        self.waitMain();
-        self.waitHelpers();
+        self.stopped = false;
+        self.wake(.go);
     }
 
     pub fn elapsedNanosecs(self: *const Pool) u64 {
-        const now = std.Io.Clock.real.now(self.stdio);
+        const now: std.Io.Timestamp = .now(self.stdio, .real);
         return @intCast(self.now.durationTo(now).toNanoseconds());
     }
 };
@@ -451,13 +378,7 @@ pub const hist = struct {
     }
 };
 
-pool: *Pool,
-idx: usize,
-cnt: usize,
-
-handle: std.Thread,
-request: Request align(std.atomic.cache_line),
-
+job: Job,
 board: Board,
 
 nodes: u64,
@@ -474,13 +395,7 @@ noisyhist: hist.Noisy,
 conthist: hist.Cont,
 
 pub const init: Thread = .{
-    .pool = undefined,
-    .idx = 0,
-    .cnt = 0,
-
-    .handle = undefined,
-    .request = .sleep,
-
+    .job = .sleep,
     .board = .init,
 
     .nodes = 0,
@@ -496,6 +411,45 @@ pub const init: Thread = .{
     .noisyhist = @splat(@splat(@splat(@splat(0)))),
     .conthist = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
 };
+
+fn loop(self: *Thread, pool: *Pool) !void {
+    while (true) {
+        pool.mtx.lockUncancelable(pool.stdio);
+        while (self.job == .sleep) {
+            pool.cond.signal(pool.stdio);
+            pool.cond.waitUncancelable(pool.stdio, &pool.mtx);
+        }
+        pool.mtx.unlock(pool.stdio);
+
+        switch (self.job) {
+            .bench, .go => try self.search(pool),
+            .clear_hash => self.clearHash(pool),
+            .datagen => try self.datagen(pool),
+            .quit => return,
+            .reset => try self.reset(),
+            .sleep => {},
+        }
+        self.job = .sleep;
+    }
+}
+
+fn wait(self: *Thread, pool: *Pool) void {
+    pool.mtx.lockUncancelable(pool.stdio);
+    while (self.job != .sleep) {
+        pool.cond.waitUncancelable(pool.stdio, &pool.mtx);
+    }
+    pool.mtx.unlock(pool.stdio);
+    if (self == &pool.threads.items[0]) {
+        pool.searching = false;
+    }
+}
+
+fn wake(self: *Thread, pool: *Pool, job: Job) void {
+    pool.mtx.lockUncancelable(pool.stdio);
+    self.job = job;
+    pool.cond.signal(pool.stdio);
+    pool.mtx.unlock(pool.stdio);
+}
 
 fn quietHistPtr(
     self: anytype,
@@ -539,45 +493,46 @@ fn contHistPtr(
     return &self.conthist[ply / 2][stm][hist_p][hist_d][this_p][this_d];
 }
 
-fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score.Int {
+fn correctEval(
+    self: *const Thread,
+    pool: *const Pool,
+    eval: evaluation.score.Int,
+) evaluation.score.Int {
     const pos = self.board.positions.last();
     const stm = pos.stm;
 
     var correction: @TypeOf(eval) = evaluation.score.draw;
-    inline for (hist.Corr.values) |t| {
+    for (hist.Corr.values) |t| {
         correction += switch (t) {
             .nonpawn => blk: {
-                const len = hist.Corr.per_thread * self.pool.threads.items.len;
-                const keys = pos.nonpawn_keys;
+                const tbl = pool.nonpawn_corrhist;
+                const keys = &pos.nonpawn_keys;
 
-                const stm_i = zobrist.index(keys.getPtrConst(stm).*, len);
-                const stm_c = self.pool.nonpawn_corrhist[stm_i][stm.int()][stm.int()] *
-                    params.values.corr_nonpawn_stm_w;
+                const stm_i = zobrist.index(keys.getPtrConst(stm).*, tbl.len);
+                const stm_c = tbl[stm_i][stm.int()][stm.int()] * params.values.corr_nonpawn_stm_w;
 
                 const ntm = stm.flip();
-                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, len);
-                const ntm_c = self.pool.nonpawn_corrhist[ntm_i][stm.int()][ntm.int()] *
-                    params.values.corr_nonpawn_ntm_w;
+                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, tbl.len);
+                const ntm_c = tbl[ntm_i][stm.int()][ntm.int()] * params.values.corr_nonpawn_ntm_w;
 
                 break :blk stm_c + ntm_c;
             },
 
             else => blk: {
-                const key = switch (t) {
-                    .pawn => pos.pawn_key,
-                    .minor => pos.minor_key,
-                    .major => pos.major_key,
+                const key, const tbl, const w = switch (t) {
+                    .pawn => .{
+                        pos.pawn_key, pool.pawn_corrhist, params.values.corr_pawn_w,
+                    },
+                    .minor => .{
+                        pos.minor_key, pool.minor_corrhist, params.values.corr_minor_w,
+                    },
+                    .major => .{
+                        pos.major_key, pool.major_corrhist, params.values.corr_major_w,
+                    },
                     else => unreachable,
                 };
-                const len = hist.Corr.per_thread * self.pool.threads.items.len;
-                const idx = zobrist.index(key, len);
-
-                break :blk switch (t) {
-                    .pawn => params.values.corr_pawn_w * self.pool.pawn_corrhist[idx][stm.int()],
-                    .minor => params.values.corr_minor_w * self.pool.minor_corrhist[idx][stm.int()],
-                    .major => params.values.corr_major_w * self.pool.major_corrhist[idx][stm.int()],
-                    else => unreachable,
-                };
+                const idx = zobrist.index(key, tbl.len);
+                break :blk w * tbl[idx][stm.int()];
             },
         };
     }
@@ -590,6 +545,7 @@ fn correctEval(self: *const Thread, eval: evaluation.score.Int) evaluation.score
 
 fn updateCorrHists(
     self: *const Thread,
+    pool: *Pool,
     depth: Depth,
     diff: evaluation.score.Int,
 ) void {
@@ -599,52 +555,49 @@ fn updateCorrHists(
     const weight = @min(depth + 1, 16);
     const bonus = diff * weight;
 
-    inline for (hist.Corr.values) |t| {
+    for (hist.Corr.values) |t| {
         switch (t) {
             .nonpawn => {
-                const len = hist.Corr.per_thread * self.pool.threads.items.len;
+                const tbl = pool.nonpawn_corrhist[0..];
                 const keys = pos.nonpawn_keys;
 
-                const ntm = stm.flip();
-                const stm_i = zobrist.index(keys.getPtrConst(stm).*, len);
-                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, len);
-
+                const stm_i = zobrist.index(keys.getPtrConst(stm).*, tbl.len);
                 const stm_scaled = @divTrunc(bonus * params.values.corr_nonpawn_stm_w, 1024);
                 const stm_clamped = std.math.clamp(stm_scaled, -16000, 16000);
 
+                const ntm = stm.flip();
+                const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, tbl.len);
                 const ntm_scaled = @divTrunc(bonus * params.values.corr_nonpawn_ntm_w, 1024);
                 const ntm_clamped = std.math.clamp(ntm_scaled, -16000, 16000);
 
-                hist.gravity(&self.pool.nonpawn_corrhist[stm_i][stm.int()][stm.int()], stm_clamped);
-                hist.gravity(&self.pool.nonpawn_corrhist[ntm_i][stm.int()][ntm.int()], ntm_clamped);
+                hist.gravity(&tbl[stm_i][stm.int()][stm.int()], stm_clamped);
+                hist.gravity(&tbl[ntm_i][stm.int()][ntm.int()], ntm_clamped);
             },
 
             else => {
-                const w = switch (t) {
-                    .pawn => params.values.corr_pawn_update_w,
-                    .minor => params.values.corr_minor_update_w,
-                    .major => params.values.corr_major_update_w,
+                const w, const key, const tbl = switch (t) {
+                    .pawn => .{
+                        params.values.corr_pawn_update_w,
+                        pos.pawn_key,
+                        pool.pawn_corrhist,
+                    },
+                    .minor => .{
+                        params.values.corr_minor_update_w,
+                        pos.minor_key,
+                        pool.minor_corrhist,
+                    },
+                    .major => .{
+                        params.values.corr_major_update_w,
+                        pos.major_key,
+                        pool.major_corrhist,
+                    },
                     else => unreachable,
                 };
+                const idx = zobrist.index(key, tbl.len);
+
                 const scaled = @divTrunc(bonus * w, 1024);
                 const clamped = std.math.clamp(scaled, -16000, 16000);
-
-                const key = switch (t) {
-                    .pawn => pos.pawn_key,
-                    .minor => pos.minor_key,
-                    .major => pos.major_key,
-                    else => unreachable,
-                };
-                const len = hist.Corr.per_thread * self.pool.threads.items.len;
-                const idx = zobrist.index(key, len);
-
-                const p = switch (t) {
-                    .pawn => &self.pool.pawn_corrhist[idx][stm.int()],
-                    .minor => &self.pool.minor_corrhist[idx][stm.int()],
-                    .major => &self.pool.major_corrhist[idx][stm.int()],
-                    else => unreachable,
-                };
-                hist.gravity(p, clamped);
+                hist.gravity(&tbl[idx][stm.int()], clamped);
             },
         }
     }
@@ -689,32 +642,30 @@ fn updateHist(
 
 fn printInfo(
     self: *const Thread,
+    pool: *Pool,
     opt_pv: ?*const movegen.RootMove,
     depth: Depth,
     seldepth: Depth,
 ) !void {
-    const io = &self.pool.io;
-    const tt = &self.pool.tt;
+    try pool.io.lockWriter();
+    defer pool.io.unlockWriter();
 
-    self.pool.mtx.lockUncancelable(self.pool.stdio);
-    defer self.pool.mtx.unlock(self.pool.stdio);
-
-    const writer = io.writer();
+    const writer = pool.io.writer();
     const pv = opt_pv orelse {
         try writer.print("info depth 1 seldepth 1 nodes 1 time 1 nps 1000\n", .{});
         try writer.flush();
         return;
     };
 
-    const nodes = self.pool.nodes();
-    const ntime = self.pool.elapsedNanosecs();
+    const nodes = pool.nodes();
+    const ntime = pool.elapsedNanosecs();
     const mtime = ntime / std.time.ns_per_ms;
 
     try writer.print("info", .{});
     try writer.print(" depth {d}", .{depth});
     try writer.print(" seldepth {d}", .{seldepth});
 
-    try writer.print(" hashfull {d}", .{tt.hashfull()});
+    try writer.print(" hashfull {d}", .{pool.tt.hashfull()});
     try writer.print(" nodes {d}", .{nodes});
     try writer.print(" time {d}", .{mtime});
     try writer.print(" nps {d}", .{nodes * std.time.ns_per_s / ntime});
@@ -735,7 +686,7 @@ fn printInfo(
         try writer.print(" cp {d}", .{evaluation.score.normalize(pvs, mat)});
     }
 
-    if (self.pool.opts.show_wdl) {
+    if (pool.opts.show_wdl) {
         if (evaluation.score.isMated(pvs)) {
             try writer.print(" wdl 0 0 1000", .{});
         } else if (evaluation.score.isMate(pvs)) {
@@ -750,7 +701,7 @@ fn printInfo(
 
     try writer.print(" pv", .{});
     for (pv.constSlice()) |m| {
-        const s = m.toString(&self.board);
+        const s = m.toString(&self.board, pool.opts.frc);
         const l = m.toStringLen();
         try writer.print(" {s}", .{s[0..l]});
     }
@@ -759,43 +710,46 @@ fn printInfo(
     try writer.flush();
 }
 
-fn printBest(self: *const Thread, opt_pv: ?*const movegen.RootMove) !void {
-    self.pool.mtx.lockUncancelable(self.pool.stdio);
-    defer self.pool.mtx.unlock(self.pool.stdio);
+fn printBest(
+    self: *const Thread,
+    pool: *Pool,
+    opt_pv: ?*const movegen.RootMove,
+) !void {
+    try pool.io.lockWriter();
+    defer pool.io.unlockWriter();
 
+    const writer = pool.io.writer();
     const pv = opt_pv orelse {
-        try self.pool.io.writer().print("bestmove 0000\n", .{});
-        try self.pool.io.writer().flush();
+        try writer.print("bestmove 0000\n", .{});
+        try writer.flush();
         return;
     };
 
     const m = pv.constSlice()[0];
-    const s = m.toString(&self.board);
+    const s = m.toString(&self.board, pool.opts.frc);
     const l = m.toStringLen();
-    try self.pool.io.writer().print("bestmove {s}\n", .{s[0..l]});
-    try self.pool.io.writer().flush();
+    try writer.print("bestmove {s}\n", .{s[0..l]});
+    try writer.flush();
 }
 
-fn datagenStop(self: *Thread, comptime which: enum { hard, soft }) bool {
-    const limits = &self.pool.limits;
-    const nodes_lim = if (which == .hard) limits.hard_nodes else limits.soft_nodes;
-    return if (nodes_lim) |lim| self.nodes >= lim else false;
+fn datagenStop(self: *Thread, pool: *const Pool, comptime which: enum { hard, soft }) bool {
+    const opt_lim = if (which == .hard) pool.limits.hard_nodes else pool.limits.soft_nodes;
+    return if (opt_lim) |lim| self.nodes >= lim else false;
 }
 
-fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
-    const limits = &self.pool.limits;
-    if (limits.infinite) {
+fn searchStop(self: *Thread, pool: *const Pool, comptime which: enum { hard, soft }) bool {
+    if (pool.limits.infinite) {
         return false;
     }
 
     const nodes = self.nodes;
-    const nodes_lim = if (which == .hard) limits.hard_nodes else limits.soft_nodes;
+    const nodes_lim = if (which == .hard) pool.limits.hard_nodes else pool.limits.soft_nodes;
     if (nodes_lim != null and nodes >= nodes_lim.?) {
         return true;
     }
 
-    return nodes % 2048 == 0 and self.pool.elapsedNanosecs() >= blk: {
-        const mlim = limits.movetime orelse return false;
+    return nodes % 2048 == 0 and pool.elapsedNanosecs() >= blk: {
+        const mlim = pool.limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
 
         const mult: u64 = @intCast(params.values.nodetm_mult);
@@ -808,12 +762,12 @@ fn searchStop(self: *Thread, comptime which: enum { hard, soft }) bool {
     };
 }
 
-fn asp(self: *Thread) void {
+fn asp(self: *Thread, pool: *Pool) void {
     const pv = &self.root_moves.constSlice()[0];
     const pvs: evaluation.score.Int = @intCast(pv.score);
 
-    var s: @TypeOf(pvs) = evaluation.score.none;
-    var w: @TypeOf(pvs) = params.values.asp_window;
+    var s: evaluation.score.Int = evaluation.score.none;
+    var w: evaluation.score.Int = params.values.asp_window;
 
     const d = self.depth;
     var a: @TypeOf(pvs) = evaluation.score.mated;
@@ -824,14 +778,11 @@ fn asp(self: *Thread) void {
     }
 
     while (true) : ({
-        w = w + @divTrunc(w * params.values.asp_window_mult, 256);
+        w = @divTrunc(w * params.values.asp_window_mult, 256);
         w = std.math.clamp(w, evaluation.score.mated, evaluation.score.mate);
     }) {
-        s = self.ab(.exact, 0, a, b, d);
-
-        const datagen_stop = self.request == .datagen and self.datagenStop(.hard);
-        const go_stop = self.request != .datagen and self.pool.stopped;
-        if (datagen_stop or go_stop) {
+        s = self.ab(pool, .exact, 0, a, b, d);
+        if (self.job == .datagen and self.datagenStop(pool, .hard) or pool.stopped) {
             break;
         }
 
@@ -847,30 +798,31 @@ fn asp(self: *Thread) void {
 
 fn ab(
     self: *Thread,
+    pool: *Pool,
     node: Node,
     ply: usize,
     alpha: evaluation.score.Int,
     beta: evaluation.score.Int,
     depth: Depth,
 ) evaluation.score.Int {
+    if (depth <= 0) {
+        return self.qs(pool, ply, alpha, beta);
+    }
+
     const board = &self.board;
     const pos = board.positions.last();
 
     self.nodes += 1;
     pos.pv.line.resize(0) catch unreachable;
 
-    const is_datagen = self.request == .datagen;
-    if (is_datagen and self.datagenStop(.hard)) {
+    const is_datagen = self.job == .datagen;
+    if (is_datagen and self.datagenStop(pool, .hard) or pool.stopped) {
         return alpha;
     }
 
-    if (!is_datagen and self.pool.stopped) {
-        return alpha;
-    }
-
-    const is_main = self.idx == 0;
-    if (!is_datagen and is_main and self.searchStop(.hard)) {
-        self.pool.stopped = true;
+    const is_main = self == &pool.threads.items[0];
+    if (!is_datagen and is_main and self.searchStop(pool, .hard)) {
+        pool.stopped = true;
         return alpha;
     }
 
@@ -889,10 +841,6 @@ fn ab(
     b = @min(b, mate + 1);
     if (a >= b) {
         return a;
-    }
-
-    if (d <= 0) {
-        return self.qs(ply, a, b);
     }
 
     const is_pv = node == .exact;
@@ -914,12 +862,8 @@ fn ab(
     const is_checked = pos.isChecked();
     const is_singular = !pos.excluded.isNone();
 
-    const tt = self.pool.tt;
     const tte: transposition.Entry, const tth =
-        if (!is_singular)
-            tt.read(key)
-        else
-            .{ .none, false };
+        if (!is_singular) pool.tt.read(key) else .{ .none, false };
 
     const was_pv = tth and tte.was_pv;
     const ttscore = evaluation.score.fromTT(tte.score, ply);
@@ -945,7 +889,7 @@ fn ab(
         const corr_eval = if (is_ttscore_correct) ttscore else if (is_checked)
             evaluation.score.none
         else
-            self.correctEval(stat_eval);
+            self.correctEval(pool, stat_eval);
 
         pos.stat_eval = stat_eval;
         pos.corr_eval = corr_eval;
@@ -984,7 +928,6 @@ fn ab(
     }
 
     // reverse futility pruning (rfp)
-    // TODO: remove min margin
     if (!is_pv and
         !is_singular and
         !is_checked and
@@ -1036,28 +979,23 @@ fn ab(
         };
         const r = @divTrunc(base_r + depth_r + deval_r + improving_r, 256);
 
-        var s = null_search: {
+        const s = null_search: {
             board.doNull();
             defer board.undoNull();
-
-            break :null_search -self.ab(node.flip(), ply + 1, -b, 1 - b, d - r);
+            break :null_search -self.ab(pool, node.flip(), ply + 1, -b, 1 - b, d - r);
         };
+        if (s < b) {
+            break :nmp;
+        }
 
-        if (s >= b) {
-            if (evaluation.score.isMate(s)) {
-                s = b;
-            }
-
-            const verified = d < 16 or verif_search: {
-                self.nmp_verif = true;
-                defer self.nmp_verif = false;
-
-                const vs = self.ab(.upperbound, ply + 1, b - 1, b, d - r);
-                break :verif_search vs >= b;
-            };
-            if (verified) {
-                return s;
-            }
+        const verified = d < 16 or verif_search: {
+            self.nmp_verif = true;
+            defer self.nmp_verif = false;
+            const vs = self.ab(pool, .upperbound, ply + 1, b - 1, b, d - r);
+            break :verif_search vs >= b;
+        };
+        if (verified) {
+            return if (evaluation.score.isMate(s)) b else s;
         }
     }
 
@@ -1068,7 +1006,7 @@ fn ab(
         d <= 7 and
         corr_eval + params.values.razoring_mult * d <= a)
     {
-        const rs = self.qs(ply + 1, a, b);
+        const rs = self.qs(pool, ply + 1, a, b);
         if (rs <= a) {
             return rs;
         }
@@ -1090,7 +1028,7 @@ fn ab(
         const is_ttm = m == mp.ttm;
         const is_legal = is_ttm or check: {
             const next_pos = pos.tryMove(m) catch break :check false;
-            tt.prefetch(next_pos.key);
+            pool.tt.prefetch(next_pos.key);
             break :check true;
         };
         if (!is_legal) {
@@ -1209,7 +1147,7 @@ fn ab(
 
             const sb = @max(raw_sb, evaluation.score.loss + 1);
             const sd = @divTrunc(raw_sd, 1024);
-            const se_score = self.ab(node, ply, sb - 1, sb, sd);
+            const se_score = self.ab(pool, node, ply, sb - 1, sb, sd);
 
             if (se_score < sb) {
                 const margins: [2]evaluation.score.Int = if (is_noisy) .{
@@ -1254,7 +1192,7 @@ fn ab(
             var score: @TypeOf(a, b) = evaluation.score.none;
 
             if (is_pv and searched == 0) {
-                score = -self.ab(.exact, ply + 1, -b, -a, recur_d);
+                score = -self.ab(pool, .exact, ply + 1, -b, -a, recur_d);
                 break :recur score;
             }
 
@@ -1287,7 +1225,7 @@ fn ab(
 
                 r = @divTrunc(r, 1024);
                 const rd = std.math.clamp(recur_d - r, 1, recur_d);
-                var rs = -self.ab(.lowerbound, ply + 1, -a - 1, -a, rd);
+                var rs = -self.ab(pool, .lowerbound, ply + 1, -a - 1, -a, rd);
 
                 if (rs > a and rd < recur_d) {
                     const deeper_margins: [2]evaluation.score.Int = .{
@@ -1304,25 +1242,21 @@ fn ab(
                         params.values.shallower_margin_bias;
                     recur_d -= @intFromBool(rs < best.score + @divTrunc(shallower_margin, 1024));
 
-                    rs = -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
+                    rs = -self.ab(pool, node.flip(), ply + 1, -a - 1, -a, recur_d);
                 }
 
                 break :reduced rs;
-            } else -self.ab(node.flip(), ply + 1, -a - 1, -a, recur_d);
+            } else -self.ab(pool, node.flip(), ply + 1, -a - 1, -a, recur_d);
 
-            score = if (is_pv and score > a) -self.ab(.exact, ply + 1, -b, -a, recur_d) else score;
-
+            if (is_pv and score > a) {
+                score = -self.ab(pool, .exact, ply + 1, -b, -a, recur_d);
+            }
             break :recur score;
         };
 
-        const datagen_stop = is_datagen and self.datagenStop(.hard);
-        const go_stop = !is_datagen and self.pool.stopped;
-        if (datagen_stop or go_stop) {
+        if (is_datagen and self.datagenStop(pool, .hard) or pool.stopped) {
             return a;
         }
-
-        std.debug.assert(best.score <= a);
-        std.debug.assert(a < b);
 
         const next_pv = &pos.after(1).pv;
         if (is_root) {
@@ -1376,10 +1310,10 @@ fn ab(
     }
 
     if (!is_singular) {
-        tt.write(key, .{
+        pool.tt.write(key, .{
             .was_pv = was_pv or flag == .exact,
             .flag = flag,
-            .age = @truncate(tt.age),
+            .age = @truncate(pool.tt.age),
             .depth = @intCast(depth),
             .eval = @intCast(stat_eval),
             .score = @intCast(evaluation.score.toTT(best.score, ply)),
@@ -1393,7 +1327,7 @@ fn ab(
         !(flag == .upperbound and best.score > corr_eval) and
         !(flag == .lowerbound and best.score < corr_eval))
     {
-        self.updateCorrHists(depth, best.score - corr_eval);
+        self.updateCorrHists(pool, depth, best.score - corr_eval);
     }
 
     return best.score;
@@ -1401,6 +1335,7 @@ fn ab(
 
 fn qs(
     self: *Thread,
+    pool: *Pool,
     ply: usize,
     alpha: evaluation.score.Int,
     beta: evaluation.score.Int,
@@ -1411,18 +1346,14 @@ fn qs(
     self.nodes += 1;
     pos.pv.line.resize(0) catch unreachable;
 
-    const is_datagen = self.request == .datagen;
-    if (is_datagen and self.datagenStop(.hard)) {
+    const is_datagen = self.job == .datagen;
+    if (is_datagen and self.datagenStop(pool, .hard) or pool.stopped) {
         return alpha;
     }
 
-    if (!is_datagen and self.pool.stopped) {
-        return alpha;
-    }
-
-    const is_main = self.idx == 0;
-    if (!is_datagen and is_main and self.searchStop(.hard)) {
-        self.pool.stopped = true;
+    const is_main = self == &pool.threads.items[0];
+    if (!is_datagen and is_main and self.searchStop(pool, .hard)) {
+        pool.stopped = true;
         return alpha;
     }
 
@@ -1442,8 +1373,7 @@ fn qs(
     const key = pos.key;
     const is_checked = pos.isChecked();
 
-    const tt = self.pool.tt;
-    const tte, const tth = tt.read(key);
+    const tte, const tth = pool.tt.read(key);
     const ttscore = evaluation.score.fromTT(tte.score, ply);
 
     if (tth and tte.shouldTrust(a, b, 0)) {
@@ -1466,7 +1396,7 @@ fn qs(
     const corr_eval = if (is_ttscore_correct) ttscore else if (is_checked)
         evaluation.score.none
     else
-        self.correctEval(stat_eval);
+        self.correctEval(pool, stat_eval);
 
     pos.stat_eval = stat_eval;
     pos.corr_eval = corr_eval;
@@ -1494,7 +1424,7 @@ fn qs(
 
         const is_legal = is_ttm or check: {
             const next_pos = pos.tryMove(m) catch break :check false;
-            tt.prefetch(next_pos.key);
+            pool.tt.prefetch(next_pos.key);
             break :check true;
         };
         if (!is_legal) {
@@ -1529,12 +1459,10 @@ fn qs(
             defer mp.skipQuiets();
             defer searched += 1;
 
-            break :recur -self.qs(ply + 1, -b, -a);
+            break :recur -self.qs(pool, ply + 1, -b, -a);
         };
 
-        const datagen_stop = is_datagen and self.datagenStop(.hard);
-        const go_stop = !is_datagen and self.pool.stopped;
-        if (datagen_stop or go_stop) {
+        if (is_datagen and self.datagenStop(pool, .hard) or pool.stopped) {
             return a;
         }
 
@@ -1557,10 +1485,10 @@ fn qs(
         return loss;
     }
 
-    tt.write(key, .{
+    pool.tt.write(key, .{
         .was_pv = tte.was_pv,
         .flag = flag,
-        .age = @truncate(tt.age),
+        .age = @truncate(pool.tt.age),
         .depth = 0,
         .eval = @intCast(stat_eval),
         .score = @intCast(evaluation.score.toTT(best.score, ply)),
@@ -1570,82 +1498,13 @@ fn qs(
     return best.score;
 }
 
-fn loop(self: *Thread) !void {
-    const io = self.pool.stdio;
-    const cond = &self.pool.cond;
-    const mtx = &self.pool.mtx;
+fn clearHash(self: *Thread, pool: *const Pool) void {
+    const tt = pool.tt.clusters;
+    const i = self - &pool.threads.items[0];
+    const n = pool.threads.items.len;
 
-    idle: while (true) {
-        mtx.lockUncancelable(io);
-        while (self.request == .sleep) {
-            cond.signal(io);
-            cond.waitUncancelable(io, mtx);
-        }
-        mtx.unlock(io);
-
-        defer self.request = .sleep;
-        switch (self.request) {
-            .bench, .go => try self.search(),
-            .clear_hash => self.clearHash(),
-            .datagen => try self.datagen(),
-            .quit => break :idle,
-            .sleep => continue :idle,
-        }
-    }
-}
-
-fn waitBool(self: *Thread, sleep_cond: *bool) void {
-    const io = self.pool.stdio;
-    const cond = &self.pool.cond;
-    const mtx = &self.pool.mtx;
-
-    mtx.lockUncancelable(io);
-    defer mtx.unlock(io);
-    while (!sleep_cond.*) {
-        cond.waitUncancelable(io, mtx);
-    }
-}
-
-fn waitSleep(self: *Thread) void {
-    const io = self.pool.stdio;
-    const cond = &self.pool.cond;
-    const mtx = &self.pool.mtx;
-
-    mtx.lockUncancelable(io);
-    while (self.request != .sleep) {
-        cond.signal(io);
-        cond.waitUncancelable(io, mtx);
-    }
-    mtx.unlock(io);
-
-    if (self.idx == 0) {
-        self.pool.searching = false;
-    }
-}
-
-fn wake(self: *Thread, request: Request) void {
-    const io = self.pool.stdio;
-    const cond = &self.pool.cond;
-    const mtx = &self.pool.mtx;
-
-    mtx.lockUncancelable(io);
-    defer mtx.unlock(io);
-    self.request = request;
-    cond.signal(io);
-}
-
-fn clearHash(self: *Thread) void {
-    const tt = self.pool.tt.clusters;
-    const i = self.idx;
-    const n = self.cnt;
-    const d = tt.len / n;
-    const m = tt.len % n;
+    const d, const m = if (tt.len != 0) .{ tt.len / n, tt.len % n } else return;
     var p = tt.ptr;
-
-    if (d == 0 and m == 0) {
-        return;
-    }
-
     for (0..i) |it| {
         p += if (it < m) d + 1 else d;
     }
@@ -1655,49 +1514,55 @@ fn clearHash(self: *Thread) void {
         c.* = .none;
     }
 
-    self.pool.pawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+    pool.pawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
         @splat(@splat(0));
-    self.pool.minor_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+    pool.minor_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
         @splat(@splat(0));
-    self.pool.major_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+    pool.major_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
         @splat(@splat(0));
-    self.pool.nonpawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+    pool.nonpawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
         @splat(@splat(@splat(0)));
 }
 
-fn datagen(self: *Thread) !void {
-    return selfplay.threaded.datagen(self);
+fn datagen(self: *Thread, pool: *Pool) !void {
+    try selfplay.threaded.run(self, pool);
 }
 
-pub fn search(self: *Thread) !void {
+fn reset(self: *Thread) !void {
+    self.* = .init;
+    try self.board.parseFen(Board.Position.startpos);
+}
+
+pub fn search(self: *Thread, pool: *Pool) !void {
     self.nodes = 0;
     self.tbhits = 0;
     self.tthits = 0;
     self.root_moves = movegen.RootMove.List.init(&self.board);
 
-    const pool = self.pool;
-    const rq = self.request;
+    const job = self.job;
+    const is_main = self == &pool.threads.items[0];
+    const is_datagen, const is_go = switch (job) {
+        .datagen => .{ true, false },
+        .go => .{ false, true },
+        else => .{ false, false },
+    };
+    defer if (is_datagen or is_main) {
+        pool.tt.doAge();
+    };
 
-    const is_main = self.idx == 0;
-    const is_threaded = self.cnt > 1;
-
-    const is_datagen = rq == .datagen;
-    const is_go = rq == .go;
     const should_print = is_go and is_main;
+    defer if (should_print) {
+        pool.stopped = true;
+        pool.searching = false;
+    };
 
-    // TODO: might(?) shit itself if self.board overflows
-    if (self.root_moves.constSlice().len == 0) {
+    const root_moves = self.root_moves.slice();
+    if (root_moves.len == 0) {
         if (should_print) {
-            try self.printInfo(null, 0, 0);
-            try self.printBest(null);
+            try self.printInfo(pool, null, 0, 0);
+            try self.printBest(pool, null);
         }
         return;
-    }
-
-    if (is_go and is_main and is_threaded) {
-        for (pool.threads.items[1..]) |*thread| {
-            thread.wake(.go);
-        }
     }
 
     const max_depth = pool.limits.depth orelse movegen.RootMove.capacity;
@@ -1706,43 +1571,36 @@ pub fn search(self: *Thread) !void {
     var depth: Depth = min_depth;
     var last_depth: Depth = 0;
     var last_seldepth: Depth = 0;
+    var last_pv: movegen.RootMove = root_moves[0];
 
     while (depth <= max_depth) : (depth += 1) {
         self.depth = depth;
         self.seldepth = 0;
-        self.asp();
+        self.asp(pool);
 
-        if (is_go and self.pool.stopped) {
+        if (pool.stopped) {
             break;
         }
 
-        movegen.RootMove.sortSlice(self.root_moves.slice());
+        movegen.RootMove.sortSlice(root_moves);
         last_depth = self.depth;
         last_seldepth = self.seldepth;
+        last_pv = root_moves[0];
         if (should_print and !pool.opts.minimal) {
-            try self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth);
+            try self.printInfo(pool, &last_pv, last_depth, last_seldepth);
         }
 
-        const datagen_soft_stopped = is_datagen and self.datagenStop(.soft);
-        const go_soft_stopped = is_go and self.searchStop(.soft);
-        if (datagen_soft_stopped or go_soft_stopped) {
+        if (is_datagen and self.datagenStop(pool, .soft) or
+            is_go and self.searchStop(pool, .soft))
+        {
             break;
         }
     }
 
-    if (!should_print) {
-        return;
+    if (should_print) {
+        try self.printInfo(pool, &last_pv, last_depth, last_seldepth);
+        try self.printBest(pool, &last_pv);
     }
-
-    pool.stopped = true;
-    if (is_threaded) {
-        for (pool.threads.items[1..]) |*thread| {
-            thread.waitSleep();
-        }
-    }
-
-    try self.printInfo(&self.root_moves.constSlice()[0], last_depth, last_seldepth);
-    try self.printBest(&self.root_moves.constSlice()[0]);
 }
 
 pub fn getQuietHist(self: *const Thread, move: movegen.Move) hist.Int {

@@ -31,7 +31,8 @@ pub fn init(gpa: std.mem.Allocator, io: std.Io, opt_path: ?[]const u8) !Book {
     const reader = &file_r.interface;
 
     while (reader.takeDelimiterInclusive('\n')) |line| {
-        const duped = try gpa.dupe(u8, line);
+        const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+        const duped = try gpa.dupe(u8, trimmed);
         try list.append(gpa, duped);
     } else |_| {}
 

@@ -252,11 +252,15 @@ pub const Table = struct {
     }
 
     pub fn doAge(self: *Table) void {
-        self.age +%= 1;
+        const Age = @TypeOf(self.age);
+        var old = @atomicLoad(Age, &self.age, .monotonic);
+        while (true) {
+            old = @cmpxchgWeak(Age, &self.age, old, old +% 1, .monotonic, .monotonic) orelse break;
+        }
     }
 
     pub fn resetAge(self: *Table) void {
-        self.age = 0;
+        @atomicStore(@TypeOf(self.age), &self.age, 0, .monotonic);
     }
 
     pub fn read(self: *const Table, pos_hash: zobrist.Int) struct { Entry, bool } {

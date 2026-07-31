@@ -10,7 +10,7 @@ const Options = struct {
 
 fn parseArgs(args: []const u8) !Options {
     var opts: Options = undefined;
-    var tokens = std.mem.tokenizeScalar(u8, args, ' ');
+    var tokens = std.mem.tokenizeAny(u8, args, &std.ascii.whitespace);
 
     const first = tokens.next() orelse std.process.fatal("missing arg '{s}'", .{"genfens"});
     opts.num = if (std.mem.eql(u8, first, "genfens"))
@@ -32,7 +32,7 @@ fn parseArgs(args: []const u8) !Options {
     opts.book = if (std.mem.eql(u8, book, "None")) null else book;
 
     return if (tokens.peek()) |extra| {
-        // TODO: find out tf age meant by <?extra>
+        // TODO: support extra args e.g. (re-)search depth
         std.process.fatal("extranous arg '{s}'", .{extra});
     } else opts;
 }
@@ -49,14 +49,13 @@ fn playRandom(board: *engine.Board, rng: *std.Random.Xoroshiro128, random_moves:
     }) {
         var ply: usize = 0;
         while (ply < random_moves) : (ply += 1) {
-            const rms = engine.movegen.RootMove.List.init(board);
-            const rmn = rms.constSlice().len;
-            if (rmn == 0) {
+            const root_moves: engine.movegen.RootMove.List = .init(board);
+            const rms = root_moves.constSlice();
+            const i = if (rms.len > 0)
+                rng.random().uintLessThan(usize, rms.len)
+            else
                 continue :find_line;
-            }
-
-            const i = rng.random().uintLessThan(usize, rmn);
-            const m = rms.constSlice()[i].constSlice()[0];
+            const m = rms[i].constSlice()[0];
             board.doMove(m);
         } else {
             const mat = board.positions.last().material();
@@ -76,7 +75,7 @@ pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
     var book: selfplay.Book = try .init(pool.gpa, pool.stdio, opts.book);
     defer book.deinit(pool.gpa);
 
-    pool.setFRC(true);
+    pool.opts.frc = true;
     const board = try pool.gpa.create(engine.Board);
     defer pool.gpa.destroy(board);
 
