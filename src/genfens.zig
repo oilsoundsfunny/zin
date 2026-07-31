@@ -75,7 +75,7 @@ pub fn run(pool: *engine.Thread.Pool, args: []const u8) !void {
     var book: selfplay.Book = try .init(pool.gpa, pool.stdio, opts.book);
     defer book.deinit(pool.gpa);
 
-    pool.setFRC(true);
+    pool.opts.frc = true;
     const board = try pool.gpa.create(engine.Board);
     defer pool.gpa.destroy(board);
 

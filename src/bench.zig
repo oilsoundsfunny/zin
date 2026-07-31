@@ -29,6 +29,7 @@ const fens: [20][]const u8 = .{
 pub fn run(pool: *engine.Thread.Pool, depth: ?engine.Thread.Depth) !void {
     pool.limits.depth = depth orelse 12;
     pool.limits.infinite = false;
+    pool.opts.frc = true;
 
     const board = try pool.gpa.create(engine.Board);
     defer pool.gpa.destroy(board);
@@ -36,7 +37,7 @@ pub fn run(pool: *engine.Thread.Pool, depth: ?engine.Thread.Depth) !void {
     var sum: u64 = 0;
     for (fens) |fen| {
         try board.parseFen(fen);
-        pool.setBoard(board, true);
+        pool.setBoard(board);
         sum += pool.bench();
     }
 

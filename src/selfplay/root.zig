@@ -173,7 +173,6 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
 
     const threads = options.threads orelse 1;
     try pool.realloc(threads);
-    pool.setFRC(true);
 
     const hash = options.hash orelse 128;
     pool.tt.deinit(pool.gpa);
@@ -186,6 +185,7 @@ pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
         options.hard_nodes orelse pool.limits.soft_nodes.? * 50,
     };
     pool.limits.set(pool.opts.overhead, .white);
+    pool.opts.frc = true;
 
     try pool.datagen(.{
         .rng = .init(options.seed orelse 0x5555555555555555),

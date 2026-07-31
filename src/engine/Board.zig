@@ -13,7 +13,6 @@ const zobrist = @import("zobrist.zig");
 
 const Board = @This();
 
-frc: bool,
 finny_table: nnue.FinnyTable,
 perspectives: types.BoundedArray(nnue.Accumulator.Perspective, null, 1024),
 positions: types.BoundedArray(Position, null, 1024),
@@ -915,7 +914,6 @@ pub const Position = struct {
 };
 
 pub const init: Board = .{
-    .frc = false,
     .finny_table = .init,
     .perspectives = .{ .buffer = @splat(.init), .len = 1 },
     .positions = .{ .buffer = @splat(.init), .len = 1 },
@@ -1014,8 +1012,6 @@ pub fn printSelf(self: *Board, buffer: []u8) ![]const u8 {
     var fen_buf: [128]u8 align(std.atomic.cache_line) = undefined;
     const fen = try self.printFen(fen_buf[0..]);
     try list.printBounded("fen: {s}\n", .{fen});
-
-    try list.printBounded("frc: {s}\n", .{if (self.frc) "true" else "false"});
     try list.printBounded("key: {x:016}\n", .{pos.key});
 
     const mat = pos.material();

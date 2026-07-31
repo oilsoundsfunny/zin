@@ -158,8 +158,11 @@ pub const Pool = struct {
         self.join();
 
         const board = try self.gpa.create(Board);
-        defer self.gpa.destroy(board);
         board.* = self.threads.items[0].board;
+        defer {
+            self.setBoard(board);
+            self.gpa.destroy(board);
+        }
 
         try self.handles.resize(self.gpa, num);
         try self.threads.resize(self.gpa, num);
@@ -170,7 +173,6 @@ pub const Pool = struct {
         self.nonpawn_corrhist = try hist.Corr.realloc(self.gpa, self.nonpawn_corrhist, num);
 
         try self.spawn();
-        self.setBoard(board, self.opts.frc);
     }
 
     pub fn reset(self: *Pool) void {
@@ -189,17 +191,9 @@ pub const Pool = struct {
         return n;
     }
 
-    pub fn setBoard(self: *Pool, board: *const Board, frc: bool) void {
-        defer self.setFRC(frc);
+    pub fn setBoard(self: *Pool, board: *const Board) void {
         for (self.threads.items) |*thread| {
             thread.board = board.*;
-        }
-    }
-
-    pub fn setFRC(self: *Pool, frc: bool) void {
-        self.opts.frc = frc;
-        for (self.threads.items) |*thread| {
-            thread.board.frc = frc;
         }
     }
 
@@ -432,7 +426,7 @@ fn loop(self: *Thread, pool: *Pool) !void {
             .clear_hash => self.clearHash(pool),
             .datagen => try self.datagen(pool),
             .quit => return,
-            .reset => try self.reset(pool),
+            .reset => try self.reset(),
             .sleep => {},
         }
         self.job = .sleep;
@@ -707,7 +701,7 @@ fn printInfo(
 
     try writer.print(" pv", .{});
     for (pv.constSlice()) |m| {
-        const s = m.toString(&self.board);
+        const s = m.toString(&self.board, pool.opts.frc);
         const l = m.toStringLen();
         try writer.print(" {s}", .{s[0..l]});
     }
@@ -732,7 +726,7 @@ fn printBest(
     };
 
     const m = pv.constSlice()[0];
-    const s = m.toString(&self.board);
+    const s = m.toString(&self.board, pool.opts.frc);
     const l = m.toStringLen();
     try writer.print("bestmove {s}\n", .{s[0..l]});
     try writer.flush();
@@ -1534,10 +1528,9 @@ fn datagen(self: *Thread, pool: *Pool) !void {
     try selfplay.threaded.run(self, pool);
 }
 
-fn reset(self: *Thread, pool: *Pool) !void {
+fn reset(self: *Thread) !void {
     self.* = .init;
     try self.board.parseFen(Board.Position.startpos);
-    self.board.frc = pool.opts.frc;
 }
 
 pub fn search(self: *Thread, pool: *Pool) !void {

@@ -150,11 +150,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
         else
             return error.UnknownCommand;
 
-        if (tokens.peek()) |_| {
-            return error.UnknownCommand;
-        }
-
-        pool.setFRC(frc);
+        pool.opts.frc = if (tokens.peek()) |_| return error.UnknownCommand else frc;
     } else if (std.ascii.eqlIgnoreCase(name, "UCI_Minimal")) {
         if (!std.mem.eql(u8, aux, "value")) {
             return error.UnknownCommand;
@@ -217,11 +213,10 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
 }
 
 fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Command {
-    const frc = pool.threads.items[0].board.frc;
     const board = try pool.gpa.create(Board);
     defer pool.gpa.destroy(board);
 
-    defer pool.setBoard(board, frc);
+    defer pool.setBoard(board);
     errdefer board.* = pool.threads.items[0].board;
 
     const first = tokens.next() orelse return error.UnknownCommand;
@@ -238,7 +233,6 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !
         return error.UnknownCommand;
     }
 
-    board.frc = frc;
     while (tokens.next()) |token| {
         const pos = board.positions.last();
         var list: movegen.Move.List = .init;
@@ -246,7 +240,7 @@ fn parsePosition(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !
         _ = list.genNoisy(pos);
         _ = list.genQuiet(pos);
         for (list.constSlice()) |m| {
-            const s = m.toString(board);
+            const s = m.toString(board, pool.opts.frc);
             const l = m.toStringLen();
             if (!std.mem.eql(u8, token, s[0..l])) {
                 continue;
