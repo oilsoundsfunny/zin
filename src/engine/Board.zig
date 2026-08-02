@@ -787,8 +787,8 @@ pub const Position = struct {
 
             .torped => sp.ptype() == .pawn and push2.get(d),
 
-            .castle_q, .castle_k => |f| castle: {
-                const right = f.castle(stm) orelse unreachable;
+            .castle_q, .castle_k => castle: {
+                const right = move.castle(stm) orelse unreachable;
                 const castle = self.castles.get(right) orelse break :castle false;
 
                 const is_checked = self.isChecked();
@@ -835,14 +835,14 @@ pub const Position = struct {
         const dp = pos.getSq(d);
 
         switch (move.flag) {
-            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => {
+                const add_p = types.Piece.init(move.promotion() orelse sp.ptype(), stm);
                 pos.popSq(s, sp);
                 pos.setSq(d, add_p);
             },
 
-            .castle_q, .castle_k => |f| {
-                const right = f.castle(stm) orelse unreachable;
+            .castle_q, .castle_k => {
+                const right = move.castle(stm) orelse unreachable;
                 const castle = pos.castles.getAssertContains(right);
 
                 const rook = types.Piece.init(.rook, stm);
@@ -856,7 +856,7 @@ pub const Position = struct {
             },
 
             else => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+                const add_p = types.Piece.init(move.promotion() orelse sp.ptype(), stm);
                 const del_p, const del_s = if (f == .en_passant)
                     .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
                 else
@@ -879,7 +879,7 @@ pub const Position = struct {
         }
 
         pos.excluded = .none;
-        pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
+        pos.rule50 = if (sp.ptype() != .pawn and !move.isNoisy()) pos.rule50 + 1 else 0;
         pos.stm = stm.flip();
         pos.key ^= zobrist.stm();
 
