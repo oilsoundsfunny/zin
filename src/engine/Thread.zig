@@ -751,13 +751,11 @@ fn searchStop(self: *Thread, pool: *const Pool, comptime which: enum { hard, sof
     return nodes % 2048 == 0 and pool.elapsedNanosecs() >= blk: {
         const mlim = pool.limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
-
         const mult: u64 = @intCast(params.values.nodetm_mult);
         const bias: u64 = @intCast(params.values.nodetm_bias);
         const n = self.root_moves.constSlice()[0].nodes;
         const d = @max(self.nodes, 1);
-        const nodetm = mult * (bias - n * 1024 / d);
-
+        const nodetm = bias - mult * n / d;
         break :blk if (which == .hard) nlim else std.math.shr(u64, nlim * nodetm, 20);
     };
 }
