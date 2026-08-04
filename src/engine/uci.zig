@@ -207,7 +207,7 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
         options.soft_nodes = soft_nodes;
     } else if (!params.tuning) {
         return error.UnknownCommand;
-    } else params.parseTunable(name, aux, tokens) catch |err| return err;
+    } else params.parseTunable(name, aux, tokens) catch return error.UnknownCommand;
 
     return .setoption;
 }
