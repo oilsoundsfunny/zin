@@ -834,7 +834,6 @@ fn ab(
     const draw = mated + mate;
     const loss = mated;
 
-    // mate dist pruning
     a = @max(a, mated);
     b = @min(b, mate + 1);
     if (a >= b) {
@@ -896,28 +895,20 @@ fn ab(
     const stat_eval = pos.stat_eval;
     const corr_eval = pos.corr_eval;
 
-    // improving heuristic(s)
-    // 10.0+0.1: 21.29 +- 9.45
-    const improving = !is_checked and blk: {
-        const fu2ev = pos.before(2).corr_eval;
-        if (fu2ev != evaluation.score.none) {
-            break :blk fu2ev < corr_eval;
-        }
-
-        const fu4ev = pos.before(4).corr_eval;
-        if (fu4ev != evaluation.score.none) {
-            break :blk fu4ev < corr_eval;
-        }
-
-        break :blk true;
-    };
+    const improving = !is_checked and
+        if (ply >= 2 and pos.before(2).corr_eval != evaluation.score.none)
+            pos.before(2).corr_eval < corr_eval
+        else if (ply >= 4 and pos.before(4).corr_eval != evaluation.score.none)
+            pos.before(4).corr_eval < corr_eval
+        else if (ply >= 6 and pos.before(6).corr_eval != evaluation.score.none)
+            pos.before(6).corr_eval < corr_eval
+        else
+            true;
     const ntm_worsening = !is_checked and
-        !is_root and
+        ply >= 1 and
         pos.before(1).corr_eval != evaluation.score.none and
-        pos.before(1).corr_eval > 1 - corr_eval;
+        pos.before(1).corr_eval >= -corr_eval;
 
-    // internal iterative reduction (iir)
-    // 10.0+0.1: 84.25 +- 20.51
     const has_ttm = tth and
         pos.isMovePseudoLegal(tte.move) and
         pos.isMoveLegal(tte.move);
@@ -925,13 +916,12 @@ fn ab(
         d -= 1;
     }
 
-    // reverse futility pruning (rfp)
     if (!is_pv and
         !is_singular and
         !is_checked and
         d <= 7 and
         corr_eval >= b + 6)
-    rfp: {
+    {
         const margin = blk: {
             const by_d =
                 params.values.rfp_depth_quad * d * d +
@@ -940,17 +930,13 @@ fn ab(
             const ntm = params.values.rfp_ntm_worsening * @intFromBool(ntm_worsening);
             break :blk @divTrunc(by_d, 1024) - ntm;
         };
-
-        if (corr_eval < b + margin) {
-            break :rfp;
+        if (corr_eval >= b + margin) {
+            const lhs = corr_eval * params.values.rfp_fail_firm;
+            const rhs = b * (1024 - params.values.rfp_fail_firm);
+            return evaluation.score.clamp(@divTrunc(lhs + rhs, 1024));
         }
-
-        const lhs = corr_eval * params.values.rfp_fail_firm;
-        const rhs = b * (1024 - params.values.rfp_fail_firm);
-        return evaluation.score.clamp(@divTrunc(lhs + rhs, 1024));
     }
 
-    // null move pruning
     if (!is_pv and
         !is_singular and
         !is_checked and
@@ -997,7 +983,6 @@ fn ab(
         }
     }
 
-    // razoring
     if (!is_pv and
         !is_singular and
         !is_checked and
@@ -1041,9 +1026,6 @@ fn ab(
         const lmr_d = @max(d * 1024 - base_lmr, 0);
 
         if (!is_root and best.score > evaluation.score.loss) {
-            // history pruning
-            // 10.0+0.1: 16.91 +- 8.41
-            // 40.0+0.4: 3.77 +- 8.30
             const hp_lim, const hp_mult, const hp_bias = if (is_quiet) .{
                 params.values.quiethist_pruning_lim,
                 params.values.quiethist_pruning_mult,
@@ -1058,8 +1040,6 @@ fn ab(
                 continue :move_loop;
             }
 
-            // futility pruning
-            // 10.0+0.1: 34.28 +- 12.73
             const fp_d = @divTrunc(lmr_d, 1024);
             const fp_margin =
                 params.values.fp_margin_mult * fp_d +
@@ -1074,7 +1054,6 @@ fn ab(
                 continue :move_loop;
             }
 
-            // bad noisy(/ies?) futility pruning
             const bnfp_d = fp_d;
             const bnfp_margin =
                 params.values.bnfp_margin_mult * bnfp_d +
@@ -1090,8 +1069,6 @@ fn ab(
                 continue :move_loop;
             }
 
-            // late move pruning (lmp)
-            // 10.0+0.1: 21.30 +- 9.80
             const lmp_lim = blk: {
                 const base = if (improving)
                     params.values.lmp_improving_quad * d * d +
@@ -1108,7 +1085,6 @@ fn ab(
                 break :move_loop;
             }
 
-            // pvs see
             const see_margin = if (is_quiet)
                 params.values.pvs_see_quiet_mult * d
             else noisy: {
@@ -1203,8 +1179,6 @@ fn ab(
             };
 
             score = if (is_late and d >= 3) reduced: {
-                // late move reduction (lmr)
-                // 10.0+0.1: 48.29 +- 15.89
                 r += base_lmr;
 
                 r += params.values.lmr_non_improving * @intFromBool(!improving);
@@ -1434,16 +1408,12 @@ fn qs(
                 break :move_loop;
             }
 
-            // qs see pruning
-            // 10.0+0.1: 206.81 +- 35.91
             if (!pos.see(m, draw)) {
                 continue :move_loop;
             }
         }
 
         if (!is_checked) {
-            // qs futility pruning
-            // 10.0+0.1: 65.37 +- 17.63
             const margin = params.values.qs_fp_margin;
             if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
                 best.score = @intCast(@max(best.score, corr_eval + margin));
