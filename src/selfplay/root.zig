@@ -14,153 +14,189 @@ const Depth = engine.Thread.Depth;
 const Score = engine.evaluation.score.Int;
 
 const Options = struct {
-    book: ?[]const u8 = null,
-    data: ?[]const u8 = null,
-    games: ?usize = null,
+    book: ?[]const u8,
+    data: ?[]const u8,
 
-    seed: ?u64 = null,
-    random_moves: ?usize = null,
+    games: ?usize,
+    seed: ?u64,
+    random_moves: ?usize,
 
-    hash: ?usize = null,
-    threads: ?usize = null,
+    hash: ?usize,
+    threads: ?usize,
 
-    depth: ?Depth = null,
-    soft_nodes: ?usize = null,
-    hard_nodes: ?usize = null,
+    depth: ?Depth,
+    soft_nodes: ?usize,
+    hard_nodes: ?usize,
 
-    win_adj_min_ply: ?usize = null,
-    win_adj_ply_num: ?usize = null,
-    win_adj_score: ?Score = null,
+    win_adj_min_ply: ?usize,
+    win_adj_ply_num: ?usize,
+    win_adj_score: ?Score,
 
-    draw_adj_min_ply: ?usize = null,
-    draw_adj_ply_num: ?usize = null,
-    draw_adj_score: ?Score = null,
+    draw_adj_min_ply: ?usize,
+    draw_adj_ply_num: ?usize,
+    draw_adj_score: ?Score,
+
+    fn parse(args: *std.process.Args.Iterator) !Options {
+        const duped_err = "duplicated arg '{s}'";
+        const expected_err = "expected arg after '{s}'";
+        var options: Options = .{
+            .book = null,
+            .data = null,
+
+            .games = null,
+            .seed = null,
+            .random_moves = null,
+
+            .hash = null,
+            .threads = null,
+
+            .depth = null,
+            .soft_nodes = null,
+            .hard_nodes = null,
+
+            .win_adj_min_ply = null,
+            .win_adj_ply_num = null,
+            .win_adj_score = null,
+
+            .draw_adj_min_ply = null,
+            .draw_adj_ply_num = null,
+            .draw_adj_score = null,
+        };
+
+        while (args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--book")) {
+                options.book = if (options.book) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    args.next() orelse std.process.fatal(expected_err, .{arg});
+            } else if (std.mem.eql(u8, arg, "--data")) {
+                options.data = if (options.data) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    args.next() orelse std.process.fatal(expected_err, .{arg});
+            } else if (std.mem.eql(u8, arg, "--seed")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.seed = if (options.seed) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(u64, token, 10);
+            } else if (std.mem.eql(u8, arg, "--random-moves")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.random_moves = if (options.random_moves) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--games")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.games = if (options.games) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--depth")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.depth = if (options.depth) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(Depth, token, 10);
+            } else if (std.mem.eql(u8, arg, "--soft-nodes")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.soft_nodes = if (options.soft_nodes) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--hard-nodes")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.hard_nodes = if (options.hard_nodes) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--hash")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.hash = if (options.hash) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--threads")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.threads = if (options.threads) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--win-adj-min-ply")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.win_adj_min_ply = if (options.win_adj_min_ply) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--win-adj-ply-num")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.win_adj_ply_num = if (options.win_adj_ply_num) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--win-adj-score")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.win_adj_score = if (options.win_adj_score) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(Score, token, 10);
+            } else if (std.mem.eql(u8, arg, "--draw-adj-min-ply")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.draw_adj_min_ply = if (options.draw_adj_min_ply) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--draw-adj-ply-num")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.draw_adj_ply_num = if (options.draw_adj_ply_num) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(usize, token, 10);
+            } else if (std.mem.eql(u8, arg, "--draw-adj-score")) {
+                const token = args.next() orelse std.process.fatal(expected_err, .{arg});
+                options.draw_adj_score = if (options.draw_adj_score) |_|
+                    std.process.fatal(duped_err, .{arg})
+                else
+                    try std.fmt.parseUnsigned(Score, token, 10);
+            } else std.process.fatal("unknown arg '{s}'", .{arg});
+        }
+
+        return options;
+    }
 };
 
-fn parseArgs(args: *std.process.Args.Iterator) !Options {
-    const duped_err = "duplicated arg '{s}'";
-    const expected_err = "expected arg after '{s}'";
-    var options: Options = .{};
-
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--book")) {
-            if (options.book) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            options.book = args.next() orelse std.process.fatal(expected_err, .{arg});
-        } else if (std.mem.eql(u8, arg, "--data")) {
-            if (options.data) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            options.data = args.next() orelse std.process.fatal(expected_err, .{arg});
-        } else if (std.mem.eql(u8, arg, "--seed")) {
-            if (options.seed) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.seed = try std.fmt.parseUnsigned(u64, token, 10);
-        } else if (std.mem.eql(u8, arg, "--random-moves")) {
-            if (options.random_moves) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.random_moves = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--games")) {
-            if (options.games) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.games = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--depth")) {
-            if (options.depth) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.depth = try std.fmt.parseUnsigned(Depth, token, 10);
-        } else if (std.mem.eql(u8, arg, "--soft-nodes")) {
-            if (options.soft_nodes) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.soft_nodes = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--hard-nodes")) {
-            if (options.hard_nodes) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.hard_nodes = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--hash")) {
-            if (options.hash) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.hash = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--threads")) {
-            if (options.threads) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.threads = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--win-adj-min-ply")) {
-            if (options.win_adj_min_ply) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.win_adj_min_ply = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--win-adj-ply-num")) {
-            if (options.win_adj_ply_num) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.win_adj_ply_num = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--win-adj-score")) {
-            if (options.win_adj_score) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.win_adj_score = try std.fmt.parseUnsigned(Score, token, 10);
-        } else if (std.mem.eql(u8, arg, "--draw-adj-min-ply")) {
-            if (options.draw_adj_min_ply) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.draw_adj_min_ply = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--draw-adj-ply-num")) {
-            if (options.draw_adj_ply_num) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.draw_adj_ply_num = try std.fmt.parseUnsigned(usize, token, 10);
-        } else if (std.mem.eql(u8, arg, "--draw-adj-score")) {
-            if (options.draw_adj_score) |_| {
-                std.process.fatal(duped_err, .{arg});
-            }
-
-            const token = args.next() orelse std.process.fatal(expected_err, .{arg});
-            options.draw_adj_score = try std.fmt.parseUnsigned(Score, token, 10);
-        } else std.process.fatal("unknown arg '{s}'", .{arg});
-    }
-
-    return options;
+pub fn help(pool: *engine.Thread.Pool, version_string: []const u8) !void {
+    const fmt =
+        \\zin-datagen {s}
+        \\
+        \\USAGE:
+        \\    zin datagen <OPTIONS>
+        \\
+        \\OPTIONS:
+        \\    --book <path>
+        \\    --data <path>
+        \\    --games <num>
+        \\    --seed <num>
+        \\    --random-moves <num>
+        \\    --hash <num>
+        \\    --threads <num>
+        \\    --depth <num>
+        \\    --soft-nodes <num>
+        \\    --hard-nodes <num>
+        \\    --win-adj-min-ply <num>
+        \\    --win-adj-ply-num <num>
+        \\    --win-adj-score <num>
+        \\    --draw-adj-min-ply <num>
+        \\    --draw-adj-ply-num <num>
+        \\    --draw-adj-score <num>
+        \\
+    ;
+    try pool.io.writer().print(fmt, .{version_string});
+    try pool.io.writer().flush();
 }
 
 pub fn run(pool: *engine.Thread.Pool, args: *std.process.Args.Iterator) !void {
-    const options = try parseArgs(args);
+    const options: Options = try .parse(args);
 
     const data = options.data orelse std.process.fatal("missing arg '--data'", .{});
     const games = options.games orelse std.process.fatal("missing arg '--games'", .{});

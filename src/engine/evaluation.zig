@@ -130,93 +130,115 @@ pub const score = struct {
     }
 };
 
-pub fn printStats(pool: *Thread.Pool, path: []const u8) !void {
-    pool.io.deinit(pool.gpa, pool.stdio);
-    pool.io = try types.IO.init(pool.gpa, pool.stdio, path, 65536, null, 65536);
-    pool.now = .now(pool.stdio, .real);
+pub const Stats = struct {
+    cnt: u32,
+    sum: i64,
+    abs_sum: u64,
+    sqr_sum: u64,
+    max: score.Int,
+    min: score.Int,
 
-    const board = try pool.gpa.create(Board);
-    defer pool.gpa.destroy(board);
-
-    var cnt: u32 = 0;
-    var sum: i64 = 0;
-    var abs_sum: u64 = 0;
-    var sq_sum: u64 = 0;
-    var max: score.Int = std.math.minInt(score.Int);
-    var min: score.Int = std.math.maxInt(score.Int);
-
-    while (pool.io.reader().takeDelimiterInclusive('\n')) |line| {
-        board.parseFen(line[0 .. line.len - 1]) catch |err| {
-            std.log.err("failed to parse fen '{s}': {t}", .{ line[0 .. line.len - 1], err });
-            continue;
+    fn init(eval: score.Int) Stats {
+        return .{
+            .cnt = 1,
+            .sum = eval,
+            .abs_sum = @intCast(eval * eval),
+            .sqr_sum = @intCast(if (eval < 0) -eval else eval),
+            .max = eval,
+            .min = eval,
         };
-
-        const pos = board.positions.last();
-        if (pos.isChecked()) {
-            continue;
-        }
-
-        const eval = board.evaluate();
-        cnt += 1;
-        sum += eval;
-        abs_sum += @intCast(if (eval < 0) -eval else eval);
-        sq_sum += @intCast(eval * eval);
-        max = @max(max, eval);
-        min = @min(min, eval);
-
-        if (cnt % 1024 == 0) {
-            const fcnt: f64 = @floatFromInt(cnt);
-            const fabs: f64 = @floatFromInt(abs_sum);
-            const time: f64 = @floatFromInt(pool.elapsedNanosecs());
-
-            const avg = fabs / fcnt;
-            const pps = fcnt / time * std.time.ns_per_s;
-            const scale = 955.3610672149737 / avg * nnue.network.Default.scale;
-
-            try pool.io.writer().print(
-                "processed {} positions @ {:.2} pps, abs mean {:.2}, scale {:.2}\n",
-                .{ cnt, pps, avg, scale },
-            );
-            try pool.io.writer().flush();
-        }
-    } else |err| switch (err) {
-        error.EndOfStream => {
-            const fcnt: f64 = @floatFromInt(cnt);
-            const fabs: f64 = @floatFromInt(abs_sum);
-            const time: f64 = @floatFromInt(pool.elapsedNanosecs());
-
-            const avg = fabs / fcnt;
-            const pps = fcnt / time * std.time.ns_per_s;
-            const scale = 955.8869178457139 / avg * nnue.network.Default.scale;
-
-            try pool.io.writer().print(
-                "processed {} positions @ {:.2} pps, abs mean {:.2}, scale {:.2}\n",
-                .{ cnt, pps, avg, scale },
-            );
-            try pool.io.writer().flush();
-        },
-        else => return err,
     }
 
-    const fcnt: f64 = @floatFromInt(cnt);
-    const fsum: f64 = @floatFromInt(sum);
-    const fabs_sum: f64 = @floatFromInt(abs_sum);
-    const fsq_sum: f64 = @floatFromInt(sq_sum);
-    const fmax: f64 = @floatFromInt(max);
-    const fmin: f64 = @floatFromInt(min);
+    fn add(self: Stats, other: Stats) Stats {
+        return .{
+            .cnt = self.cnt + other.cnt,
+            .sum = self.sum + other.sum,
+            .abs_sum = self.abs_sum + other.abs_sum,
+            .sqr_sum = self.sqr_sum + other.sqr_sum,
+            .max = @max(self.max, other.max),
+            .min = @min(self.min, other.min),
+        };
+    }
 
-    const mean = fsum / fcnt;
-    const abs_mean = fabs_sum / fcnt;
-    const variance = fsq_sum / fcnt - mean * mean;
-    const stddev = @sqrt(variance);
+    fn print(self: Stats, pool: *Thread.Pool) !void {
+        const fcnt: f64 = @floatFromInt(self.cnt);
+        const fabs: f64 = @floatFromInt(self.abs_sum);
+        const time: f64 = @floatFromInt(pool.elapsed());
 
-    try pool.io.writer().print("mean:     {}\n", .{mean});
-    try pool.io.writer().print("abs mean: {}\n", .{abs_mean});
-    try pool.io.writer().print("stddev:   {}\n", .{stddev});
-    try pool.io.writer().print("max:      {}\n", .{fmax});
-    try pool.io.writer().print("min:      {}\n", .{fmin});
+        const avg = fabs / fcnt;
+        const pps = fcnt / time * std.time.ns_per_s;
+        const scale = 955.8869178457139 / avg * nnue.network.Default.scale;
 
-    const scale = 955.8869178457139 / abs_mean * nnue.network.Default.scale;
-    try pool.io.writer().print("scale:    {}\n", .{scale});
-    try pool.io.writer().flush();
-}
+        try pool.io.writer().print(
+            "processed {} positions @ {:.2} pps, abs mean {:.2}, scale {:.2}\n",
+            .{ self.cnt, pps, avg, scale },
+        );
+        try pool.io.writer().flush();
+    }
+
+    pub fn collect(pool: *Thread.Pool, epd: []const u8) !void {
+        pool.io.deinit(pool.gpa, pool.stdio);
+        pool.io = try .init(pool.gpa, pool.stdio, epd, 65536, null, 65536);
+        pool.now = .now(pool.stdio, .real);
+
+        var board: Board = .init;
+        var stats: Stats = .{
+            .cnt = 0,
+            .sum = 0,
+            .abs_sum = 0,
+            .sqr_sum = 0,
+            .max = std.math.minInt(score.Int),
+            .min = std.math.maxInt(score.Int),
+        };
+
+        while (pool.io.reader().takeDelimiterInclusive('\n')) |line| {
+            board.parseFen(line[0 .. line.len - 1]) catch |err| {
+                std.log.err("failed to parse fen '{s}': {t}", .{ line[0 .. line.len - 1], err });
+                continue;
+            };
+
+            const eval = if (board.positions.last().isChecked()) continue else board.evaluate();
+            stats = stats.add(.init(eval));
+            if (stats.cnt % 1024 == 0) {
+                try stats.print(pool);
+            }
+        } else |err| switch (err) {
+            error.EndOfStream => try stats.print(pool),
+            else => return err,
+        }
+
+        const fcnt: f64 = @floatFromInt(stats.cnt);
+        const fsum: f64 = @floatFromInt(stats.sum);
+        const fabs_sum: f64 = @floatFromInt(stats.abs_sum);
+        const fsqr_sum: f64 = @floatFromInt(stats.sqr_sum);
+        const fmax: f64 = @floatFromInt(stats.max);
+        const fmin: f64 = @floatFromInt(stats.min);
+
+        const mean = fsum / fcnt;
+        const abs_mean = fabs_sum / fcnt;
+        const variance = fsqr_sum / fcnt - mean * mean;
+        const stddev = @sqrt(variance);
+
+        try pool.io.writer().print("mean:     {}\n", .{mean});
+        try pool.io.writer().print("abs mean: {}\n", .{abs_mean});
+        try pool.io.writer().print("stddev:   {}\n", .{stddev});
+        try pool.io.writer().print("max:      {}\n", .{fmax});
+        try pool.io.writer().print("min:      {}\n", .{fmin});
+
+        const scale = 955.8869178457139 / abs_mean * nnue.network.Default.scale;
+        try pool.io.writer().print("scale:    {}\n", .{scale});
+        try pool.io.writer().flush();
+    }
+
+    pub fn help(pool: *Thread.Pool, version_string: []const u8) !void {
+        const fmt =
+            \\zin-collect-eval {s}
+            \\
+            \\USAGE:
+            \\    zin collect-eval <PATH>
+            \\
+        ;
+        try pool.io.writer().print(fmt, .{version_string});
+        try pool.io.writer().flush();
+    }
+};

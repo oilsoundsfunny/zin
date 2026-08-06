@@ -146,12 +146,11 @@ pub fn run(thread: *engine.Thread, pool: *engine.Thread.Pool) !void {
         positions += data.line.constSlice().len -| 1;
 
         if (played % 256 == 0 or played >= games) {
-            const ntime = pool.elapsedNanosecs();
+            const ntime = pool.elapsed();
             const pps =
                 @as(f64, @floatFromInt(positions)) /
                 @as(f64, @floatFromInt(ntime)) *
                 std.time.ns_per_s;
-
             std.log.info(
                 "thread {} finished {} games, generated {} positions @ {:.4} pps",
                 .{ i, played, positions, pps },

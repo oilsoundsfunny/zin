@@ -117,7 +117,6 @@ pub const Pool = struct {
 
         self.io.deinit(self.gpa, self.stdio);
         self.tt.deinit(self.gpa);
-
         self.gpa.destroy(self);
     }
 
@@ -228,7 +227,7 @@ pub const Pool = struct {
         self.wake(.go);
     }
 
-    pub fn elapsedNanosecs(self: *const Pool) u64 {
+    pub fn elapsed(self: *const Pool) u64 {
         const now: std.Io.Timestamp = .now(self.stdio, .real);
         return @intCast(self.now.durationTo(now).toNanoseconds());
     }
@@ -658,7 +657,7 @@ fn printInfo(
     };
 
     const nodes = pool.nodes();
-    const ntime = pool.elapsedNanosecs();
+    const ntime = pool.elapsed();
     const mtime = ntime / std.time.ns_per_ms;
 
     try writer.print("info", .{});
@@ -748,7 +747,7 @@ fn searchStop(self: *Thread, pool: *const Pool, comptime which: enum { hard, sof
         return true;
     }
 
-    return nodes % 2048 == 0 and pool.elapsedNanosecs() >= blk: {
+    return nodes % 2048 == 0 and pool.elapsed() >= blk: {
         const mlim = pool.limits.movetime orelse return false;
         const nlim = mlim * std.time.ns_per_ms;
         const mult: u64 = @intCast(params.values.nodetm_mult);
