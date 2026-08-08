@@ -522,10 +522,15 @@ pub const Position = struct {
 
     // TODO: less crine
     pub fn see(self: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
-        if (move.flag == .none or move.flag == .torped) {
-            return min <= evaluation.score.draw;
-        } else if (move.flag != .noisy) {
-            return true;
+        if (!move.flag.isNoisy()) {
+            return switch (move.flag) {
+                .none, .torped, .castle_k, .castle_q => min <= evaluation.score.draw,
+                .promote_n => min <= -params.values.see_pawn + params.values.see_knight,
+                .promote_b => min <= -params.values.see_pawn + params.values.see_bishop,
+                .promote_r => min <= -params.values.see_pawn + params.values.see_rook,
+                .promote_q => min <= -params.values.see_pawn + params.values.see_queen,
+                else => unreachable,
+            };
         }
 
         const ptypeValue = struct {
@@ -549,7 +554,8 @@ pub const Position = struct {
         const sp = self.getSq(s);
         const dp = self.getSq(d);
 
-        var v = pieceValue(dp) - min;
+        var v = pieceValue(dp) - min +
+            if (move.flag.promotion()) |pt| ptypeValue(pt) else evaluation.score.draw;
         if (v < 0) {
             return false;
         }
