@@ -1294,6 +1294,7 @@ fn ab(
     }
 
     if (!is_checked and
+        !is_singular and
         !best.move.isNoisy() and
         !(flag == .upperbound and best.score > corr_eval) and
         !(flag == .lowerbound and best.score < corr_eval))
