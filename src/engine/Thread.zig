@@ -603,14 +603,14 @@ fn updateCorrHists(
     }
 }
 
-fn updateHist(
+fn updateHists(
     self: *Thread,
     depth: Depth,
     move: movegen.Move,
     bad_noisy_moves: []const movegen.Move,
     bad_quiet_moves: []const movegen.Move,
 ) void {
-    const is_quiet = move.flag.isQuiet();
+    const is_quiet = move.isQuiet();
     if (is_quiet) {
         const bonus = hist.quietBonus(depth);
         const malus = hist.quietMalus(depth);
@@ -1019,8 +1019,8 @@ fn ab(
         }
 
         const is_direct_check = pos.isDirectCheck(m);
-        const is_noisy = m.flag.isNoisy();
-        const is_quiet = m.flag.isQuiet();
+        const is_noisy = m.isNoisy();
+        const is_quiet = m.isQuiet();
 
         const base_lmr = params.lmr.get(d, searched, is_quiet);
         const lmr_d = @max(d * 1024 - base_lmr, 0);
@@ -1183,7 +1183,7 @@ fn ab(
 
                 r += params.values.lmr_non_improving * @intFromBool(!improving);
                 r += params.values.lmr_cutnode * @intFromBool(node == .lowerbound);
-                r += params.values.lmr_noisy_ttm * @intFromBool(has_ttm and mp.ttm.flag.isNoisy());
+                r += params.values.lmr_noisy_ttm * @intFromBool(has_ttm and mp.ttm.isNoisy());
                 r += params.values.lmr_found_pv * @intFromBool(flag == .exact);
 
                 r -= params.values.lmr_gave_check *
@@ -1278,7 +1278,7 @@ fn ab(
     }
 
     if (flag == .lowerbound) {
-        self.updateHist(d, best.move, bad_noisy_moves.constSlice(), bad_quiet_moves.constSlice());
+        self.updateHists(d, best.move, bad_noisy_moves.constSlice(), bad_quiet_moves.constSlice());
     }
 
     if (!is_singular) {
@@ -1295,7 +1295,7 @@ fn ab(
 
     if (!is_checked and
         !is_singular and
-        !best.move.flag.isNoisy() and
+        !best.move.isNoisy() and
         !(flag == .upperbound and best.score > corr_eval) and
         !(flag == .lowerbound and best.score < corr_eval))
     {

@@ -522,7 +522,7 @@ pub const Position = struct {
 
     // TODO: less crine
     pub fn see(self: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
-        if (!move.flag.isNoisy()) {
+        if (!move.isNoisy()) {
             return switch (move.flag) {
                 .none, .torped, .castle_k, .castle_q => min <= evaluation.score.draw,
                 .promote_n => min <= -params.values.see_pawn + params.values.see_knight,
@@ -555,7 +555,7 @@ pub const Position = struct {
         const dp = self.getSq(d);
 
         var v = pieceValue(dp) - min +
-            if (move.flag.promotion()) |pt| ptypeValue(pt) else evaluation.score.draw;
+            if (move.promotion()) |pt| ptypeValue(pt) else evaluation.score.draw;
         if (v < 0) {
             return false;
         }
@@ -787,8 +787,8 @@ pub const Position = struct {
 
             .torped => sp.ptype() == .pawn and push2.get(d),
 
-            .castle_q, .castle_k => |f| castle: {
-                const right = f.castle(stm) orelse unreachable;
+            .castle_q, .castle_k => castle: {
+                const right = move.castle(stm) orelse unreachable;
                 const castle = self.castles.get(right) orelse break :castle false;
 
                 const is_checked = self.isChecked();
@@ -835,14 +835,14 @@ pub const Position = struct {
         const dp = pos.getSq(d);
 
         switch (move.flag) {
-            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => {
+                const add_p = types.Piece.init(move.promotion() orelse sp.ptype(), stm);
                 pos.popSq(s, sp);
                 pos.setSq(d, add_p);
             },
 
-            .castle_q, .castle_k => |f| {
-                const right = f.castle(stm) orelse unreachable;
+            .castle_q, .castle_k => {
+                const right = move.castle(stm) orelse unreachable;
                 const castle = pos.castles.getAssertContains(right);
 
                 const rook = types.Piece.init(.rook, stm);
@@ -856,7 +856,7 @@ pub const Position = struct {
             },
 
             else => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+                const add_p = types.Piece.init(move.promotion() orelse sp.ptype(), stm);
                 const del_p, const del_s = if (f == .en_passant)
                     .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
                 else
@@ -879,7 +879,7 @@ pub const Position = struct {
         }
 
         pos.excluded = .none;
-        pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
+        pos.rule50 = if (sp.ptype() != .pawn and !move.isNoisy()) pos.rule50 + 1 else 0;
         pos.stm = stm.flip();
         pos.key ^= zobrist.stm();
 
