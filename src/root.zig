@@ -10,49 +10,18 @@ const types = @import("types");
 const bench = @import("bench.zig");
 const genfens = @import("genfens.zig");
 
-const help =
-    \\zin [command] [options]
+const help_fmt =
+    \\zin {s}
     \\
-    \\commands:
-    \\    bench [depth]:
-    \\        run benchmark for openbench.
+    \\USAGE:
+    \\    zin <SUBCOMMAND>
     \\
-    \\    datagen [options]:
-    \\        generate training data.
-    \\        options:
-    \\            --book [path]               epd opening book to read from. must be specified.
-    \\            --data [path]               data file to write to. must be specified.
-    \\            --games [num]               number of games to be played.
-    \\            --seed [num]                seed for the random mover.
-    \\                                        defaults to 0x5555555555555555.
-    \\            --random-moves [num]        number of random moves to play
-    \\                                        at the start of each game.
-    \\                                        defaults to 8.
-    \\            --depth [num]               max depth to search.
-    \\            --soft-nodes [num]          number of soft nodes to search. defaults to 5000.
-    \\            --hard-nodes [num]          number of hard nodes to search.
-    \\                                        defaults to 50 times the soft nodes limit.
-    \\            --hash [num]                size of transposition table in mib. defaults to 128.
-    \\            --threads [num]             number of threads to use. defaults to 1.
-    \\            --win-adj-min-ply [num]     number of ply to play before trying to adjudicate.
-    \\                                        defaults to 3.
-    \\            --win-adj-ply-num [num]     number of ply to consider when adjudicating.
-    \\                                        defaults to 3.
-    \\                                        must not be greater than
-    \\                                        the number specified by --win-adj-min-ply.
-    \\            --win-adj-score [num]       win threshold used in adjudication. defaults to 400.
-    \\            --draw-adj-min-ply [num]    number of ply to play before trying to adjudicate.
-    \\                                        defaults to 40.
-    \\            --draw-adj-ply-num [num]    number of ply to consider when adjudicating.
-    \\                                        defaults to 8.
-    \\                                        must not be greater than
-    \\                                        the number specified by --draw-adj-min-ply.
-    \\            --draw-adj-score [num]      draw threshold used in adjudication. defaults to 25.
-    \\    eval-stats [path]:
-    \\        print evaluation stats on positions listed in $path.
-    \\
-    \\    help:
-    \\        print this message and exit.
+    \\SUBCOMMANDS:
+    \\    bench
+    \\    collect-eval
+    \\    datagen
+    \\    genfens         Note: not meant for CLI use
+    \\    help            Prints this message or help message of given subcommand
     \\
 ;
 
@@ -82,32 +51,51 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer args.deinit();
 
     _ = args.skip();
-    if (args.next()) |arg| {
-        if (std.mem.startsWith(u8, arg, "genfens")) {
-            const aux = args.next() orelse std.process.fatal("expected arg after '{s}'", .{arg});
-            if (!std.mem.eql(u8, aux, "quit")) {
-                std.process.fatal("unknown arg '{s}'", .{aux});
-            }
+    if (args.next()) |first| {
+        if (std.mem.startsWith(u8, first, "genfens")) {
+            const second = args.next() orelse
+                std.process.fatal("expected 'quit' after '{s}'", .{first});
 
-            return if (args.next()) |extra|
-                std.process.fatal("extranous arg '{s}'", .{extra})
+            return if (!std.mem.eql(u8, second, "quit"))
+                std.process.fatal("expected 'quit', found '{s}'", .{second})
+            else if (args.next()) |third|
+                std.process.fatal("extranous arg '{s}'", .{third})
             else
-                genfens.run(pool, arg);
-        } else if (std.mem.eql(u8, arg, "bench")) {
-            var depth: ?engine.Thread.Depth = null;
-            if (args.next()) |aux| {
-                depth = try std.fmt.parseUnsigned(u8, aux, 10);
-            }
+                genfens.run(pool, first);
+        } else if (std.mem.eql(u8, first, "bench")) {
+            const depth: engine.Thread.Depth =
+                if (args.next()) |second| try std.fmt.parseUnsigned(u8, second, 10) else 12;
 
-            return bench.run(pool, depth);
-        } else if (std.mem.eql(u8, arg, "datagen")) {
+            return if (args.next()) |third|
+                std.process.fatal("extranous arg '{s}'", .{third})
+            else
+                bench.run(pool, depth);
+        } else if (std.mem.eql(u8, first, "collect-eval")) {
+            const second = args.next() orelse
+                std.process.fatal("expected arg after '{s}'", .{first});
+
+            return if (args.next()) |third|
+                std.process.fatal("extranous arg '{s}'", .{third})
+            else
+                engine.evaluation.Stats.collect(pool, second);
+        } else if (std.mem.eql(u8, first, "datagen")) {
             return selfplay.run(pool, &args);
-        } else if (std.mem.eql(u8, arg, "eval-stats")) {
-            const epd = args.next() orelse std.process.fatal("expected arg after '{s}'", .{arg});
-            return engine.evaluation.printStats(pool, epd);
-        } else if (std.mem.eql(u8, arg, "help")) {
-            try std.Io.File.stdout().writeStreamingAll(io, help);
-            std.process.exit(0);
-        } else std.process.fatal("unknown arg '{s}'", .{arg});
+        } else if (std.mem.eql(u8, first, "help")) {
+            const second = args.next() orelse {
+                try pool.io.writer().print(help_fmt, .{version_string});
+                try pool.io.writer().flush();
+                return;
+            };
+
+            if (args.next()) |third| {
+                std.process.fatal("extranous arg '{s}'", .{third});
+            } else if (std.mem.eql(u8, second, "bench")) {
+                try bench.help(pool, version_string);
+            } else if (std.mem.eql(u8, second, "collect-eval")) {
+                try engine.evaluation.Stats.help(pool, version_string);
+            } else if (std.mem.eql(u8, second, "datagen")) {
+                try selfplay.help(pool, version_string);
+            } else std.process.fatal("unknown subcommand '{s}'", .{second});
+        } else std.process.fatal("unknown arg '{s}'", .{first});
     } else try engine.uci.loop(pool);
 }

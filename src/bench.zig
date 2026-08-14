@@ -26,6 +26,18 @@ const fens: [20][]const u8 = .{
     "3rr1k1/ppq2ppp/2p5/2R1pb2/1P6/P2PPN1P/3QBPP1/6K1 b - - 0 1",
 };
 
+pub fn help(pool: *engine.Thread.Pool, version_string: []const u8) !void {
+    const fmt =
+        \\zin-bench {s}
+        \\
+        \\USAGE:
+        \\    zin bench <DEPTH>
+        \\
+    ;
+    try pool.io.writer().print(fmt, .{version_string});
+    try pool.io.writer().flush();
+}
+
 pub fn run(pool: *engine.Thread.Pool, depth: ?engine.Thread.Depth) !void {
     pool.limits.depth = depth orelse 12;
     pool.limits.infinite = false;
@@ -40,8 +52,10 @@ pub fn run(pool: *engine.Thread.Pool, depth: ?engine.Thread.Depth) !void {
         pool.setBoard(board);
         sum += pool.bench();
     }
+    const nps = sum * std.time.ns_per_s / pool.elapsed();
 
-    const nps = sum * std.time.ns_per_s / pool.elapsedNanosecs();
+    try pool.io.lockWriter();
     try pool.io.writer().print("{d} nodes {d} nps\n", .{ sum, nps });
     try pool.io.writer().flush();
+    pool.io.unlockWriter();
 }
