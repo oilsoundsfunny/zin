@@ -1501,6 +1501,8 @@ fn clearHash(self: *Thread, pool: *const Pool) void {
         @splat(@splat(0));
     pool.nonpawn_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
         @splat(@splat(@splat(0)));
+    pool.cont_corrhist[i * hist.Corr.per_thread ..][0..hist.Corr.per_thread].* =
+        @splat(@splat(@splat(@splat(@splat(0)))));
 }
 
 fn datagen(self: *Thread, pool: *Pool) !void {
