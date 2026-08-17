@@ -570,7 +570,7 @@ fn correctEval(
 
 fn updateCorrHists(
     self: *const Thread,
-    pool: *Pool,
+    pool: *const Pool,
     depth: Depth,
     diff: evaluation.score.Int,
 ) void {
