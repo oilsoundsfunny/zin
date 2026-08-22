@@ -877,10 +877,16 @@ fn ab(
             pos.before(6).corr_eval < corr_eval
         else
             true;
+
     const ntm_worsening = !is_checked and
-        ply >= 1 and
-        pos.before(1).corr_eval != evaluation.score.none and
-        pos.before(1).corr_eval >= -corr_eval;
+        if (ply >= 1 and pos.before(1).corr_eval != evaluation.score.none)
+            pos.before(1).corr_eval >= -corr_eval
+        else if (ply >= 3 and pos.before(3).corr_eval != evaluation.score.none)
+            pos.before(3).corr_eval >= -corr_eval
+        else if (ply >= 5 and pos.before(5).corr_eval != evaluation.score.none)
+            pos.before(5).corr_eval >= -corr_eval
+        else
+            improving;
 
     const has_ttm = tth and
         pos.isMovePseudoLegal(tte.move) and
