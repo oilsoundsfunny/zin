@@ -489,6 +489,29 @@ fn contHistPtr(
     return &self.conthist[ply / 2][pos.stm.int()][hist_p][hist_d][this_p][this_d];
 }
 
+fn corrHistPtr(
+    self: *const Thread,
+    pool: *const Pool,
+    comptime corr_t: hist.Corr,
+    args: anytype,
+) *hist.Int {
+    const pos = self.board.positions.last();
+    const stm = pos.stm;
+    return if (corr_t == .nonpawn) np_blk: {
+        const tbl = pool.nonpawn_corrhist;
+        const i = zobrist.index(pos.nonpawn_keys.getPtrConst(args[0]).*, tbl.len);
+        break :np_blk &tbl[i][stm.int()][args[0].int()];
+    } else nnp_blk: {
+        const key, const tbl = switch (corr_t) {
+            .pawn => .{ pos.pawn_key, pool.pawn_corrhist },
+            .minor => .{ pos.minor_key, pool.minor_corrhist },
+            .major => .{ pos.major_key, pool.major_corrhist },
+            else => unreachable,
+        };
+        break :nnp_blk &tbl[zobrist.index(key, tbl.len)][stm.int()];
+    };
+}
+
 fn correctEval(
     self: *const Thread,
     pool: *const Pool,
@@ -500,31 +523,20 @@ fn correctEval(
 
     var correction: evaluation.score.Int = evaluation.score.draw;
     for (hist.Corr.values) |t| {
-        correction += if (t == .nonpawn) np: {
-            const tbl = pool.nonpawn_corrhist;
-            const keys = &pos.nonpawn_keys;
-
-            const stm_i = zobrist.index(keys.getPtrConst(stm).*, tbl.len);
-            const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, tbl.len);
-            const stm_c = tbl[stm_i][stm.int()][stm.int()] * params.values.corr_nonpawn_stm_w;
-            const ntm_c = tbl[ntm_i][stm.int()][ntm.int()] * params.values.corr_nonpawn_ntm_w;
-            break :np stm_c + ntm_c;
-        } else nnp: {
-            const key, const tbl, const w = switch (t) {
-                .pawn => .{ pos.pawn_key, pool.pawn_corrhist, params.values.corr_pawn_w },
-                .minor => .{ pos.minor_key, pool.minor_corrhist, params.values.corr_minor_w },
-                .major => .{ pos.major_key, pool.major_corrhist, params.values.corr_major_w },
-                else => unreachable,
-            };
-            const idx = zobrist.index(key, tbl.len);
-            break :nnp w * tbl[idx][stm.int()];
+        correction += switch (t) {
+            // zig fmt: off
+            .nonpawn =>
+                params.values.corr_nonpawn_stm_w * self.corrHistPtr(pool, .nonpawn, .{stm}).* +
+                params.values.corr_nonpawn_ntm_w * self.corrHistPtr(pool, .nonpawn, .{ntm}).*,
+            inline else => |e|
+                @field(params.values, "corr_" ++ @tagName(e) ++ "_w") *
+                self.corrHistPtr(pool, e, .{}).*,
+            // zig fmt: off
         };
     }
 
     const corrected = eval + @divTrunc(correction, 1 << 18);
-    const min = evaluation.score.loss + 1;
-    const max = evaluation.score.win - 1;
-    return std.math.clamp(corrected, min, max);
+    return std.math.clamp(corrected, evaluation.score.loss + 1, evaluation.score.win - 1);
 }
 
 fn updateCorrHists(
@@ -535,38 +547,28 @@ fn updateCorrHists(
 ) void {
     const pos = self.board.positions.last();
     const stm = pos.stm;
-
-    const weight = @min(depth + 1, 16);
-    const bonus = diff * weight;
+    const bonus = diff * @min(depth + 1, 16);
 
     for (hist.Corr.values) |t| {
         if (t == .nonpawn) {
             const ntm = stm.flip();
-            const tbl = pool.nonpawn_corrhist[0..];
-            const keys = pos.nonpawn_keys;
-
-            const stm_i = zobrist.index(keys.getPtrConst(stm).*, tbl.len);
-            const ntm_i = zobrist.index(keys.getPtrConst(ntm).*, tbl.len);
-            const stm_scaled = @divTrunc(bonus * params.values.corr_nonpawn_update_stm_w, 1024);
-            const ntm_scaled = @divTrunc(bonus * params.values.corr_nonpawn_update_ntm_w, 1024);
-            const stm_clamped = std.math.clamp(stm_scaled, -16000, 16000);
-            const ntm_clamped = std.math.clamp(ntm_scaled, -16000, 16000);
-
-            hist.gravity(&tbl[stm_i][stm.int()][stm.int()], stm_clamped);
-            hist.gravity(&tbl[ntm_i][stm.int()][ntm.int()], ntm_clamped);
+            hist.gravity(
+                self.corrHistPtr(pool, .nonpawn, .{stm}),
+                @divTrunc(bonus * params.values.corr_nonpawn_stm_update_w, 1024),
+            );
+            hist.gravity(
+                self.corrHistPtr(pool, .nonpawn, .{ntm}),
+                @divTrunc(bonus * params.values.corr_nonpawn_ntm_update_w, 1024),
+            );
         } else {
-            const w, const key, const tbl = switch (t) {
+            const p, const w = switch (t) {
                 .nonpawn => unreachable,
                 inline else => |e| .{
+                    self.corrHistPtr(pool, e, .{}),
                     @field(params.values, "corr_" ++ @tagName(e) ++ "_update_w"),
-                    @field(pos, @tagName(e) ++ "_key"),
-                    @field(pool, @tagName(e) ++ "_corrhist"),
                 },
             };
-
-            const scaled = @divTrunc(bonus * w, 1024);
-            const clamped = std.math.clamp(scaled, -16000, 16000);
-            hist.gravity(&tbl[zobrist.index(key, tbl.len)][stm.int()], clamped);
+            hist.gravity(p, @divTrunc(bonus * w, 1024));
         }
     }
 }
