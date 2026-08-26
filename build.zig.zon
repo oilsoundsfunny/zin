@@ -1,12 +1,7 @@
 .{
     .name = .zin,
     .version = "0.16.0",
-    .dependencies = .{
-        .nets = .{
-            .url = "git+https://codeberg.org/oilsoundsfunny/zin-nets.git#55b8436205692b34fdd8f41d389521f6cc5abfac",
-            .hash = "N-V-__8AABKXQgKYH2jxRe0KQCvE2ccUrOloe1qUVx7D7mDE",
-        },
-    },
+    .dependencies = .{},
     .paths = .{""},
     .fingerprint = 0xb812a825fb7acb80,
 }
