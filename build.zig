@@ -217,11 +217,9 @@ pub fn build(bld: *std.Build) !void {
         modules.set(m, m.create(bld, module_defaults));
     }
 
-    const evalfile = bld.option([]const u8, "evalfile", "");
-    const network: std.Build.LazyPath = if (evalfile) |path|
-        .{ .cwd_relative = path }
-    else
-        bld.dependency("nets", .{}).path("1024hl-16b-8ob-100426.nnue");
+    const evalfile = bld.option([]const u8, "evalfile", "") orelse
+        std.process.fatal("-Devalfile must be set", .{});
+    const network: std.Build.LazyPath = .{ .cwd_relative = evalfile };
 
     for (Modules.values) |m| {
         const module = modules.get(m);
