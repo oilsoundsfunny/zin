@@ -160,12 +160,9 @@ const Version = struct {
     }
 };
 
-fn processNetworks(bld: *std.Build) [2]std.Build.LazyPath {
-    const evalfile = bld.option([]const u8, "evalfile", "");
-    const raw_network: std.Build.LazyPath = if (evalfile) |path|
-        .{ .cwd_relative = path }
-    else
-        bld.dependency("nets", .{}).path("main.bin");
+fn processNetworks(bld: *std.Build) ?[2]std.Build.LazyPath {
+    const evalfile = bld.option([]const u8, "evalfile", "") orelse return null;
+    const raw_network: std.Build.LazyPath = .{ .cwd_relative = evalfile };
 
     const transformer = bld.addExecutable(.{
         .root_module = bld.createModule(.{
@@ -250,7 +247,7 @@ pub fn build(bld: *std.Build) !void {
     }
 
     // TODO: named instead of array
-    const networks = processNetworks(bld);
+    const networks = processNetworks(bld) orelse std.process.fatal("-Devalfile must be set", .{});
 
     for (Modules.values) |m| {
         const module = modules.get(m);
