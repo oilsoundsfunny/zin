@@ -1498,11 +1498,16 @@ pub fn search(self: *Thread, pool: *Pool) !void {
     };
 
     const root_moves = self.root_moves.slice();
-    if (root_moves.len == 0) {
-        if (should_print) {
-            try self.printInfo(pool, null, 0, 0);
-            try self.printBest(pool, null);
+    if (root_moves.len < 2) {
+        if (!should_print) {
+            return;
         }
+        const pv: ?*const movegen.RootMove = if (root_moves.len == 0) null else blk: {
+            root_moves[0].score = self.correctEval(pool, self.board.evaluate());
+            break :blk &root_moves[0];
+        };
+        try self.printInfo(pool, pv, 0, 0);
+        try self.printBest(pool, pv);
         return;
     }
 
