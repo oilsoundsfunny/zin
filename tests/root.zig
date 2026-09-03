@@ -1,4 +1,4 @@
-test {
+test "zin" {
     _ = @import("bitboard/root.zig");
     _ = @import("engine/root.zig");
     _ = @import("nnue/root.zig");

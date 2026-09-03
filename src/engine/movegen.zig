@@ -9,24 +9,18 @@ const Thread = @import("Thread.zig");
 const uci = @import("uci.zig");
 
 pub const RootMove = struct {
-    line: types.BoundedArray(Move, null, capacity) = .{},
-    score: isize = evaluation.score.none,
-    nodes: usize = 0,
+    line: types.BoundedArray(Move, null, capacity),
+    score: isize,
+    nodes: usize,
 
     pub const List = struct {
-        array: types.BoundedArray(RootMove, null, capacity) = .{
-            .buffer = .{@as(RootMove, .{})} ** capacity,
-            .len = 0,
-        },
+        array: types.BoundedArray(RootMove, null, capacity),
 
         pub fn constSlice(self: *const List) []const RootMove {
             return self.slice();
         }
 
-        pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
-            []RootMove, []const RootMove => |T| T,
-            else => |T| @compileError("unexpected type " ++ @typeName(T)),
-        } {
+        pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *List, []RootMove) {
             return self.array.slice();
         }
 
@@ -44,36 +38,32 @@ pub const RootMove = struct {
 
         pub fn init(board: *Board) List {
             const pos = board.positions.last();
-            var root_moves: List = .{};
-            var gen_moves: Move.List = .{};
+            var root_moves: List = .{ .array = .init };
 
+            var gen_moves: Move.List = .init;
             _ = gen_moves.genNoisy(pos);
             _ = gen_moves.genQuiet(pos);
+
             for (gen_moves.constSlice()) |m| {
                 if (!pos.isMoveLegal(m)) {
                     continue;
                 }
-
-                var rm: RootMove = .{};
-                defer root_moves.array.pushUnchecked(rm);
-
+                var rm: RootMove = .{ .line = .init, .score = evaluation.score.draw, .nodes = 0 };
                 rm.line.pushUnchecked(m);
-                rm.score = evaluation.score.draw;
+                root_moves.array.pushUnchecked(rm);
             }
             return root_moves;
         }
     };
 
     pub const capacity = 256 - @sizeOf(usize) * 3 / @sizeOf(Move);
+    pub const init: RootMove = .{ .line = .init, .score = evaluation.score.none, .nodes = 0 };
 
     pub fn constSlice(self: *const RootMove) []const Move {
         return self.slice();
     }
 
-    pub fn slice(self: anytype) switch (@TypeOf(self.line.slice())) {
-        []Move, []const Move => |T| T,
-        else => |T| @compileError("unexpected type " ++ @typeName(T)),
-    } {
+    pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *RootMove, []Move) {
         return self.line.slice();
     }
 
@@ -100,9 +90,9 @@ pub const RootMove = struct {
 };
 
 pub const Move = packed struct(u16) {
-    flag: Flag = .none,
-    src: types.Square = @enumFromInt(0),
-    dst: types.Square = @enumFromInt(0),
+    flag: Flag,
+    src: types.Square,
+    dst: types.Square,
 
     pub const Flag = enum(u4) {
         none = 0b0000,
@@ -127,49 +117,14 @@ pub const Move = packed struct(u16) {
         fn int(self: Flag) std.meta.Tag(Flag) {
             return @intFromEnum(self);
         }
-
-        pub fn isCastle(self: Flag) bool {
-            return self == .castle_q or self == .castle_k;
-        }
-
-        pub fn isPromote(self: Flag) bool {
-            return self.promotion() != null;
-        }
-
-        pub fn isNoisy(self: Flag) bool {
-            return self.int() & 0b1000 != 0;
-        }
-
-        pub fn isQuiet(self: Flag) bool {
-            return self.int() & 0b1000 == 0;
-        }
-
-        pub fn castle(self: Flag, c: types.Color) ?types.Castle {
-            return switch (self) {
-                .castle_q => if (c == .white) .wq else .bq,
-                .castle_k => if (c == .white) .wk else .bk,
-                else => null,
-            };
-        }
-
-        pub fn promotion(self: Flag) ?types.Ptype {
-            return switch (self) {
-                .promote_n, .noisy_promote_n => .knight,
-                .promote_b, .noisy_promote_b => .bishop,
-                .promote_r, .noisy_promote_r => .rook,
-                .promote_q, .noisy_promote_q => .queen,
-                else => null,
-            };
-        }
     };
 
     pub const List = struct {
-        array: types.BoundedArray(Move, null, capacity) = .{
-            .buffer = .{@as(Move, .{})} ** capacity,
-            .len = 0,
-        },
+        array: types.BoundedArray(Move, null, capacity),
 
         pub const capacity = 256 - @sizeOf(usize) / @sizeOf(Move);
+
+        pub const init: List = .{ .array = .init };
 
         fn genCastle(self: *List, pos: *const Board.Position, comptime flag: Move.Flag) usize {
             const len = self.slice().len;
@@ -185,13 +140,13 @@ pub const Move = packed struct(u16) {
                 .white => if (is_q) .wq else .wk,
                 .black => if (is_q) .bq else .bk,
             };
-            const castle = pos.castles.get(right) orelse return self.slice().len - len;
+            const c = pos.castles.get(right) orelse return self.slice().len - len;
 
-            if (pos.isChecked() or occ.bwa(castle.occ) != .none) {
+            if (pos.isChecked() or occ.bwa(c.occ) != .none) {
                 return self.slice().len - len;
             }
 
-            var am = castle.atk;
+            var am = c.atk;
             while (am.lowSquare()) |s| : (am.popLow()) {
                 const atkers = pos.squareAtkers(s);
                 const theirs = pos.colorOcc(stm.flip());
@@ -200,8 +155,8 @@ pub const Move = packed struct(u16) {
                 }
             }
 
-            const s = castle.ks;
-            const d = castle.rs;
+            const s = c.ks;
+            const d = c.rs;
             self.array.pushUnchecked(.{ .flag = flag, .src = s, .dst = d });
             return self.slice().len - len;
         }
@@ -235,17 +190,15 @@ pub const Move = packed struct(u16) {
             comptime promo: ?types.Ptype,
             comptime noisy: bool,
         ) usize {
-            const flag: Move.Flag = if (promo) |p|
-                switch (p) {
-                    .knight => if (noisy) .noisy_promote_n else .promote_n,
-                    .bishop => if (noisy) .noisy_promote_b else .promote_b,
-                    .rook => if (noisy) .noisy_promote_r else .promote_r,
-                    .queen => if (noisy) .noisy_promote_q else .promote_q,
-                    else => @compileError("unexpected enum tag " ++ @tagName(p)),
-                }
-            else
-                .none;
-            const is_promote = flag.isPromote();
+            // zig fmt: off
+            const flag: Move.Flag, const is_promote = if (promo) |p| switch (p) {
+                .knight => .{ if (noisy) .noisy_promote_n else .promote_n, true },
+                .bishop => .{ if (noisy) .noisy_promote_b else .promote_b, true },
+                .rook   => .{ if (noisy) .noisy_promote_r else .promote_r, true },
+                .queen  => .{ if (noisy) .noisy_promote_q else .promote_q, true },
+                else => @compileError("unexpected enum tag " ++ @tagName(p)),
+            } else .{ .none, false };
+            // zig fmt: on
 
             const len = self.slice().len;
             const stm = pos.stm;
@@ -377,10 +330,7 @@ pub const Move = packed struct(u16) {
             return self.slice();
         }
 
-        pub fn slice(self: anytype) switch (@TypeOf(self.array.slice())) {
-            []Move, []const Move => |T| T,
-            else => |T| @compileError("unexpected type " ++ @typeName(T)),
-        } {
+        pub fn slice(self: anytype) types.SameMutPtr(@TypeOf(self), *List, []Move) {
             return self.array.slice();
         }
 
@@ -392,42 +342,74 @@ pub const Move = packed struct(u16) {
     pub const Root = RootMove;
 
     pub const Scored = packed struct(u32) {
-        move: Move = .{},
-        score: evaluation.score.Small = evaluation.score.none,
+        move: Move,
+        score: evaluation.score.Small,
+        pub const init: Scored = .{ .move = none, .score = evaluation.score.none };
     };
 
-    pub fn isNone(self: Move) bool {
-        return self == @as(Move, .{});
+    pub const none: Move = .{ .flag = .none, .src = .a1, .dst = .a1 };
+
+    pub fn castle(self: Move, c: types.Color) ?types.Castle {
+        return switch (self.flag) {
+            .castle_q => if (c == .white) .wq else .bq,
+            .castle_k => if (c == .white) .wk else .bk,
+            else => null,
+        };
     }
 
-    pub fn toString(self: Move, board: *const Board) [8]u8 {
-        var buf: [8]u8 = undefined;
+    pub fn promotion(self: Move) ?types.Ptype {
+        return switch (self.flag) {
+            .promote_n, .noisy_promote_n => .knight,
+            .promote_b, .noisy_promote_b => .bishop,
+            .promote_r, .noisy_promote_r => .rook,
+            .promote_q, .noisy_promote_q => .queen,
+            else => null,
+        };
+    }
 
+    pub fn isCastle(self: Move) bool {
+        return self.flag == .castle_q or self.flag == .castle_k;
+    }
+
+    pub fn isPromote(self: Move) bool {
+        return self.promotion() != null;
+    }
+
+    pub fn isNoisy(self: Move) bool {
+        return !self.isNone() and self.flag.int() & 0b1000 != 0;
+    }
+
+    pub fn isQuiet(self: Move) bool {
+        return !self.isNone() and self.flag.int() & 0b1000 == 0;
+    }
+
+    pub fn isNone(self: Move) bool {
+        return self == none;
+    }
+
+    pub fn toString(self: Move, board: *const Board, frc: bool) [8]u8 {
+        var buf: [8]u8 = undefined;
         buf[0], buf[1] = .{ self.src.file().char(), self.src.rank().char() };
-        buf[2], buf[3] = if (self.flag.isCastle()) castle: {
-            const frc = board.frc;
+        buf[2], buf[3] = if (self.isCastle()) castle: {
             const stm: types.Color = switch (self.src.rank()) {
                 .rank_1 => .white,
                 .rank_8 => .black,
                 else => std.debug.panic("invalid castle rank", .{}),
             };
-
             const right: types.Castle = switch (stm) {
                 .white => if (self.flag == .castle_q) .wq else .wk,
                 .black => if (self.flag == .castle_q) .bq else .bk,
             };
-            const castle = board.positions.last().castles.getAssertContains(right);
-
-            const s = if (frc) castle.rs else castle.kd;
+            const c = board.positions.last().castles.getAssertContains(right);
+            const s = if (frc) c.rs else c.kd;
             break :castle .{ s.file().char(), s.rank().char() };
         } else .{ self.dst.file().char(), self.dst.rank().char() };
-        buf[4] = if (self.flag.promotion()) |pt| pt.char() else buf[4];
-
+        buf[4] = if (self.promotion()) |pt| pt.char() else buf[4];
         return buf;
     }
 
     pub fn toStringLen(self: Move) usize {
-        return if (self.flag.promotion()) |_| 5 else 4;
+        return if (self.isPromote()) 5 else 4;
     }
 };
 
@@ -436,18 +418,18 @@ pub const Picker = struct {
     thread: *const Thread,
 
     excluded: Move,
-    ttm: Move = .{},
+    ttm: Move,
 
-    skip_quiets: bool = false,
-    stage: Stage = .gen_noisy,
+    skip_quiets: bool,
+    stage: Stage,
 
-    moves: Move.List = .{},
-    scores: evaluation.score.List = .{},
+    moves: Move.List,
+    scores: evaluation.score.List,
 
-    first: usize = 0,
-    last: usize = 0,
-    bad_noisy_n: usize = 0,
-    bad_quiet_n: usize = 0,
+    first: usize,
+    last: usize,
+    bad_noisy_n: usize,
+    bad_quiet_n: usize,
 
     pub const Stage = enum {
         ttm,
@@ -516,18 +498,18 @@ pub const Picker = struct {
     fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
         return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
             const mvv = if (move.flag == .en_passant)
-                params.values.see_ordering_pawn
+                params.values.ordering_pawn
             else switch (self.board.positions.last().getSq(move.dst).ptype()) {
-                .pawn => params.values.see_ordering_pawn,
-                .knight => params.values.see_ordering_knight,
-                .bishop => params.values.see_ordering_bishop,
-                .rook => params.values.see_ordering_rook,
-                .queen => params.values.see_ordering_queen,
+                .pawn => params.values.ordering_pawn,
+                .knight => params.values.ordering_knight,
+                .bishop => params.values.ordering_bishop,
+                .rook => params.values.ordering_rook,
+                .queen => params.values.ordering_queen,
                 .king => std.debug.panic("found king capture", .{}),
             };
 
             const hist = self.thread.getNoisyHist(move);
-            break :blk @intCast(@divTrunc(mvv * 7 + hist, 2));
+            break :blk @intCast(@divTrunc(mvv + hist, 2));
         };
     }
 
@@ -550,13 +532,23 @@ pub const Picker = struct {
             .thread = thread,
 
             .excluded = pos.excluded,
+            .ttm = .none,
+
+            .skip_quiets = false,
+            .stage = .gen_noisy,
+
+            .moves = .init,
+            .scores = .init,
+
+            .first = 0,
+            .last = 0,
+            .bad_noisy_n = 0,
+            .bad_quiet_n = 0,
         };
 
-        const is_excluded = !ttm.isNone() and ttm == mp.excluded;
-        const is_legal = !ttm.isNone() and pos.isMovePseudoLegal(ttm) and pos.isMoveLegal(ttm);
-        if (is_excluded or is_legal) {
+        if (!ttm.isNone()) {
             mp.ttm = ttm;
-            mp.stage = if (!is_excluded) .ttm else .gen_noisy;
+            mp.stage = if (ttm != mp.excluded) .ttm else .gen_noisy;
         }
 
         return mp;

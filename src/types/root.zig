@@ -736,6 +736,7 @@ pub const Castle = enum(u2) {
 
 pub fn SameMutPtr(comptime Mut: type, comptime Src: type, comptime Dst: type) type {
     const mut_info = @typeInfo(Mut).pointer;
+    const dst_info = @typeInfo(Dst).pointer;
     const src_info = @typeInfo(Src).pointer;
     if (mut_info.child != src_info.child) {
         const lhs = @typeName(mut_info.child);
@@ -744,9 +745,14 @@ pub fn SameMutPtr(comptime Mut: type, comptime Src: type, comptime Dst: type) ty
         @compileError(std.fmt.comptimePrint(msg, .{ lhs, rhs }));
     }
 
-    comptime var dst_info = @typeInfo(Dst).pointer;
-    dst_info.is_const = mut_info.is_const;
-    return @Type(.{ .pointer = dst_info });
+    const attrs: std.builtin.Type.Pointer.Attributes = .{
+        .@"const" = mut_info.is_const,
+        .@"volatile" = dst_info.is_volatile,
+        .@"allowzero" = dst_info.is_allowzero,
+        .@"addrspace" = dst_info.address_space,
+        .@"align" = dst_info.alignment,
+    };
+    return @Pointer(dst_info.size, attrs, dst_info.child, dst_info.sentinel());
 }
 
 pub fn BoundedArray(
@@ -755,8 +761,8 @@ pub fn BoundedArray(
     comptime max_len: comptime_int,
 ) type {
     return struct {
-        buffer: [capacity]T align(alignment) = undefined,
-        len: usize = 0,
+        buffer: [capacity]T align(alignment),
+        len: usize,
 
         const Self = @This();
 
@@ -766,6 +772,8 @@ pub fn BoundedArray(
 
         pub const alignment = opt_alignment orelse @alignOf(T);
         pub const capacity = max_len;
+
+        pub const init: Self = .{ .buffer = undefined, .len = 0 };
 
         pub fn addOne(self: *Self) Error!*align(alignment) T {
             return if (self.len < capacity) self.addOneUnchecked() else error.OutOfMemory;

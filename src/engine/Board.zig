@@ -13,13 +13,9 @@ const zobrist = @import("zobrist.zig");
 
 const Board = @This();
 
-frc: bool = false,
-finny_table: nnue.FinnyTable = .{},
-perspectives: types.BoundedArray(nnue.Accumulator.Perspective, null, 1024) = .{
-    .buffer = @splat(.{}),
-    .len = 1,
-},
-positions: types.BoundedArray(Position, null, 1024) = .{ .buffer = @splat(.{}), .len = 1 },
+finny_table: nnue.FinnyTable,
+perspectives: types.BoundedArray(nnue.Accumulator.Perspective, null, 1024),
+positions: types.BoundedArray(Position, null, 1024),
 
 pub const FenError = error{
     InvalidPiece,
@@ -60,30 +56,57 @@ pub const Castle = struct {
 };
 
 pub const Position = struct {
-    by_color: std.EnumArray(types.Color, types.Square.Set) = .initFill(.none),
-    by_ptype: std.EnumArray(types.Ptype, types.Square.Set) = .initFill(.none),
-    by_square: std.EnumArray(types.Square, types.Piece) = .initFill(.none),
-    castles: std.EnumMap(types.Castle, Castle) = .init(.{}),
+    by_color: std.EnumArray(types.Color, types.Square.Set),
+    by_ptype: std.EnumArray(types.Ptype, types.Square.Set),
+    by_square: std.EnumArray(types.Square, types.Piece),
+    castles: std.EnumMap(types.Castle, Castle),
 
-    stm: types.Color = .white,
-    move: movegen.Move = .{},
-    src_piece: types.Piece = .none,
-    dst_piece: types.Piece = .none,
+    stm: types.Color,
+    move: movegen.Move,
+    src_piece: types.Piece,
+    dst_piece: types.Piece,
 
-    checks: types.Square.Set = .full,
-    en_pas: ?types.Square = null,
-    rule50: u8 = 0,
+    checks: types.Square.Set,
+    en_pas: ?types.Square,
+    rule50: u8,
 
-    key: zobrist.Int = 0,
-    pawn_key: zobrist.Int = 0,
-    minor_key: zobrist.Int = 0,
-    major_key: zobrist.Int = 0,
-    nonpawn_keys: std.EnumArray(types.Color, zobrist.Int) = .initFill(0),
+    key: zobrist.Int,
+    pawn_key: zobrist.Int,
+    minor_key: zobrist.Int,
+    major_key: zobrist.Int,
+    nonpawn_keys: std.EnumArray(types.Color, zobrist.Int),
 
-    corr_eval: evaluation.score.Int = evaluation.score.none,
-    stat_eval: evaluation.score.Int = evaluation.score.none,
-    pv: movegen.RootMove = .{},
-    excluded: movegen.Move = .{},
+    corr_eval: evaluation.score.Int,
+    stat_eval: evaluation.score.Int,
+    pv: movegen.RootMove,
+    excluded: movegen.Move,
+
+    pub const init: Position = .{
+        .by_color = .initFill(.none),
+        .by_ptype = .initFill(.none),
+        .by_square = .initFill(.none),
+        .castles = .init(.{}),
+
+        .stm = .white,
+        .move = .none,
+        .src_piece = .none,
+        .dst_piece = .none,
+
+        .checks = .full,
+        .en_pas = null,
+        .rule50 = 0,
+
+        .key = 0,
+        .pawn_key = 0,
+        .minor_key = 0,
+        .major_key = 0,
+        .nonpawn_keys = .initFill(0),
+
+        .corr_eval = evaluation.score.none,
+        .stat_eval = evaluation.score.none,
+        .pv = .init,
+        .excluded = .none,
+    };
 
     pub const startpos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     pub const kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
@@ -264,10 +287,6 @@ pub const Position = struct {
     }
 
     fn parseFenTokens(self: *Position, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
-        const backup = self.*;
-        self.* = .{};
-        errdefer self.* = backup;
-
         const sa: [types.Square.num]types.Square = .{
             .a8, .b8, .c8, .d8, .e8, .f8, .g8, .h8,
             .a7, .b7, .c7, .d7, .e7, .f7, .g7, .h7,
@@ -279,8 +298,9 @@ pub const Position = struct {
             .a1, .b1, .c1, .d1, .e1, .f1, .g1, .h1,
         };
         var si: usize = 0;
-        var rooks = std.EnumMap(types.Castle, types.Square).init(.{});
-        var kings = std.EnumMap(types.Color, types.Square).init(.{});
+        var rooks: std.EnumMap(types.Castle, types.Square) = .init(.{});
+        var kings: std.EnumMap(types.Color, types.Square) = .init(.{});
+        var pos: Position = .init;
 
         const psq_token = tokens.next() orelse return error.InvalidFen;
         if (psq_token.len < 17 or psq_token.len > 71) {
@@ -290,7 +310,7 @@ pub const Position = struct {
             const s = sa[si];
             const from_c = types.Piece.fromChar(c);
             si += if (from_c) |p| blk: {
-                self.setSq(s, p);
+                pos.setSq(s, p);
 
                 break :blk sw: switch (p) {
                     .w_rook => {
@@ -335,9 +355,9 @@ pub const Position = struct {
         if (stm_token.len > 1) {
             return error.InvalidFen;
         }
-        self.stm = types.Color.fromChar(stm_token[0]) orelse return error.InvalidSideToMove;
-        if (self.stm == .white) {
-            self.key ^= zobrist.stm();
+        pos.stm = types.Color.fromChar(stm_token[0]) orelse return error.InvalidSideToMove;
+        if (pos.stm == .white) {
+            pos.key ^= zobrist.stm();
         }
 
         const cas_token = tokens.next() orelse return error.InvalidFen;
@@ -376,7 +396,7 @@ pub const Position = struct {
                     .white => if (is_q) types.Castle.wq else types.Castle.wk,
                 };
             };
-            if (self.castles.contains(right)) {
+            if (pos.castles.contains(right)) {
                 return error.InvalidCastle;
             }
 
@@ -387,7 +407,7 @@ pub const Position = struct {
             const kd = types.Square.init(right.color().homeRank(), if (is_q) .file_c else .file_g);
             const rd = types.Square.init(right.color().homeRank(), if (is_q) .file_d else .file_f);
 
-            self.setCastle(right, .init(ks, kd, rs, rd));
+            pos.setCastle(right, .init(ks, kd, rs, rd));
         }
 
         const enp_token = tokens.next() orelse return error.InvalidFen;
@@ -396,22 +416,23 @@ pub const Position = struct {
                 if (enp_token[0] != '-') {
                     return error.InvalidEnPassant;
                 }
-                self.popEnPas();
+                pos.popEnPas();
             },
             2 => {
                 const r = types.Rank.fromChar(enp_token[1]) orelse return error.InvalidEnPassant;
                 const f = types.File.fromChar(enp_token[0]) orelse return error.InvalidEnPassant;
-                try self.setEnPas(.init(r, f));
+                try pos.setEnPas(.init(r, f));
             },
             else => return error.InvalidFen,
         }
 
         const ply_token = tokens.next() orelse return error.InvalidFen;
-        self.rule50 = std.fmt.parseUnsigned(u8, ply_token, 10) catch return error.InvalidPlyClock;
+        pos.rule50 = std.fmt.parseUnsigned(u8, ply_token, 10) catch return error.InvalidPlyClock;
 
         const move_token = tokens.next() orelse return error.InvalidFen;
         _ = std.fmt.parseUnsigned(usize, move_token, 10) catch return error.InvalidMoveClock;
 
+        self.* = pos;
         self.setChecks();
     }
 
@@ -499,13 +520,139 @@ pub const Position = struct {
         return list.items;
     }
 
-    pub fn see(
-        self: *const Position,
-        comptime mode: @import("see.zig").Mode,
-        move: movegen.Move,
-        min: evaluation.score.Int,
-    ) bool {
-        return @import("see.zig").func(mode, self, move, min);
+    // TODO: less crine
+    pub fn see(self: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
+        if (!move.isNoisy()) {
+            return switch (move.flag) {
+                .none, .torped, .castle_k, .castle_q => min <= evaluation.score.draw,
+                .promote_n => min <= -params.values.see_pawn + params.values.see_knight,
+                .promote_b => min <= -params.values.see_pawn + params.values.see_bishop,
+                .promote_r => min <= -params.values.see_pawn + params.values.see_rook,
+                .promote_q => min <= -params.values.see_pawn + params.values.see_queen,
+                else => unreachable,
+            };
+        }
+
+        const ptypeValue = struct {
+            fn ptypeInner(p: types.Ptype) evaluation.score.Int {
+                return switch (p) {
+                    .king => evaluation.score.draw,
+                    inline else => |e| @field(params.values, "see_" ++ @tagName(e)),
+                };
+            }
+        }.ptypeInner;
+
+        const pieceValue = struct {
+            fn pieceInner(p: types.Piece) evaluation.score.Int {
+                return if (p != .none) ptypeValue(p.ptype()) else evaluation.score.draw;
+            }
+        }.pieceInner;
+
+        const s = move.src;
+        const d = move.dst;
+
+        const sp = self.getSq(s);
+        const dp = self.getSq(d);
+
+        var v = pieceValue(dp) - min +
+            if (move.promotion()) |pt| ptypeValue(pt) else evaluation.score.draw;
+        if (v < 0) {
+            return false;
+        }
+
+        v = pieceValue(sp) - v;
+        if (v <= 0) {
+            return true;
+        }
+
+        const diag = self.ptypeOcc(.queen).bwo(self.ptypeOcc(.bishop));
+        const line = self.ptypeOcc(.queen).bwo(self.ptypeOcc(.rook));
+
+        var ret = true;
+        var stm = self.stm;
+        var occ = self.bothOcc()
+            .bwx(s.toSet())
+            .bwx(d.toSet());
+        var atkers = types.Square.Set.none
+            .bwo(bitboard.pAtk(d.toSet(), .white).bwa(self.pieceOcc(.b_pawn)))
+            .bwo(bitboard.pAtk(d.toSet(), .black).bwa(self.pieceOcc(.w_pawn)))
+            .bwo(bitboard.nAtk(d).bwa(self.ptypeOcc(.knight)))
+            .bwo(bitboard.kAtk(d).bwa(self.ptypeOcc(.king)))
+            .bwo(bitboard.bAtk(d, occ).bwa(diag))
+            .bwo(bitboard.rAtk(d, occ).bwa(line));
+
+        while (true) {
+            atkers.popOther(occ.flip());
+            stm = stm.flip();
+
+            const ours = atkers.bwa(self.colorOcc(stm));
+            ret = if (ours == .none) break else !ret;
+
+            var least = ours.bwa(self.ptypeOcc(.pawn));
+            if (least != .none) {
+                v = ptypeValue(.pawn) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+                continue;
+            }
+
+            least = ours.bwa(self.ptypeOcc(.knight));
+            if (least != .none) {
+                v = ptypeValue(.knight) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                continue;
+            }
+
+            least = ours.bwa(self.ptypeOcc(.bishop));
+            if (least != .none) {
+                v = ptypeValue(.bishop) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+                continue;
+            }
+
+            least = ours.bwa(self.ptypeOcc(.rook));
+            if (least != .none) {
+                v = ptypeValue(.rook) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
+                continue;
+            }
+
+            least = ours.bwa(self.ptypeOcc(.queen));
+            if (least != .none) {
+                v = ptypeValue(.queen) - v;
+                if (v < @intFromBool(ret)) {
+                    break;
+                }
+
+                occ.popOther(least.getLow());
+                atkers.setOther(bitboard.bAtk(d, occ).bwa(diag));
+                atkers.setOther(bitboard.rAtk(d, occ).bwa(line));
+                continue;
+            }
+
+            ret = if (atkers.bwx(ours) == .none) ret else !ret;
+            break;
+        }
+
+        return ret;
     }
 
     pub fn after(
@@ -640,8 +787,8 @@ pub const Position = struct {
 
             .torped => sp.ptype() == .pawn and push2.get(d),
 
-            .castle_q, .castle_k => |f| castle: {
-                const right = f.castle(stm) orelse unreachable;
+            .castle_q, .castle_k => castle: {
+                const right = move.castle(stm) orelse unreachable;
                 const castle = self.castles.get(right) orelse break :castle false;
 
                 const is_checked = self.isChecked();
@@ -688,14 +835,14 @@ pub const Position = struct {
         const dp = pos.getSq(d);
 
         switch (move.flag) {
-            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+            .none, .torped, .promote_n, .promote_b, .promote_r, .promote_q => {
+                const add_p = types.Piece.init(move.promotion() orelse sp.ptype(), stm);
                 pos.popSq(s, sp);
                 pos.setSq(d, add_p);
             },
 
-            .castle_q, .castle_k => |f| {
-                const right = f.castle(stm) orelse unreachable;
+            .castle_q, .castle_k => {
+                const right = move.castle(stm) orelse unreachable;
                 const castle = pos.castles.getAssertContains(right);
 
                 const rook = types.Piece.init(.rook, stm);
@@ -709,7 +856,7 @@ pub const Position = struct {
             },
 
             else => |f| {
-                const add_p = types.Piece.init(f.promotion() orelse sp.ptype(), stm);
+                const add_p = types.Piece.init(move.promotion() orelse sp.ptype(), stm);
                 const del_p, const del_s = if (f == .en_passant)
                     .{ types.Piece.init(.pawn, stm.flip()), d.shift(stm.forward().flip(), 1) }
                 else
@@ -731,8 +878,8 @@ pub const Position = struct {
             return error.InvalidMove;
         }
 
-        pos.excluded = .{};
-        pos.rule50 = if (sp.ptype() != .pawn and !move.flag.isNoisy()) pos.rule50 + 1 else 0;
+        pos.excluded = .none;
+        pos.rule50 = if (sp.ptype() != .pawn and !move.isNoisy()) pos.rule50 + 1 else 0;
         pos.stm = stm.flip();
         pos.key ^= zobrist.stm();
 
@@ -772,16 +919,22 @@ pub const Position = struct {
     }
 };
 
+pub const init: Board = .{
+    .finny_table = .init,
+    .perspectives = .{ .buffer = @splat(.init), .len = 1 },
+    .positions = .{ .buffer = @splat(.init), .len = 1 },
+};
+
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
     var tokens = std.mem.tokenizeAny(u8, fen, &std.ascii.whitespace);
     return self.parseFenTokens(&tokens);
 }
 
 pub fn parseFenTokens(self: *Board, tokens: *std.mem.TokenIterator(u8, .any)) FenError!void {
-    var parsed: Position = .{};
+    var parsed: Position = .init;
     try parsed.parseFenTokens(tokens);
 
-    self.* = .{};
+    self.* = .init;
     self.positions.last().* = parsed;
     self.perspectives.last().dirty = .initFill(true);
 }
@@ -865,15 +1018,16 @@ pub fn printSelf(self: *Board, buffer: []u8) ![]const u8 {
     var fen_buf: [128]u8 align(std.atomic.cache_line) = undefined;
     const fen = try self.printFen(fen_buf[0..]);
     try list.printBounded("fen: {s}\n", .{fen});
-
     try list.printBounded("key: {x:016}\n", .{pos.key});
 
     const mat = pos.material();
     const eval = self.evaluate();
     const norm = evaluation.score.normalize(eval, mat);
     const w, const d, const l = evaluation.score.wdl(eval, mat);
-    try list.printBounded("wdl: {d:.2} {d:.2} {d:.2}\n", .{ w * 100.0, d * 100.0, l * 100.0 });
-    try list.printBounded("eval: {} cp\n", .{norm});
+    try list.printBounded("eval:\n", .{});
+    try list.printBounded("    raw: {}\n", .{eval});
+    try list.printBounded("    wdl: {d:.2} {d:.2} {d:.2}\n", .{ w * 100.0, d * 100.0, l * 100.0 });
+    try list.printBounded("    normalized: {}\n", .{norm});
 
     return list.items;
 }
@@ -896,14 +1050,14 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
 }
 
 pub fn doNull(self: *Board) void {
-    self.positions.last().move = .{};
+    self.positions.last().move = .none;
     self.positions.last().src_piece = .none;
     self.positions.last().dst_piece = .none;
 
     const pos = self.positions.addOneUnchecked();
     pos.* = pos.before(1).*;
     pos.checks = .full;
-    pos.excluded = .{};
+    pos.excluded = .none;
     pos.rule50 = 0;
     pos.stm = pos.stm.flip();
     pos.key ^= zobrist.stm();

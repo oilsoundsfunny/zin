@@ -71,13 +71,13 @@ pub const Result = enum(u8) {
 
 pub const Head = extern struct {
     occ: types.Square.Set,
-    pieces: u128 align(8) = 0,
-    flag: u8 = 0,
+    pieces: u128 align(8),
+    flag: u8,
     ply: u8,
-    moves: u16 = 1,
+    moves: u16,
     score: i16,
-    result: Result = .none,
-    pad: u8 = 0,
+    result: Result,
+    pad: u8,
 
     pub fn init(board: *engine.Board) Head {
         const pos = board.positions.last();
@@ -88,11 +88,16 @@ pub const Head = extern struct {
         var occ = pos.bothOcc();
         var self: Head = .{
             .occ = occ,
+            .pieces = 0,
+            .flag = 0,
             .ply = pos.rule50,
+            .moves = 1,
             .score = @intCast(switch (pos.stm) {
                 .white => norm,
                 .black => -norm,
             }),
+            .result = .none,
+            .pad = undefined,
         };
 
         var i: usize = 0;
@@ -120,17 +125,19 @@ pub const Move = packed struct(u16) {
     flag: u2,
 
     pub const Scored = extern struct {
-        move: Move = .init(.{}),
-        score: i16 = engine.evaluation.score.draw,
+        move: Move,
+        score: i16,
 
         pub const Line = types.BoundedArray(Move.Scored, null, 1024);
+
+        pub const init: Scored = .{ .move = .init(.none), .score = engine.evaluation.score.draw };
     };
 
     pub fn init(m: engine.movegen.Move) Move {
         return .{
             .src = m.src,
             .dst = m.dst,
-            .promotion = if (m.flag.promotion()) |pt| switch (pt) {
+            .promotion = if (m.promotion()) |pt| switch (pt) {
                 .knight => 0,
                 .bishop => 1,
                 .rook => 2,

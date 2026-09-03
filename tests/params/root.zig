@@ -1,1 +1,3 @@
-test {}
+test "zin.params" {
+    // TODO: lol
+}

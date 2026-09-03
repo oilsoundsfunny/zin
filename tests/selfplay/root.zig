@@ -1,1 +1,3 @@
-test {}
+test "zin.selfplay" {
+    // TODO: lol
+}

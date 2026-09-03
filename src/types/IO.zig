@@ -4,81 +4,89 @@ const Self = @This();
 
 const capacity = 65536;
 
-inp_buf: []u8,
-out_buf: []u8,
-
 inp_path: ?[]const u8,
 out_path: ?[]const u8,
 
-inp: std.fs.File.Reader,
-out: std.fs.File.Writer,
+stdio: std.Io,
+inp_mtx: std.Io.Mutex,
+out_mtx: std.Io.Mutex,
 
-pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+file_reader: std.Io.File.Reader,
+file_writer: std.Io.File.Writer,
+
+pub fn deinit(self: *Self, gpa: std.mem.Allocator, stdio: std.Io) void {
+    gpa.free(self.file_reader.interface.buffer);
+    gpa.free(self.file_writer.interface.buffer);
+
     if (self.inp_path) |_| {
-        self.inp.file.close();
+        self.file_reader.file.close(stdio);
     }
 
     if (self.out_path) |_| {
-        self.out.file.close();
+        self.file_writer.file.close(stdio);
     }
-
-    allocator.free(self.inp_buf);
-    allocator.free(self.out_buf);
-
-    self.inp_buf = undefined;
-    self.out_buf = undefined;
 }
 
 pub fn init(
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
+    stdio: std.Io,
     inp_path: ?[]const u8,
-    inp_capacity: usize,
+    inp_len: usize,
     out_path: ?[]const u8,
-    out_capacity: usize,
+    out_len: usize,
 ) !Self {
-    const inp_buf = try allocator.alloc(u8, inp_capacity);
-    const out_buf = try allocator.alloc(u8, out_capacity);
+    const inp_buf = try gpa.alignedAlloc(u8, .@"64", inp_len);
+    const out_buf = try gpa.alignedAlloc(u8, .@"64", out_len);
 
+    const cwd: std.Io.Dir = .cwd();
     return .{
-        .inp_buf = inp_buf,
-        .out_buf = out_buf,
-
         .inp_path = inp_path,
         .out_path = out_path,
 
-        .inp = if (inp_path) |path| open_input: {
-            const file = try std.fs.cwd().openFile(path, .{});
-            break :open_input file.reader(inp_buf);
-        } else std.fs.File.stdin().readerStreaming(inp_buf),
+        .stdio = stdio,
+        .inp_mtx = .init,
+        .out_mtx = .init,
 
-        .out = if (out_path) |path| create_output: {
-            const file = try std.fs.cwd().createFile(path, .{});
-            break :create_output file.writer(out_buf);
-        } else std.fs.File.stdout().writerStreaming(out_buf),
+        .file_reader = if (inp_path) |path| open: {
+            const file = try cwd.openFile(stdio, path, .{});
+            break :open file.reader(stdio, inp_buf);
+        } else std.Io.File.stdin().readerStreaming(stdio, inp_buf),
+
+        .file_writer = if (out_path) |path| create: {
+            const file = try cwd.createFile(stdio, path, .{});
+            break :create file.writer(stdio, out_buf);
+        } else std.Io.File.stdout().writerStreaming(stdio, out_buf),
     };
 }
 
 pub fn reader(self: *Self) *std.Io.Reader {
-    return &self.inp.interface;
+    return &self.file_reader.interface;
 }
 
 pub fn writer(self: *Self) *std.Io.Writer {
-    return &self.out.interface;
+    return &self.file_writer.interface;
 }
 
-pub fn lineCount(self: *const Self) !usize {
-    const path = self.inp_path orelse return 0;
-    const file = try std.fs.cwd().openFile(path, .{});
+pub fn lockReader(self: *Self) !void {
+    try self.inp_mtx.lock(self.stdio);
+}
 
-    var buf: [65536]u8 align(64) = undefined;
-    var cnt: u64 = 0;
-    while (true) {
-        const bytes = try file.read(buf[0..]);
-        if (bytes == 0) {
-            return cnt;
-        }
+pub fn lockWriter(self: *Self) !void {
+    try self.out_mtx.lock(self.stdio);
+}
 
-        const slice = buf[0..bytes];
-        cnt += std.mem.count(u8, slice, "\n");
-    } else return cnt;
+pub fn lockReaderUncancelable(self: *Self) void {
+    self.inp_mtx.lockUncancelable(self.stdio);
+}
+
+pub fn lockWriterUncancelable(self: *Self) void {
+    self.out_mtx.lockUncancelable(self.stdio);
+}
+
+pub fn unlockReader(self: *Self) void {
+    self.inp_mtx.unlock(self.stdio);
+}
+
+pub fn unlockWriter(self: *Self) void {
+    self.out_mtx.unlock(self.stdio);
 }
