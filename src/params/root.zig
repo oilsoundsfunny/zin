@@ -84,6 +84,13 @@ const tunables = blk: {
         .{ .name = "ordering_rook",   .min = 0, .max = 16384, .c_end =  512.0 },
         .{ .name = "ordering_queen",  .min = 0, .max = 16384, .c_end = 1024.0 },
 
+        .{ .name = "mat_scale_base",   .min = 0, .max = 16384, .c_end = 384.0 },
+        .{ .name = "mat_scale_pawn",   .min = 0, .max = 16384, .c_end =   4.0 },
+        .{ .name = "mat_scale_knight", .min = 0, .max = 16384, .c_end =  12.0 },
+        .{ .name = "mat_scale_bishop", .min = 0, .max = 16384, .c_end =  12.0 },
+        .{ .name = "mat_scale_rook",   .min = 0, .max = 16384, .c_end =  16.0 },
+        .{ .name = "mat_scale_queen",  .min = 0, .max = 16384, .c_end =  32.0 },
+
         .{ .name = "see_pawn",   .min = 0, .max = 16384, .c_end =  16.0 },
         .{ .name = "see_knight", .min = 0, .max = 16384, .c_end =  48.0 },
         .{ .name = "see_bishop", .min = 0, .max = 16384, .c_end =  48.0 },

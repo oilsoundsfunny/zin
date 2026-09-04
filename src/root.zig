@@ -64,7 +64,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 genfens.run(pool, first);
         } else if (std.mem.eql(u8, first, "bench")) {
             const depth: engine.Thread.Depth =
-                if (args.next()) |second| try std.fmt.parseUnsigned(u8, second, 10) else 12;
+                if (args.next()) |second| try std.fmt.parseUnsigned(u8, second, 10) else 8;
 
             return if (args.next()) |third|
                 std.process.fatal("extranous arg '{s}'", .{third})

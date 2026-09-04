@@ -38,8 +38,8 @@ pub fn help(pool: *engine.Thread.Pool, version_string: []const u8) !void {
     try pool.io.writer().flush();
 }
 
-pub fn run(pool: *engine.Thread.Pool, depth: ?engine.Thread.Depth) !void {
-    pool.limits.depth = depth orelse 12;
+pub fn run(pool: *engine.Thread.Pool, depth: engine.Thread.Depth) !void {
+    pool.limits.depth = depth;
     pool.limits.infinite = false;
     pool.opts.frc = true;
 

@@ -521,7 +521,7 @@ fn correctEval(
     const stm = pos.stm;
     const ntm = stm.flip();
 
-    var correction: evaluation.score.Int = evaluation.score.draw;
+    var correction: i64 = 0;
     for (hist.Corr.values) |t| {
         correction += switch (t) {
             // zig fmt: off
@@ -536,7 +536,22 @@ fn correctEval(
     }
 
     const corrected = eval + @divTrunc(correction, 1 << 18);
-    return std.math.clamp(corrected, evaluation.score.loss + 1, evaluation.score.win - 1);
+    const scaled = blk: {
+        // zig fmt: off
+        const mat_scale = params.values.mat_scale_base +
+            params.values.mat_scale_pawn   * pos.ptypeOcc(.pawn).count() +
+            params.values.mat_scale_knight * pos.ptypeOcc(.knight).count() +
+            params.values.mat_scale_bishop * pos.ptypeOcc(.bishop).count() +
+            params.values.mat_scale_rook   * pos.ptypeOcc(.rook).count() +
+            params.values.mat_scale_queen  * pos.ptypeOcc(.queen).count();
+        break :blk corrected * mat_scale;
+        // zig fmt: on
+    };
+    return @intCast(std.math.clamp(
+        @divTrunc(scaled, 16384),
+        evaluation.score.loss + 1,
+        evaluation.score.win - 1,
+    ));
 }
 
 fn updateCorrHists(
