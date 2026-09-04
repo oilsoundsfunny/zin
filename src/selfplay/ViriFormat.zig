@@ -130,7 +130,7 @@ pub const Move = packed struct(u16) {
 
         pub const Line = types.BoundedArray(Move.Scored, null, 1024);
 
-        pub const init: Scored = .{ .move = .init(.none), .score = engine.evaluation.score.draw };
+        pub const init: Scored = .{ .move = .init(.none), .score = 0 };
     };
 
     pub fn init(m: engine.movegen.Move) Move {

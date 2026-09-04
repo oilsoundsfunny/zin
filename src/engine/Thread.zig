@@ -387,6 +387,7 @@ tthits: u64,
 depth: Depth,
 seldepth: Depth,
 root_moves: movegen.RootMove.List,
+optimisms: std.EnumArray(types.Color, evaluation.score.Int),
 
 nmp_verif: bool,
 quiethist: hist.Quiet,
@@ -404,6 +405,7 @@ pub const init: Thread = .{
     .depth = 0,
     .seldepth = 0,
     .root_moves = .{ .array = .init },
+    .optimisms = .initFill(0),
 
     .nmp_verif = false,
     .quiethist = @splat(@splat(@splat(0))),
@@ -520,6 +522,7 @@ fn correctEval(
     const pos = self.board.positions.last();
     const stm = pos.stm;
     const ntm = stm.flip();
+    const optimism = self.optimisms.getPtrConst(stm).*;
 
     var correction: evaluation.score.Int = evaluation.score.draw;
     for (hist.Corr.values) |t| {
@@ -536,7 +539,8 @@ fn correctEval(
     }
 
     const corrected = eval + @divTrunc(correction, 1 << 18);
-    return std.math.clamp(corrected, evaluation.score.loss + 1, evaluation.score.win - 1);
+    const clamped = std.math.clamp(corrected, evaluation.score.loss + 1, evaluation.score.win - 1);
+    return clamped + optimism;
 }
 
 fn updateCorrHists(
@@ -1479,6 +1483,7 @@ pub fn search(self: *Thread, pool: *Pool) !void {
     self.tbhits = 0;
     self.tthits = 0;
     self.root_moves = movegen.RootMove.List.init(&self.board);
+    self.optimisms = .initFill(0);
 
     const job = self.job;
     const is_main = self == &pool.threads.items[0];
@@ -1506,6 +1511,7 @@ pub fn search(self: *Thread, pool: *Pool) !void {
         return;
     }
 
+    const stm = self.board.positions.last().stm;
     const max_depth = pool.limits.depth orelse movegen.RootMove.capacity;
     const min_depth = 1;
 
@@ -1513,12 +1519,22 @@ pub fn search(self: *Thread, pool: *Pool) !void {
     var last_depth: Depth = 0;
     var last_seldepth: Depth = 0;
     var last_pv: movegen.RootMove = root_moves[0];
+    var avg: @TypeOf(last_pv.score) = 0;
 
     while (depth <= max_depth) : (depth += 1) {
         self.depth = depth;
         self.seldepth = 0;
-        self.asp(pool);
 
+        const optimism = if (depth == 1) 0 else blk: {
+            const a = @divTrunc(avg + last_pv.score, 2);
+            const m = params.values.optimism_mult;
+            const b = params.values.optimism_div_bias;
+            break :blk @divTrunc(a * m, b + if (a < 0) -a else a);
+        };
+        self.optimisms.set(stm, @intCast(optimism));
+        self.optimisms.set(stm.flip(), @intCast(-optimism));
+
+        self.asp(pool);
         if (pool.stopped) {
             break;
         }
@@ -1527,6 +1543,7 @@ pub fn search(self: *Thread, pool: *Pool) !void {
         last_depth = self.depth;
         last_seldepth = self.seldepth;
         last_pv = root_moves[0];
+        avg = if (depth == 1) last_pv.score else @divTrunc(avg + last_pv.score * last_pv.score, 2);
         if (should_print and !pool.opts.minimal) {
             try self.printInfo(pool, &last_pv, last_depth, last_seldepth);
         }

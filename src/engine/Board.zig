@@ -524,7 +524,7 @@ pub const Position = struct {
     pub fn see(self: *const Board.Position, move: movegen.Move, min: evaluation.score.Int) bool {
         if (!move.isNoisy()) {
             return switch (move.flag) {
-                .none, .torped, .castle_k, .castle_q => min <= evaluation.score.draw,
+                .none, .torped, .castle_k, .castle_q => min <= 0,
                 .promote_n => min <= -params.values.see_pawn + params.values.see_knight,
                 .promote_b => min <= -params.values.see_pawn + params.values.see_bishop,
                 .promote_r => min <= -params.values.see_pawn + params.values.see_rook,
@@ -536,7 +536,7 @@ pub const Position = struct {
         const ptypeValue = struct {
             fn ptypeInner(p: types.Ptype) evaluation.score.Int {
                 return switch (p) {
-                    .king => evaluation.score.draw,
+                    .king => 0,
                     inline else => |e| @field(params.values, "see_" ++ @tagName(e)),
                 };
             }
@@ -544,7 +544,7 @@ pub const Position = struct {
 
         const pieceValue = struct {
             fn pieceInner(p: types.Piece) evaluation.score.Int {
-                return if (p != .none) ptypeValue(p.ptype()) else evaluation.score.draw;
+                return if (p != .none) ptypeValue(p.ptype()) else 0;
             }
         }.pieceInner;
 
@@ -554,8 +554,7 @@ pub const Position = struct {
         const sp = self.getSq(s);
         const dp = self.getSq(d);
 
-        var v = pieceValue(dp) - min +
-            if (move.promotion()) |pt| ptypeValue(pt) else evaluation.score.draw;
+        var v = pieceValue(dp) - min + if (move.promotion()) |pt| ptypeValue(pt) else 0;
         if (v < 0) {
             return false;
         }

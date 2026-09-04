@@ -32,16 +32,14 @@ pub const Entry = packed struct(u64) {
         .flag = .none,
         .age = 0,
         .depth = 0,
-        .eval = evaluation.score.none,
-        .score = evaluation.score.none,
+        .eval = 0,
+        .score = 0,
         .move = .none,
     };
 
     const flags_vec: @Vector(4, u64) = blk: {
         var entry: Entry = .none;
         entry.flag = @enumFromInt(std.math.maxInt(Flag.Tag));
-        entry.eval = evaluation.score.draw;
-        entry.score = evaluation.score.draw;
         break :blk @splat(@bitCast(entry));
     };
 
@@ -79,12 +77,12 @@ pub const Entry = packed struct(u64) {
     fn value(self: Entry, tt_age: i32) i32 {
         const depth = params.values.tt_depth_w * self.depth;
         const age = params.values.tt_age_w * @mod(tt_age - self.age, 32);
-        const pv = if (self.was_pv) params.values.tt_pv_w else evaluation.score.draw;
+        const pv = if (self.was_pv) params.values.tt_pv_w else 0;
         const flag = switch (self.flag) {
-            .none => evaluation.score.draw,
+            .none => 0,
             inline else => |e| @field(params.values, "tt_" ++ @tagName(e) ++ "_w"),
         };
-        const move = if (!self.move.isNone()) params.values.tt_move_w else evaluation.score.draw;
+        const move = if (!self.move.isNone()) params.values.tt_move_w else 0;
         return depth - age + pv + flag + move;
     }
 
@@ -195,7 +193,7 @@ pub const Table = struct {
 
         const flags: @Vector(4, i32) = blk: {
             const lut: std.EnumArray(Entry.Flag, i32) = .init(.{
-                .none = evaluation.score.draw,
+                .none = 0,
                 .upperbound = params.values.tt_upperbound_w,
                 .lowerbound = params.values.tt_lowerbound_w,
                 .exact = params.values.tt_exact_w,

@@ -43,6 +43,8 @@
     .corr_major_update_w = 2819,
     .corr_nonpawn_stm_update_w = 1642,
     .corr_nonpawn_ntm_update_w = 1642,
+    .optimism_mult = 160,
+    .optimism_div_bias = 192,
     .asp_window = 17,
     .asp_window_mult = 429,
     .tt_depth_w = 1321,

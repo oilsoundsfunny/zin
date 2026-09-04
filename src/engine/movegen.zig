@@ -48,7 +48,7 @@ pub const RootMove = struct {
                 if (!pos.isMoveLegal(m)) {
                     continue;
                 }
-                var rm: RootMove = .{ .line = .init, .score = evaluation.score.draw, .nodes = 0 };
+                var rm: RootMove = .{ .line = .init, .score = 0, .nodes = 0 };
                 rm.line.pushUnchecked(m);
                 root_moves.array.pushUnchecked(rm);
             }
@@ -587,7 +587,7 @@ pub const Picker = struct {
                 break :good_noisy_loop;
             };
 
-            if (sm.score < evaluation.score.draw) {
+            if (sm.score < 0) {
                 self.moves.array.buffer[self.bad_noisy_n] = sm.move;
                 self.scores.array.buffer[self.bad_noisy_n] = sm.score;
                 self.bad_noisy_n += 1;
@@ -624,7 +624,7 @@ pub const Picker = struct {
             }
 
             const sm = picked.?;
-            if (sm.score < evaluation.score.draw) {
+            if (sm.score < 0) {
                 self.moves.array.buffer[self.bad_noisy_n + self.bad_quiet_n] = sm.move;
                 self.scores.array.buffer[self.bad_noisy_n + self.bad_quiet_n] = sm.score;
                 self.bad_quiet_n += 1;

@@ -122,6 +122,9 @@ const tunables = blk: {
         .{ .name = "corr_nonpawn_stm_update_w", .min = 0, .max = 4096, .c_end = 128.0 },
         .{ .name = "corr_nonpawn_ntm_update_w", .min = 0, .max = 4096, .c_end = 128.0 },
 
+        .{ .name = "optimism_mult",     .min = 64, .max = 512, .c_end = 8.0 },
+        .{ .name = "optimism_div_bias", .min = 64, .max = 512, .c_end = 4.0 },
+
         .{ .name = "asp_window",      .min = 0, .max =  48, .c_end =  1.0 },
         .{ .name = "asp_window_mult", .min = 0, .max = 768, .c_end = 32.0 },
 

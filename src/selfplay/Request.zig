@@ -22,17 +22,12 @@ pub const Adj = struct {
     pub const Error = error{ InvalidPlyNum, InvalidScore };
 
     pub fn init(min_ply: usize, ply_num: usize, score: engine.evaluation.score.Int) Error!Adj {
-        if (ply_num > @min(min_ply, ViriFormat.Move.Scored.Line.capacity)) {
-            return error.InvalidPlyNum;
-        }
-
-        const min = engine.evaluation.score.draw;
-        const max = engine.evaluation.score.win;
-        if (score != std.math.clamp(score, min, max)) {
-            return error.InvalidScore;
-        }
-
-        return .{ .min_ply = min_ply, .ply_num = ply_num, .score = score };
+        return if (ply_num > @min(min_ply, ViriFormat.Move.Scored.Line.capacity))
+            error.InvalidPlyNum
+        else if (score != std.math.clamp(score, 0, engine.evaluation.score.win))
+            error.InvalidScore
+        else
+            .{ .min_ply = min_ply, .ply_num = ply_num, .score = score };
     }
 };
 

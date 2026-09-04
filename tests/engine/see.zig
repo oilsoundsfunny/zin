@@ -45,13 +45,12 @@ test "zin.engine.Board.Position.see1" {
         .dst = .e5,
     };
 
-    const draw = engine.evaluation.score.draw;
     const pawn = params.values.see_pawn;
     const knight = params.values.see_knight;
 
-    try std.testing.expect(board.positions.last().see(move, draw - knight));
-    try std.testing.expect(board.positions.last().see(move, pawn - knight));
+    try std.testing.expect(board.positions.last().see(move, -knight));
+    try std.testing.expect(board.positions.last().see(move, -knight + pawn));
 
-    try std.testing.expect(!board.positions.last().see(move, -draw));
+    try std.testing.expect(!board.positions.last().see(move, 0));
     try std.testing.expect(!board.positions.last().see(move, -pawn));
 }
