@@ -244,8 +244,9 @@ pub const Table = struct {
     pub fn hashfull(self: *const Table) usize {
         var full: usize = 0;
         for (self.clusters[0..2000]) |*cluster| {
-            inline for (cluster.entries[0..]) |*entry| {
-                full += @intFromBool(entry.age == self.age);
+            const loaded = cluster.load();
+            inline for (loaded.entries[0..]) |entry| {
+                full += @intFromBool(entry.flag != .none and entry.age == self.age);
             }
         }
         return (full + 3) / 6;
