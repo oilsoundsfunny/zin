@@ -1154,19 +1154,49 @@ fn ab(
             score = if (is_late and d >= 3) reduced: {
                 r += base_lmr;
 
-                r += params.values.lmr_non_improving * @intFromBool(!improving);
-                r += params.values.lmr_cutnode * @intFromBool(node == .lowerbound);
-                r += params.values.lmr_noisy_ttm * @intFromBool(has_ttm and mp.ttm.isNoisy());
-                r += params.values.lmr_found_pv * @intFromBool(flag == .exact);
+                if (is_noisy) {
+                    r += params.values.lmr_noisy_non_improving *
+                        @intFromBool(!improving);
+                    r += params.values.lmr_noisy_cutnode *
+                        @intFromBool(node == .lowerbound);
+                    r += params.values.lmr_noisy_noisy_ttm *
+                        @intFromBool(has_ttm and mp.ttm.isNoisy());
+                    r += params.values.lmr_noisy_found_pv *
+                        @intFromBool(flag == .exact);
 
-                r -= params.values.lmr_gave_check *
-                    @intFromBool(board.positions.last().isChecked());
-                r -= params.values.lmr_is_checked * @intFromBool(is_checked);
-                r -= params.values.lmr_is_pv * @intFromBool(is_pv);
+                    r -= params.values.lmr_noisy_gave_check *
+                        @intFromBool(board.positions.last().isChecked());
+                    r -= params.values.lmr_noisy_is_checked *
+                        @intFromBool(is_checked);
+                    r -= params.values.lmr_noisy_is_pv *
+                        @intFromBool(is_pv);
 
-                r -= params.values.lmr_was_pv * @intFromBool(was_pv);
-                r -= params.values.lmr_was_pv_non_fail_low *
-                    @intFromBool(was_pv and ttscore > a);
+                    r -= params.values.lmr_noisy_was_pv *
+                        @intFromBool(was_pv);
+                    r -= params.values.lmr_noisy_was_pv_non_fail_low *
+                        @intFromBool(was_pv and ttscore > a);
+                } else {
+                    r += params.values.lmr_quiet_non_improving *
+                        @intFromBool(!improving);
+                    r += params.values.lmr_quiet_cutnode *
+                        @intFromBool(node == .lowerbound);
+                    r += params.values.lmr_quiet_noisy_ttm *
+                        @intFromBool(has_ttm and mp.ttm.isNoisy());
+                    r += params.values.lmr_quiet_found_pv *
+                        @intFromBool(flag == .exact);
+
+                    r -= params.values.lmr_quiet_gave_check *
+                        @intFromBool(board.positions.last().isChecked());
+                    r -= params.values.lmr_quiet_is_checked *
+                        @intFromBool(is_checked);
+                    r -= params.values.lmr_quiet_is_pv *
+                        @intFromBool(is_pv);
+
+                    r -= params.values.lmr_quiet_was_pv *
+                        @intFromBool(was_pv);
+                    r -= params.values.lmr_quiet_was_pv_non_fail_low *
+                        @intFromBool(was_pv and ttscore > a);
+                }
 
                 r = @divTrunc(r, 1024);
                 const rd = std.math.clamp(recur_d - r, 1, recur_d);
