@@ -956,6 +956,59 @@ fn ab(
         }
     }
 
+    const probcut_failed = if (d > 3 and
+        !is_pv and
+        !is_singular and
+        !is_checked and
+        b > evaluation.score.loss and
+        b < evaluation.score.win)
+    probcut: {
+        const pb = b + params.values.probcut_margin;
+        const pd = d - 3;
+        if (tth and tte.depth >= pd and ttscore < pb) {
+            break :probcut false;
+        }
+
+        const has_probcut_ttm = has_ttm and pos.see(tte.move, pb - corr_eval);
+        var mp: movegen.Picker = .init(self, if (has_probcut_ttm) tte.move else .none);
+
+        move_loop: while (mp.next()) |sm| {
+            const m = sm.move;
+            const is_legal = m == mp.ttm or check: {
+                const next_pos = pos.tryMove(m) catch break :check false;
+                pool.tt.prefetch(next_pos.key);
+                break :check true;
+            };
+
+            const s = if (!is_legal) continue :move_loop else blk: {
+                board.doMove(m);
+                defer board.undoMove();
+                var score = -self.qs(pool, ply + 1, -b, -b + 1);
+                if (score >= pb and pd > 1) {
+                    score = -self.ab(pool, .upperbound, ply + 1, -b, -b + 1, pd - 1);
+                }
+                break :blk score;
+            };
+
+            if (s >= pb) {
+                pool.tt.write(key, .{
+                    .was_pv = was_pv,
+                    .flag = .lowerbound,
+                    .age = @truncate(pool.tt.age),
+                    .depth = @intCast(pd),
+                    .eval = @intCast(stat_eval),
+                    .score = @intCast(evaluation.score.toTT(s, ply)),
+                    .move = m,
+                });
+                return s;
+            }
+        }
+
+        break :probcut true;
+    } else false;
+    // TODO: use ts later
+    _ = probcut_failed;
+
     if (!is_pv and
         !is_singular and
         !is_checked and
