@@ -971,6 +971,7 @@ fn ab(
 
         const has_probcut_ttm = has_ttm and pos.see(tte.move, pb - corr_eval);
         var mp: movegen.Picker = .init(self, if (has_probcut_ttm) tte.move else .none);
+        var searched: usize = 0;
 
         move_loop: while (mp.next()) |sm| {
             const m = sm.move;
@@ -980,9 +981,10 @@ fn ab(
                 break :check true;
             };
 
-            const s = if (!is_legal) continue :move_loop else blk: {
+            const s = if (m == mp.ttm or !is_legal) continue :move_loop else blk: {
                 board.doMove(m);
                 defer board.undoMove();
+                defer searched += 1;
                 var score = -self.qs(pool, ply + 1, -b, -b + 1);
                 if (score >= pb and pd > 1) {
                     score = -self.ab(pool, .upperbound, ply + 1, -b, -b + 1, pd - 1);
@@ -1004,7 +1006,7 @@ fn ab(
             }
         }
 
-        break :probcut true;
+        break :probcut searched > 0;
     } else false;
     // TODO: use ts later
     _ = probcut_failed;
