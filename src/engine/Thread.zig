@@ -1169,7 +1169,7 @@ fn ab(
                     @intFromBool(was_pv and ttscore > a);
 
                 r = @divTrunc(r, 1024);
-                const rd = std.math.clamp(recur_d - r, 1, recur_d);
+                const rd = std.math.clamp(recur_d - r, 1, recur_d + 1) + @intFromBool(is_pv);
                 var rs = -self.ab(pool, .lowerbound, ply + 1, -a - 1, -a, rd);
 
                 if (rs > a and rd < recur_d) {
