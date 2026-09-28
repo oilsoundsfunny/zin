@@ -1102,15 +1102,10 @@ pub fn isTerminal(self: *const Board) bool {
 pub fn evaluate(self: *Board) evaluation.score.Int {
     const perspective = self.perspectives.last();
     const position = self.positions.last();
-
     for (types.Color.values) |c| {
         if (perspective.dirty.get(c)) {
             self.finny_table.load(c, perspective, position);
         }
     }
-
-    const inferred = nnue.network.verbatim.infer(perspective, position);
-    const min = evaluation.score.loss + 1;
-    const max = evaluation.score.win - 1;
-    return std.math.clamp(inferred, min, max);
+    return evaluation.score.clamp(nnue.network.verbatim.infer(perspective, position));
 }

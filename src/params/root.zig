@@ -140,7 +140,9 @@ const tunables = blk: {
         .{ .name = "nmp_deval_mult",  .min = 0, .max = 1024, .c_end = 48.0 },
         .{ .name = "nmp_deval_max_r", .min = 0, .max = 2048, .c_end = 96.0 },
 
-        .{ .name = "razoring_mult", .min = 0, .max = 512, .c_end = 24.0 },
+        .{ .name = "razoring_mult",   .min = 0, .max =  512, .c_end = 24.0 },
+        .{ .name = "razoring_bias",   .min = 0, .max = 1024, .c_end = 48.0 },
+        .{ .name = "razoring_margin", .min = 0, .max =  512, .c_end = 24.0 },
 
         .{ .name = "fp_margin_mult", .min = 0, .max = 256, .c_end =  8.0 },
         .{ .name = "fp_margin_bias", .min = 0, .max = 768, .c_end = 24.0 },

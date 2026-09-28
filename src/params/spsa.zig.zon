@@ -60,6 +60,8 @@
     .nmp_deval_mult = 665,
     .nmp_deval_max_r = 1268,
     .razoring_mult = 301,
+    .razoring_bias = 0,
+    .razoring_margin = 128,
     .fp_margin_mult = 134,
     .fp_margin_bias = 356,
     .fp_hist_mult = 44,
