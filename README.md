@@ -34,5 +34,6 @@ the program is output as $PREFIX/bin/zin
 
 ## thanks
 - @JonathanHallstrom (author of [pawnocchio](https://github.com/JonathanHallstrom/pawnocchio)) for training nets and many yoinks :33
+- @urisinger for cleaning up tunables
 - many others in the Alpha-Beta discord server (public soon:tm:)
 
