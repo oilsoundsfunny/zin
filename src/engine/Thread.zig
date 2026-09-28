@@ -960,11 +960,19 @@ fn ab(
         !is_singular and
         !is_checked and
         d <= 7 and
-        corr_eval + params.values.razoring_mult * d <= a)
+        a >= corr_eval + params.values.razoring_mult * d + params.values.razoring_bias)
     {
-        const rs = self.qs(pool, ply + 1, a, b);
-        if (rs <= a) {
-            return rs;
+        const s = self.qs(pool, ply + 1, a, a + 1);
+        if (s <= a) {
+            const t = std.math.clamp(
+                a - params.values.razoring_margin,
+                evaluation.score.loss + 1,
+                evaluation.score.win - 1,
+            );
+            const v = if (s <= t) return s else self.qs(pool, ply + 1, t, t + 1);
+            if (v <= t) {
+                return std.math.clamp(v, evaluation.score.loss + 1, evaluation.score.win - 1);
+            }
         }
     }
 
