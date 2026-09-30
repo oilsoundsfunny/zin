@@ -1087,7 +1087,13 @@ fn ab(
                 params.values.se_beta_mult -
                 params.values.se_beta_mult_pv * @intFromBool(is_pv) +
                 params.values.se_beta_mult_was_pv * @intFromBool(was_pv);
-            const raw_sb = @divTrunc(ttscore * 1024 - d * bmul, 1024);
+            const dm = d * bmul;
+            const hm = blk: {
+                const s = if (is_noisy) self.scoreNoisy(m) else self.scoreQuiet(m);
+                const max = if (dm < 0) -dm else dm;
+                break :blk std.math.clamp(s, -max, max);
+            };
+            const raw_sb = @divTrunc(ttscore * 1024 - dm - hm, 1024);
             const raw_sd =
                 params.values.se_depth_mult * d +
                 params.values.se_depth_bias;
@@ -1554,4 +1560,28 @@ pub fn getNoisyHist(self: *const Thread, move: movegen.Move) hist.Int {
 
 pub fn getContHist(self: *const Thread, move: movegen.Move, ply: usize) hist.Int {
     return if (self.contHistPtr(move, ply)) |p| p.* else evaluation.score.draw;
+}
+
+pub fn scoreNoisy(self: *const Thread, move: movegen.Move) hist.Int {
+    const mvv = if (move.flag == .en_passant)
+        params.values.ordering_pawn
+    else switch (self.board.positions.last().getSq(move.dst).ptype()) {
+        .pawn => params.values.ordering_pawn,
+        .knight => params.values.ordering_knight,
+        .bishop => params.values.ordering_bishop,
+        .rook => params.values.ordering_rook,
+        .queen => params.values.ordering_queen,
+        .king => std.debug.panic("found king capture", .{}),
+    };
+    return @intCast(@divTrunc(mvv + self.getNoisyHist(move), 2));
+}
+
+pub fn scoreQuiet(self: *const Thread, move: movegen.Move) hist.Int {
+    const score = @as(evaluation.score.Int, self.getQuietHist(move)) +
+        @as(evaluation.score.Int, self.getContHist(move, 1)) * 2 +
+        @as(evaluation.score.Int, self.getContHist(move, 2)) +
+        @as(evaluation.score.Int, self.getContHist(move, 4)) +
+        @as(evaluation.score.Int, self.getContHist(move, 6));
+    const scaled = @divTrunc(score, 6);
+    return @intCast(scaled);
 }

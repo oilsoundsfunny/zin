@@ -496,33 +496,11 @@ pub const Picker = struct {
     }
 
     fn scoreNoisy(self: *const Picker, move: Move) Thread.hist.Int {
-        return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
-            const mvv = if (move.flag == .en_passant)
-                params.values.ordering_pawn
-            else switch (self.board.positions.last().getSq(move.dst).ptype()) {
-                .pawn => params.values.ordering_pawn,
-                .knight => params.values.ordering_knight,
-                .bishop => params.values.ordering_bishop,
-                .rook => params.values.ordering_rook,
-                .queen => params.values.ordering_queen,
-                .king => std.debug.panic("found king capture", .{}),
-            };
-
-            const hist = self.thread.getNoisyHist(move);
-            break :blk @intCast(@divTrunc(mvv + hist, 2));
-        };
+        return if (self.shouldSkip(move)) evaluation.score.mate else self.thread.scoreNoisy(move);
     }
 
     fn scoreQuiet(self: *const Picker, move: Move) Thread.hist.Int {
-        return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
-            const score = @as(evaluation.score.Int, self.thread.getQuietHist(move)) +
-                @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2 +
-                @as(evaluation.score.Int, self.thread.getContHist(move, 2)) +
-                @as(evaluation.score.Int, self.thread.getContHist(move, 4)) +
-                @as(evaluation.score.Int, self.thread.getContHist(move, 6));
-            const scaled = @divTrunc(score, 6);
-            break :blk @intCast(scaled);
-        };
+        return if (self.shouldSkip(move)) evaluation.score.mate else self.thread.scoreQuiet(move);
     }
 
     pub fn init(thread: *const Thread, ttm: Move) Picker {
