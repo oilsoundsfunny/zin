@@ -2,6 +2,7 @@ const engine = @import("engine");
 const std = @import("std");
 const types = @import("types");
 
+pub const lmp = @import("lmp.zig");
 pub const lmr = @import("lmr.zig");
 pub const tuning = @import("options").tuning;
 
@@ -71,12 +72,6 @@ const tunables = blk: {
 
         .{ .name = "nodetm_mult", .min = 0, .max = 2097152, .c_end =  98304.0 },
         .{ .name = "nodetm_bias", .min = 0, .max = 3145728, .c_end = 131072.0 },
-
-        .{ .name = "base_lmr_noisy_mult", .min = 0, .max =  48, .c_end =  2.0 },
-        .{ .name = "base_lmr_noisy_bias", .min = 0, .max = 512, .c_end = 24.0 },
-
-        .{ .name = "base_lmr_quiet_mult", .min = 0, .max = 1024, .c_end = 48.0 },
-        .{ .name = "base_lmr_quiet_bias", .min = 0, .max = 1024, .c_end = 48.0 },
 
         .{ .name = "ordering_pawn",   .min = 0, .max = 16384, .c_end =  128.0 },
         .{ .name = "ordering_knight", .min = 0, .max = 16384, .c_end =  384.0 },
@@ -193,6 +188,12 @@ const tunables = blk: {
         .{ .name = "text_noisy", .min = 0, .max = 128, .c_end =  6.0 },
         .{ .name = "text_pv",    .min = 0, .max = 768, .c_end = 32.0 },
 
+        .{ .name = "lmr_init_noisy_mult", .min = 0, .max =  48, .c_end =  2.0 },
+        .{ .name = "lmr_init_noisy_bias", .min = 0, .max = 512, .c_end = 24.0 },
+
+        .{ .name = "lmr_init_quiet_mult", .min = 0, .max = 1024, .c_end = 48.0 },
+        .{ .name = "lmr_init_quiet_bias", .min = 0, .max = 1024, .c_end = 48.0 },
+
         .{ .name = "lmr_non_improving",       .min = 0, .max = 3072, .c_end = 128.0 },
         .{ .name = "lmr_cutnode",             .min = 0, .max = 3072, .c_end = 128.0 },
         .{ .name = "lmr_noisy_ttm",           .min = 0, .max = 3072, .c_end = 128.0 },
@@ -233,6 +234,7 @@ pub var values: Values = .{};
 pub fn deinit() void {}
 
 pub fn init() !void {
+    try lmp.init();
     try lmr.init();
 }
 
@@ -260,7 +262,9 @@ pub fn parseTunable(
     }
 
     dst.* = value;
-    if (std.mem.startsWith(u8, name, "base_lmr")) {
+    if (std.mem.startsWith(u8, name, "lmp")) {
+        try lmp.init();
+    } else if (std.mem.startsWith(u8, name, "lmr_init")) {
         try lmr.init();
     }
 }

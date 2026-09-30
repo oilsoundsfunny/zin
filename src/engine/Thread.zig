@@ -1042,19 +1042,7 @@ fn ab(
                 continue :move_loop;
             }
 
-            const lmp_lim = blk: {
-                const base = if (improving)
-                    params.values.lmp_improving_quad * d * d +
-                        params.values.lmp_improving_mult * d +
-                        params.values.lmp_improving_bias
-                else
-                    params.values.lmp_nonimproving_quad * d * d +
-                        params.values.lmp_nonimproving_mult * d +
-                        params.values.lmp_nonimproving_bias;
-                const div: usize = @intCast(@divTrunc(base, 1024));
-                break :blk @max(div + @intFromBool(is_direct_check), 1);
-            };
-            if (searched > lmp_lim) {
+            if (searched > params.lmp.get(d, improving, is_direct_check)) {
                 break :move_loop;
             }
 

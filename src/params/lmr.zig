@@ -22,12 +22,12 @@ pub fn init() !void {
             const d: f32 = @floatFromInt(depth);
             const n: f32 = @floatFromInt(num);
 
-            const noisy_mult: f32 = @floatFromInt(root.values.base_lmr_noisy_mult);
-            const noisy_bias: f32 = @floatFromInt(root.values.base_lmr_noisy_bias);
+            const noisy_mult: f32 = @floatFromInt(root.values.lmr_init_noisy_mult);
+            const noisy_bias: f32 = @floatFromInt(root.values.lmr_init_noisy_bias);
             const noisy = @round(noisy_bias + noisy_mult * @log(d) * @log(n));
 
-            const quiet_mult: f32 = @floatFromInt(root.values.base_lmr_quiet_mult);
-            const quiet_bias: f32 = @floatFromInt(root.values.base_lmr_quiet_bias);
+            const quiet_mult: f32 = @floatFromInt(root.values.lmr_init_quiet_mult);
+            const quiet_bias: f32 = @floatFromInt(root.values.lmr_init_quiet_bias);
             const quiet = @round(quiet_bias + quiet_mult * @log(d) * @log(n));
 
             by_num.* = .{ @intFromFloat(noisy), @intFromFloat(quiet) };
