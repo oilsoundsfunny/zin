@@ -536,7 +536,7 @@ fn correctEval(
     }
 
     const corrected = eval + @divTrunc(correction, 1 << 18);
-    return std.math.clamp(corrected, evaluation.score.loss + 1, evaluation.score.win - 1);
+    return evaluation.score.clamp(@intCast(corrected));
 }
 
 fn updateCorrHists(
@@ -964,14 +964,10 @@ fn ab(
     {
         const s = self.qs(pool, ply + 1, a, a + 1);
         if (s <= a) {
-            const t = std.math.clamp(
-                a - params.values.razoring_margin,
-                evaluation.score.loss + 1,
-                evaluation.score.win - 1,
-            );
+            const t = evaluation.score.clamp(a - params.values.razoring_margin);
             const v = if (s <= t) return s else self.qs(pool, ply + 1, t, t + 1);
             if (v <= t) {
-                return std.math.clamp(v, evaluation.score.loss + 1, evaluation.score.win - 1);
+                return evaluation.score.clamp(v);
             }
         }
     }
@@ -1117,9 +1113,7 @@ fn ab(
                 e += @intFromBool(se_score < sb - margins[0]);
                 e += @intFromBool(se_score < sb - margins[1]);
             } else if (sb >= b) {
-                const min = evaluation.score.loss + 1;
-                const max = evaluation.score.win - 1;
-                return std.math.clamp(sb, min, max);
+                return evaluation.score.clamp(sb);
             } else if (a + 1 > b - 1 or ttscore != std.math.clamp(ttscore, a + 1, b - 1)) {
                 e -= 4;
             }
