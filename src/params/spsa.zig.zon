@@ -94,7 +94,7 @@
     .text_quiet = 76,
     .text_noisy = 78,
     .text_pv = 492,
-    .lmr_init_noisy_mult = 21,
+    .lmr_init_noisy_mult = 303,
     .lmr_init_noisy_bias = 327,
     .lmr_init_quiet_mult = 611,
     .lmr_init_quiet_bias = 659,

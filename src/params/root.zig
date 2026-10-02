@@ -187,7 +187,7 @@ const tunables = blk: {
         .{ .name = "text_noisy", .min = 0, .max = 128, .c_end =  6.0 },
         .{ .name = "text_pv",    .min = 0, .max = 768, .c_end = 32.0 },
 
-        .{ .name = "lmr_init_noisy_mult", .min = 0, .max =  48, .c_end =  2.0 },
+        .{ .name = "lmr_init_noisy_mult", .min = 0, .max = 512, .c_end = 24.0 },
         .{ .name = "lmr_init_noisy_bias", .min = 0, .max = 512, .c_end = 24.0 },
 
         .{ .name = "lmr_init_quiet_mult", .min = 0, .max = 1024, .c_end = 48.0 },
