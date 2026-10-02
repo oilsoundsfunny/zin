@@ -12,25 +12,19 @@ pub fn get(depth: engine.Thread.Depth, searched: usize, quiet: bool) engine.Thre
 }
 
 pub fn init() !void {
-    for (table[0..], 0..) |*by_depth, depth| {
-        for (by_depth[0..], 0..) |*by_num, num| {
-            if (depth == 0 or num == 0) {
-                by_num.* = .{ 0, 0 };
-                continue;
-            }
+    const noisy_mult: f64 = @floatFromInt(root.values.lmr_init_noisy_mult);
+    const noisy_bias: f64 = @floatFromInt(root.values.lmr_init_noisy_bias);
+    const quiet_mult: f64 = @floatFromInt(root.values.lmr_init_quiet_mult);
+    const quiet_bias: f64 = @floatFromInt(root.values.lmr_init_quiet_bias);
 
-            const d: f32 = @floatFromInt(depth);
-            const n: f32 = @floatFromInt(num);
+    for (table[0..], 1..) |*pd, depth| {
+        for (pd[0..], 1..) |*pn, num| {
+            const d: f64 = @floatFromInt(depth);
+            const n: f64 = @floatFromInt(num);
 
-            const noisy_mult: f32 = @floatFromInt(root.values.lmr_init_noisy_mult);
-            const noisy_bias: f32 = @floatFromInt(root.values.lmr_init_noisy_bias);
             const noisy = @round(noisy_bias + noisy_mult * @log(d) * @log(n));
-
-            const quiet_mult: f32 = @floatFromInt(root.values.lmr_init_quiet_mult);
-            const quiet_bias: f32 = @floatFromInt(root.values.lmr_init_quiet_bias);
             const quiet = @round(quiet_bias + quiet_mult * @log(d) * @log(n));
-
-            by_num.* = .{ @intFromFloat(noisy), @intFromFloat(quiet) };
+            pn.* = .{ @intFromFloat(noisy), @intFromFloat(quiet) };
         }
     }
 }
