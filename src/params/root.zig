@@ -72,12 +72,6 @@ const tunables = blk: {
         .{ .name = "nodetm_mult", .min = 0, .max = 2097152, .c_end =  98304.0 },
         .{ .name = "nodetm_bias", .min = 0, .max = 3145728, .c_end = 131072.0 },
 
-        .{ .name = "base_lmr_noisy_mult", .min = 0, .max =  48, .c_end =  2.0 },
-        .{ .name = "base_lmr_noisy_bias", .min = 0, .max = 512, .c_end = 24.0 },
-
-        .{ .name = "base_lmr_quiet_mult", .min = 0, .max = 1024, .c_end = 48.0 },
-        .{ .name = "base_lmr_quiet_bias", .min = 0, .max = 1024, .c_end = 48.0 },
-
         .{ .name = "ordering_pawn",   .min = 0, .max = 16384, .c_end =  128.0 },
         .{ .name = "ordering_knight", .min = 0, .max = 16384, .c_end =  384.0 },
         .{ .name = "ordering_bishop", .min = 0, .max = 16384, .c_end =  384.0 },
@@ -193,15 +187,31 @@ const tunables = blk: {
         .{ .name = "text_noisy", .min = 0, .max = 128, .c_end =  6.0 },
         .{ .name = "text_pv",    .min = 0, .max = 768, .c_end = 32.0 },
 
-        .{ .name = "lmr_non_improving",       .min = 0, .max = 3072, .c_end = 128.0 },
-        .{ .name = "lmr_cutnode",             .min = 0, .max = 3072, .c_end = 128.0 },
-        .{ .name = "lmr_noisy_ttm",           .min = 0, .max = 3072, .c_end = 128.0 },
-        .{ .name = "lmr_found_pv",            .min = 0, .max = 3072, .c_end = 128.0 },
-        .{ .name = "lmr_gave_check",          .min = 0, .max = 3072, .c_end = 128.0 },
-        .{ .name = "lmr_is_checked",          .min = 0, .max = 3072, .c_end = 128.0 },
-        .{ .name = "lmr_is_pv",               .min = 0, .max = 3072, .c_end = 128.0 },
-        .{ .name = "lmr_was_pv",              .min = 0, .max = 3072, .c_end = 128.0 },
-        .{ .name = "lmr_was_pv_non_fail_low", .min = 0, .max = 3072, .c_end = 128.0 },
+        .{ .name = "lmr_init_noisy_mult", .min = 0, .max = 512, .c_end = 24.0 },
+        .{ .name = "lmr_init_noisy_bias", .min = 0, .max = 512, .c_end = 24.0 },
+
+        .{ .name = "lmr_init_quiet_mult", .min = 0, .max = 1024, .c_end = 48.0 },
+        .{ .name = "lmr_init_quiet_bias", .min = 0, .max = 1024, .c_end = 48.0 },
+
+        .{ .name = "lmr_noisy_non_improving",       .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_noisy_cutnode",             .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_noisy_noisy_ttm",           .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_noisy_found_pv",            .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_noisy_gave_check",          .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_noisy_is_checked",          .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_noisy_is_pv",               .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_noisy_was_pv",              .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_noisy_was_pv_non_fail_low", .min = -2048, .max = 2048, .c_end = 128.0 },
+
+        .{ .name = "lmr_quiet_non_improving",       .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_quiet_cutnode",             .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_quiet_noisy_ttm",           .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_quiet_found_pv",            .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_quiet_gave_check",          .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_quiet_is_checked",          .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_quiet_is_pv",               .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_quiet_was_pv",              .min = -2048, .max = 2048, .c_end = 128.0 },
+        .{ .name = "lmr_quiet_was_pv_non_fail_low", .min = -2048, .max = 2048, .c_end = 128.0 },
 
         .{ .name = "deeper_margin0_mult",   .min = 0, .max = 32768, .c_end = 1024.0 },
         .{ .name = "deeper_margin0_bias",   .min = 0, .max =  3072, .c_end =   96.0 },
@@ -260,7 +270,7 @@ pub fn parseTunable(
     }
 
     dst.* = value;
-    if (std.mem.startsWith(u8, name, "base_lmr")) {
+    if (std.mem.startsWith(u8, name, "lmr_init")) {
         try lmr.init();
     }
 }
