@@ -959,6 +959,59 @@ fn ab(
     if (!is_pv and
         !is_singular and
         !is_checked and
+        d >= 5 and
+        b == evaluation.score.clamp(b))
+    probcut: {
+        const pb = b + params.values.probcut_margin;
+        const pd = std.math.clamp(d - 4, 1, d - 1);
+        if (tth and tte.depth > d - 4 and ttscore < pb) {
+            break :probcut;
+        }
+
+        const threshold = params.values.probcut_see_bias +
+            @divTrunc((pb - ttscore) * params.values.probcut_see_mult, 1024);
+        var mp: movegen.Picker = .init(self, if (has_ttm) tte.move else .none);
+
+        move_loop: while (mp.next()) |sm| {
+            const m = sm.move;
+            const is_ttm = m == mp.ttm;
+            const is_legal = is_ttm or check: {
+                const next_pos = pos.tryMove(m) catch break :check false;
+                pool.tt.prefetch(next_pos.key);
+                break :check true;
+            };
+            if (!is_legal or !pos.see(m, threshold)) {
+                continue :move_loop;
+            }
+
+            const s = recur: {
+                board.doMove(m);
+                defer board.undoMove();
+                var score = -self.qs(pool, ply + 1, -b, -b + 1);
+                if (score >= pb) {
+                    score = -self.ab(pool, node.flip(), ply + 1, -b, -b + 1, pd);
+                }
+                break :recur score;
+            };
+
+            if (s >= pb) {
+                pool.tt.write(key, .{
+                    .was_pv = was_pv,
+                    .flag = .lowerbound,
+                    .age = @truncate(pool.tt.age),
+                    .depth = @intCast(depth),
+                    .eval = @intCast(stat_eval),
+                    .score = @intCast(evaluation.score.toTT(s, ply)),
+                    .move = m,
+                });
+                return s;
+            }
+        }
+    }
+
+    if (!is_pv and
+        !is_singular and
+        !is_checked and
         d <= 7 and
         corr_eval + params.values.razoring_mult * d <= a)
     {
