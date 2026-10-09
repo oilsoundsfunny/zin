@@ -140,7 +140,7 @@ const tunables = blk: {
         .{ .name = "nmp_deval_mult",  .min = 0, .max = 1024, .c_end = 48.0 },
         .{ .name = "nmp_deval_max_r", .min = 0, .max = 2048, .c_end = 96.0 },
 
-        .{ .name = "probcut_margin",   .min =     0, .max =  512, .c_end = 24.0 },
+        .{ .name = "probcut_margin",   .min =   192, .max =  768, .c_end = 24.0 },
         .{ .name = "probcut_see_mult", .min =   256, .max = 4096, .c_end = 48.0 },
         .{ .name = "probcut_see_bias", .min = -1024, .max = 1024, .c_end = 96.0 },
 
