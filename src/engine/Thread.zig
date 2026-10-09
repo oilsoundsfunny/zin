@@ -965,7 +965,7 @@ fn ab(
         const s = self.qs(pool, ply + 1, a, a + 1);
         if (s <= a) {
             const t = evaluation.score.clamp(a - params.values.razoring_margin);
-            const v = if (s <= t) return s else self.qs(pool, ply + 1, t, t + 1);
+            const v = if (s <= t) s else self.qs(pool, ply + 1, t, t + 1);
             if (v <= t) {
                 return evaluation.score.clamp(v);
             }
