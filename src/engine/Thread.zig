@@ -1115,10 +1115,11 @@ fn ab(
             } else if (a + 1 > b - 1 or ttscore != std.math.clamp(ttscore, a + 1, b - 1)) {
                 e -= 4;
             }
-        } else if (!is_checked and
-            node == .lowerbound and
+        } else if (node == .lowerbound and
+            !is_datagen and
+            !is_checked and
             d <= 7 and
-            corr_eval <= a - params.values.ldse_margin)
+            a >= corr_eval + params.values.ldse_margin)
         {
             e += 1;
         }
