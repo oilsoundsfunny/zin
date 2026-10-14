@@ -1118,7 +1118,7 @@ fn ab(
         } else if (!is_checked and
             node == .lowerbound and
             d <= 7 and
-            corr_eval <= a - params.values.ldse_margin)
+            a >= corr_eval + params.values.ldse_margin)
         {
             e += 1;
         }
