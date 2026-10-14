@@ -64,9 +64,7 @@ pub const Entry = packed struct(u64) {
         fn value(self: Flag) i32 {
             return switch (self) {
                 .none => evaluation.score.draw,
-                .upperbound => params.values.tt_upperbound_w,
-                .lowerbound => params.values.tt_lowerbound_w,
-                .exact => params.values.tt_exact_w,
+                inline else => |e| @field(params.values, "tt_" ++ @tagName(e) ++ "_w"),
             };
         }
 
@@ -86,18 +84,6 @@ pub const Entry = packed struct(u64) {
             return self.tag() & Flag.upperbound.tag() != 0;
         }
     };
-
-    fn value(self: Entry, tt_age: i32) i32 {
-        const depth = params.values.tt_depth_w * self.depth;
-        const age = params.values.tt_age_w * @mod(tt_age - self.age, 32);
-        const pv = if (self.was_pv) params.values.tt_pv_w else evaluation.score.draw;
-        const flag = switch (self.flag) {
-            .none => evaluation.score.draw,
-            inline else => |e| @field(params.values, "tt_" ++ @tagName(e) ++ "_w"),
-        };
-        const move = if (!self.move.isNone()) params.values.tt_move_w else evaluation.score.draw;
-        return depth - age + pv + flag + move;
-    }
 
     pub fn shouldTrust(
         self: Entry,
@@ -206,7 +192,7 @@ pub const Table = struct {
             params.values.tt_move_w *% @intFromBool(!vec[3].move.isNone()),
         };
 
-        const sum = depths - ages + pvs + flags + moves;
+        const sum = depths + ages + pvs + flags + moves;
         return .{ sum[0], sum[1], sum[2], std.math.maxInt(i32) };
     }
 
