@@ -21,7 +21,7 @@ const big_atomic_bits = big_atomic_size * 8;
 pub const Entry = packed struct(u64) {
     was_pv: bool,
     flag: Flag,
-    age: u5,
+    age: Age,
     depth: u8,
     eval: i16,
     score: i16,
@@ -47,6 +47,8 @@ pub const Entry = packed struct(u64) {
 
     const none_vec: @Vector(4, u64) = @splat(0);
 
+    pub const Age = u5;
+
     pub const Flag = enum(u2) {
         none,
         upperbound,
@@ -57,6 +59,15 @@ pub const Entry = packed struct(u64) {
 
         fn tag(self: Flag) Tag {
             return @intFromEnum(self);
+        }
+
+        fn value(self: Flag) i32 {
+            return switch (self) {
+                .none => evaluation.score.draw,
+                .upperbound => params.values.tt_upperbound_w,
+                .lowerbound => params.values.tt_lowerbound_w,
+                .exact => params.values.tt_exact_w,
+            };
         }
 
         pub fn flip(self: Flag) Flag {
@@ -105,9 +116,9 @@ pub const Entry = packed struct(u64) {
 
 pub const Cluster = struct {
     entries: [3]Entry,
-    hashes: [4]u16,
+    hashes: u64,
 
-    pub const none: Cluster = .{ .entries = @splat(.none), .hashes = @splat(0) };
+    pub const none: Cluster = .{ .entries = @splat(.none), .hashes = 0 };
 
     fn load(self: *const Cluster) Cluster {
         const quarters: [4]u64 = switch (big_atomic_bits) {
@@ -133,7 +144,7 @@ pub const Cluster = struct {
         return .{ .entries = @bitCast(quarters[0..3].*), .hashes = @bitCast(quarters[3]) };
     }
 
-    fn entriesVec(self: *const Cluster, padding: Entry) @Vector(4, u64) {
+    fn paddedEntries(self: *const Cluster, padding: Entry) @Vector(4, u64) {
         return .{
             @bitCast(self.entries[0]),
             @bitCast(self.entries[1]),
@@ -141,33 +152,24 @@ pub const Cluster = struct {
             @bitCast(padding),
         };
     }
-
-    fn hashesVec(self: *const Cluster, padding: u16) @Vector(4, u16) {
-        return .{ self.hashes[0], self.hashes[1], self.hashes[2], padding };
-    }
 };
 
 pub const Table = struct {
     clusters: []Cluster,
-    age: u5,
+    age: Entry.Age,
 
     fn index(self: *const Table, key: zobrist.Int) usize {
         return zobrist.index(key, self.clusters.len);
     }
 
     fn madviseHugePage(self: *const Table) !void {
-        switch (@typeInfo(@TypeOf(std.posix.MADV))) {
-            .@"enum",
-            .@"struct",
-            .@"union",
-            => if (@hasField(std.posix.MADV, "HUGEPAGE")) {
-                try std.posix.madvise(
-                    @ptrCast(self.clusters.ptr),
-                    @sizeOf(Cluster) * self.clusters.len,
-                    std.posix.MADV.HUGEPAGE,
-                );
-            },
-            else => {},
+        const madv_info = @typeInfo(@TypeOf(std.posix.MADV));
+        if (madv_info == .@"enum" or madv_info == .@"struct" or madv_info == .@"union") {
+            try std.posix.madvise(
+                @ptrCast(self.clusters.ptr),
+                @sizeOf(Cluster) * self.clusters.len,
+                std.posix.MADV.HUGEPAGE,
+            );
         }
     }
 
@@ -193,17 +195,8 @@ pub const Table = struct {
             params.values.tt_pv_w *% @intFromBool(vec[3].was_pv),
         };
 
-        const flags: @Vector(4, i32) = blk: {
-            const lut: std.EnumArray(Entry.Flag, i32) = .init(.{
-                .none = evaluation.score.draw,
-                .upperbound = params.values.tt_upperbound_w,
-                .lowerbound = params.values.tt_lowerbound_w,
-                .exact = params.values.tt_exact_w,
-            });
-            break :blk .{
-                lut.get(vec[0].flag), lut.get(vec[1].flag),
-                lut.get(vec[2].flag), lut.get(vec[3].flag),
-            };
+        const flags: @Vector(4, i32) = .{
+            vec[0].flag.value(), vec[1].flag.value(), vec[2].flag.value(), vec[3].flag.value(),
         };
 
         const moves: @Vector(4, i32) = .{
@@ -268,15 +261,19 @@ pub const Table = struct {
         const cluster = &self.clusters[self.index(pos_hash)];
         const loaded = cluster.load();
 
-        const entries_vec: @Vector(4, u64) = loaded.entriesVec(.none);
+        const entries_vec: @Vector(4, u64) = loaded.paddedEntries(.none);
         const entries: [4]Entry align(32) = @bitCast(entries_vec);
-
-        const short_hash: u16 = @truncate(pos_hash);
-        const short_hashes: @Vector(4, u16) = @splat(short_hash);
-        const hashes_vec = cluster.hashesVec(~short_hash);
-
         const valids = entries_vec & Entry.flags_vec != Entry.none_vec;
-        const matches = hashes_vec == short_hashes;
+
+        const hashes = loaded.hashes;
+        const short_hash: u21 = @truncate(pos_hash);
+        const matches: @Vector(4, bool) = .{
+            hashes & std.math.shl(u64, 0x1fffff, 21 * 0) == std.math.shl(u64, short_hash, 21 * 0),
+            hashes & std.math.shl(u64, 0x1fffff, 21 * 1) == std.math.shl(u64, short_hash, 21 * 1),
+            hashes & std.math.shl(u64, 0x1fffff, 21 * 2) == std.math.shl(u64, short_hash, 21 * 2),
+            false,
+        };
+
         const hits = valids & matches;
         return if (std.simd.firstTrue(hits)) |i| .{ entries[i], true } else .{ entries[3], false };
     }
@@ -285,39 +282,51 @@ pub const Table = struct {
         const cluster = &self.clusters[self.index(pos_hash)];
         const loaded = cluster.load();
 
-        const entries_vec: @Vector(4, u64) = loaded.entriesVec(blk: {
+        const entries_vec: @Vector(4, u64) = loaded.paddedEntries(blk: {
             var entry: Entry = .none;
             entry.flag = .exact;
             break :blk entry;
         });
         const entries: [4]Entry align(32) = @bitCast(entries_vec);
-
-        const short_hash: u16 = @truncate(pos_hash);
-        const short_hashes: @Vector(4, u16) = @splat(short_hash);
-        const hashes_vec = cluster.hashesVec(~short_hash);
-        const hashes: [4]u16 align(@alignOf(u64)) = @bitCast(hashes_vec);
-
         const nones = entries_vec & Entry.flags_vec == Entry.none_vec;
-        const matches = hashes_vec == short_hashes;
-        const early = std.simd.firstTrue(nones | matches);
+
+        const hashes = loaded.hashes;
+        const short_hash: u21 = @truncate(pos_hash);
+        const matches: @Vector(4, bool) = .{
+            hashes & std.math.shl(u64, 0x1fffff, 21 * 0) == std.math.shl(u64, short_hash, 21 * 0),
+            hashes & std.math.shl(u64, 0x1fffff, 21 * 1) == std.math.shl(u64, short_hash, 21 * 1),
+            hashes & std.math.shl(u64, 0x1fffff, 21 * 2) == std.math.shl(u64, short_hash, 21 * 2),
+            false,
+        };
+        const matches_arr: [4]bool = .{ matches[0], matches[1], matches[2], matches[3] };
 
         const val = self.values(&entries);
         const min: @TypeOf(val) = @splat(@reduce(.Min, val));
-        const late = std.simd.firstTrue(val == min);
 
-        const i = early orelse late.?;
+        const early = std.simd.firstTrue(nones | matches);
+        const late = std.simd.firstTrue(val == min);
+        const i: usize = early orelse late.?;
+
         var entry = entries[i];
         var move = entry.move;
-        if (src.flag == .exact or
-            hashes[i] != short_hash or
+        if (!matches_arr[i] or
+            src.flag == .exact or
             entry.age != self.age or
             entry.depth < src.depth + 4)
         {
-            move = if (src.move.isNone() and hashes[i] == short_hash) move else src.move;
+            move = if (src.move.isNone() and matches_arr[i]) move else src.move;
             entry = src;
             entry.move = move;
+            const new_hashes = blk: {
+                // zig fmt: off
+                var new = loaded.hashes;
+                new &= ~std.math.shl(u64, 0x1fffff,   21 * i);
+                new |=  std.math.shl(u64, short_hash, 21 * i);
+                break :blk new;
+                // zig fmt: on
+            };
             @atomicStore(Entry, &cluster.entries[i], entry, .monotonic);
-            @atomicStore(u16, &cluster.hashes[i], short_hash, .monotonic);
+            @atomicStore(u64, &cluster.hashes, new_hashes, .monotonic);
         }
     }
 
@@ -326,3 +335,9 @@ pub const Table = struct {
         @prefetch(&self.clusters[self.index(hash)], .{});
     }
 };
+
+comptime {
+    if (@sizeOf(Cluster) != @sizeOf(u128) * 2) {
+        @compileError(std.fmt.comptimePrint("unexpected @sizeOf(Cluster) = {d}", .{@sizeOf(Cluster)}));
+    }
+}
