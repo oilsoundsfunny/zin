@@ -87,22 +87,42 @@ const tunables = blk: {
         .{ .name = "quiethist_max_bonus",  .min =    0, .max = 4096, .c_end = 128.0 },
         .{ .name = "quiethist_bonus_quad", .min =    0, .max =  128, .c_end =   4.0 },
         .{ .name = "quiethist_bonus_mult", .min = -512, .max =  512, .c_end =  32.0 },
-        .{ .name = "quiethist_bonus_bias", .min =    0, .max =  768, .c_end =  32.0 },
+        .{ .name = "quiethist_bonus_bias", .min =    0, .max = 1024, .c_end =  32.0 },
 
         .{ .name = "quiethist_max_malus",  .min =    0, .max = 4096, .c_end = 128.0 },
         .{ .name = "quiethist_malus_quad", .min =    0, .max =  128, .c_end =   4.0 },
         .{ .name = "quiethist_malus_mult", .min = -512, .max =  512, .c_end =  32.0 },
-        .{ .name = "quiethist_malus_bias", .min =    0, .max =  768, .c_end =  32.0 },
+        .{ .name = "quiethist_malus_bias", .min =    0, .max = 1024, .c_end =  32.0 },
 
         .{ .name = "noisyhist_max_bonus",  .min =    0, .max = 4096, .c_end = 128.0 },
         .{ .name = "noisyhist_bonus_quad", .min =    0, .max =  128, .c_end =   4.0 },
         .{ .name = "noisyhist_bonus_mult", .min = -512, .max =  512, .c_end =  32.0 },
-        .{ .name = "noisyhist_bonus_bias", .min =    0, .max =  768, .c_end =  32.0 },
+        .{ .name = "noisyhist_bonus_bias", .min =    0, .max = 1024, .c_end =  32.0 },
 
         .{ .name = "noisyhist_max_malus",  .min =    0, .max = 4096, .c_end = 128.0 },
         .{ .name = "noisyhist_malus_quad", .min =    0, .max =  128, .c_end =   4.0 },
         .{ .name = "noisyhist_malus_mult", .min = -512, .max =  512, .c_end =  32.0 },
-        .{ .name = "noisyhist_malus_bias", .min =    0, .max =  768, .c_end =  32.0 },
+        .{ .name = "noisyhist_malus_bias", .min =    0, .max = 1024, .c_end =  32.0 },
+
+        .{ .name = "conthist_max_bonus",  .min =    0, .max = 4096, .c_end = 128.0 },
+        .{ .name = "conthist_bonus_quad", .min =    0, .max =  128, .c_end =   4.0 },
+        .{ .name = "conthist_bonus_mult", .min = -512, .max =  512, .c_end =  32.0 },
+        .{ .name = "conthist_bonus_bias", .min =    0, .max = 1024, .c_end =  32.0 },
+
+        .{ .name = "conthist_max_malus",  .min =    0, .max = 4096, .c_end = 128.0 },
+        .{ .name = "conthist_malus_quad", .min =    0, .max =  128, .c_end =   4.0 },
+        .{ .name = "conthist_malus_mult", .min = -512, .max =  512, .c_end =  32.0 },
+        .{ .name = "conthist_malus_bias", .min =    0, .max = 1024, .c_end =  32.0 },
+
+        .{ .name = "pawnhist_max_bonus",  .min =    0, .max = 4096, .c_end = 128.0 },
+        .{ .name = "pawnhist_bonus_quad", .min =    0, .max =  128, .c_end =   4.0 },
+        .{ .name = "pawnhist_bonus_mult", .min = -512, .max =  512, .c_end =  32.0 },
+        .{ .name = "pawnhist_bonus_bias", .min =    0, .max = 1024, .c_end =  32.0 },
+
+        .{ .name = "pawnhist_max_malus",  .min =    0, .max = 4096, .c_end = 128.0 },
+        .{ .name = "pawnhist_malus_quad", .min =    0, .max =  128, .c_end =   4.0 },
+        .{ .name = "pawnhist_malus_mult", .min = -512, .max =  512, .c_end =  32.0 },
+        .{ .name = "pawnhist_malus_bias", .min =    0, .max = 1024, .c_end =  32.0 },
 
         .{ .name = "corr_pawn_w",        .min = 0, .max = 1536, .c_end = 64.0 },
         .{ .name = "corr_minor_w",       .min = 0, .max = 1536, .c_end = 64.0 },
