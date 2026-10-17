@@ -54,11 +54,11 @@ const Piece = enum(u4) {
     }
 
     fn fromInt(i: Int) Piece {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 
     fn int(self: Piece) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 };
 

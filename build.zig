@@ -190,10 +190,8 @@ fn processNetworks(bld: *std.Build) ?[2]std.Build.LazyPath {
 }
 
 fn shortHash(bld: *std.Build) ?[]const u8 {
-    const argv: []const []const u8 = if (bld.build_root.path) |root|
-        &.{ "git", "-C", root, "rev-parse", "--short=7", "HEAD" }
-    else
-        &.{ "git", "rev-parse", "--short=7", "HEAD" };
+    const argv: []const []const u8 =
+        &.{ "git", "-C", bld.root.basename(), "rev-parse", "--short=7", "HEAD" };
     var exit: u8 = undefined;
     const stdout = bld.runAllowFail(argv, &exit, .ignore) catch return null;
     const short_hash = std.mem.trim(u8, stdout, std.ascii.whitespace[0..]);

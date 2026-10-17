@@ -984,7 +984,8 @@ pub fn printFen(self: *const Board, buffer: []u8) ![]const u8 {
     try list.appendBounded(pos.stm.char());
     try list.appendBounded(' ');
 
-    if (pos.castles.bits != @TypeOf(pos.castles.bits).initEmpty()) {
+    // TODO: cleanup
+    if (pos.castles.bits.mask != 0) {
         const rights: [types.Castle.num]types.Castle = .{ .wk, .wq, .bk, .bq };
         for (rights) |right| {
             if (pos.castles.contains(right)) {

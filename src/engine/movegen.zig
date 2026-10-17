@@ -115,7 +115,7 @@ pub const Move = packed struct(u16) {
         noisy_promote_q = 0b1111,
 
         fn int(self: Flag) std.meta.Tag(Flag) {
-            return @intFromEnum(self);
+            return @backingInt(self);
         }
     };
 
