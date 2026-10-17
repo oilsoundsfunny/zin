@@ -18,7 +18,7 @@ const nnz: [256]@Vector(8, u16) = blk: {
     break :blk @bitCast(a);
 };
 
-fn nzMask(v: simd.Vec(u8)) std.meta.Int(.unsigned, simd.Vec(i32).len) {
+fn nzMask(v: simd.Vec(u8)) @Int(.unsigned, simd.Vec(i32).len) {
     const v_i32: simd.Vec(i32) = .bitCast(v);
     const zeroes: simd.Vec(i32) = .splat(0);
     return @bitCast(v_i32.v != zeroes.v);

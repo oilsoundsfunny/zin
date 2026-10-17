@@ -39,7 +39,7 @@ pub const Entry = packed struct(u64) {
 
     const flags_vec: @Vector(4, u64) = blk: {
         var entry: Entry = .none;
-        entry.flag = @enumFromInt(std.math.maxInt(Flag.Tag));
+        entry.flag = @fromBackingInt(@intCast(std.math.maxInt(Flag.Tag)));
         entry.eval = evaluation.score.draw;
         entry.score = evaluation.score.draw;
         break :blk @splat(@bitCast(entry));
@@ -56,7 +56,7 @@ pub const Entry = packed struct(u64) {
         const Tag = std.meta.Tag(Flag);
 
         fn tag(self: Flag) Tag {
-            return @intFromEnum(self);
+            return @backingInt(self);
         }
 
         pub fn flip(self: Flag) Flag {

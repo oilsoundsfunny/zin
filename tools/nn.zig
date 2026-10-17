@@ -5,7 +5,7 @@ const Args = struct {
     inp: std.Io.File,
     out: std.Io.File,
 
-    const Error = error{NotFound};
+    const Error = error{ InvalidCpu, NotFound };
 
     fn init(args: *std.process.Args.Iterator, io: std.Io) !Args {
         const cpu_arg = args.next() orelse return error.NotFound;
@@ -13,7 +13,7 @@ const Args = struct {
         const out_arg = args.next() orelse return error.NotFound;
 
         return .{
-            .cpu = try std.Target.Cpu.Arch.x86_64.parseCpuModel(cpu_arg),
+            .cpu = std.Target.Cpu.Arch.x86_64.parseCpuModel(cpu_arg) orelse return error.InvalidCpu,
             .inp = try std.Io.Dir.cwd().openFile(io, inp_arg, .{}),
             .out = try std.Io.Dir.cwd().createFile(io, out_arg, .{}),
         };
@@ -75,13 +75,16 @@ pub const Network = extern struct {
 };
 
 comptime {
-    for (std.meta.fields(Network), std.meta.fields(Network.Raw)) |field, raw_field| {
-        const name = field.name[0..];
-        const raw_name = raw_field.name[0..];
-        if (@offsetOf(Network, name) != @offsetOf(Network.Raw, raw_name) or
-            @sizeOf(field.type) != @sizeOf(raw_field.type))
-        {
-            @compileError("incompatible fields " ++ name ++ " and " ++ raw_name);
+    const net_info = @typeInfo(Network).@"struct";
+    const raw_info = @typeInfo(Network.Raw).@"struct";
+    for (
+        net_info.field_names,
+        net_info.field_types,
+        raw_info.field_names,
+        raw_info.field_types,
+    ) |net_field_name, NetFieldType, raw_field_name, RawFieldType| {
+        if (@sizeOf(NetFieldType) != @sizeOf(RawFieldType)) {
+            @compileError("incompatible fields " ++ net_field_name ++ " and " ++ raw_field_name);
         }
     }
 }

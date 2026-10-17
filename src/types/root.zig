@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const IO = @import("IO.zig");
 
-const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
+const SquareSet = enum(@Int(.unsigned, Square.num)) {
     none = (1 << (Square.num * 0)) - 1,
     full = (1 << (Square.num * 1)) - 1,
     _,
@@ -10,17 +10,15 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
     pub const Int = std.meta.Tag(SquareSet);
 
     fn fromRank(r: Rank) SquareSet {
-        const s = @as(Square.Int, r.int()) * File.num;
-        return fromInt(std.math.shl(Int, 0x00000000000000ff, s));
+        return .fromInt(@as(Int, 0x00000000000000ff) << @as(Square.Int, r.int()) * File.num);
     }
 
     fn fromFile(f: File) SquareSet {
-        const s = @as(Square.Int, f.int());
-        return fromInt(std.math.shl(Int, 0x0101010101010101, s));
+        return .fromInt(@as(Int, 0x0101010101010101) << @as(Square.Int, f.int()));
     }
 
     fn fromSquare(s: Square) SquareSet {
-        return fromInt(1).shl(s.int());
+        return .fromInt(@as(Int, 1) << s.int());
     }
 
     pub fn fromSlice(comptime T: type, slice: []const T) SquareSet {
@@ -37,11 +35,11 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
     }
 
     pub fn fromInt(i: Int) SquareSet {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 
     pub fn int(self: SquareSet) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn bwa(self: SquareSet, other: SquareSet) SquareSet {
@@ -132,7 +130,7 @@ const SquareSet = enum(std.meta.Int(.unsigned, Square.num)) {
     }
 };
 
-const CastleSet = enum(std.meta.Int(.unsigned, Castle.num)) {
+const CastleSet = enum(@Int(.unsigned, Castle.num)) {
     none = (1 << (Castle.num * 0)) - 1,
     full = (1 << (Castle.num * 1)) - 1,
     _,
@@ -145,11 +143,11 @@ const CastleSet = enum(std.meta.Int(.unsigned, Castle.num)) {
     }
 
     pub fn fromInt(i: Int) CastleSet {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 
     pub fn int(self: CastleSet) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn bwa(self: CastleSet, other: CastleSet) CastleSet {
@@ -208,11 +206,11 @@ pub const Ptype = enum(u3) {
     pub const values = std.enums.values(Ptype);
 
     pub fn fromInt(i: Int) Ptype {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 
     pub fn int(self: Ptype) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn char(self: Ptype) u8 {
@@ -247,11 +245,11 @@ pub const Color = enum(u1) {
     pub const values = std.enums.values(Color);
 
     pub fn fromInt(i: Int) Color {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 
     pub fn int(self: Color) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn char(self: Color) u8 {
@@ -303,7 +301,7 @@ pub const Color = enum(u1) {
     }
 };
 
-pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_info.bits)) {
+pub const Piece = enum(@Int(.unsigned, Color.int_info.bits + Ptype.int_info.bits)) {
     w_pawn,
     b_pawn,
 
@@ -358,7 +356,7 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
     }
 
     pub fn int(self: Piece) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn char(self: Piece) ?u8 {
@@ -393,7 +391,7 @@ pub const Piece = enum(std.meta.Int(.unsigned, Color.int_info.bits + Ptype.int_i
     }
 
     pub fn fromInt(i: Int) Piece {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 };
 
@@ -429,7 +427,7 @@ pub const Rank = enum(u3) {
     }
 
     pub fn int(self: Rank) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn fromChar(c: u8) ?Rank {
@@ -442,7 +440,7 @@ pub const Rank = enum(u3) {
     }
 
     pub fn fromInt(i: Int) Rank {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 
     pub fn flip(self: Rank) Rank {
@@ -488,7 +486,7 @@ pub const File = enum(u3) {
     }
 
     pub fn int(self: File) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn fromChar(c: u8) ?File {
@@ -501,7 +499,7 @@ pub const File = enum(u3) {
     }
 
     pub fn fromInt(i: Int) File {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 
     pub fn flip(self: File) File {
@@ -515,7 +513,7 @@ pub const File = enum(u3) {
     }
 };
 
-pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_info.bits)) {
+pub const Square = enum(@Int(.unsigned, Rank.int_info.bits + File.int_info.bits)) {
     // zig fmt: off
     a1, b1, c1, d1, e1, f1, g1, h1,
     a2, b2, c2, d2, e2, f2, g2, h2,
@@ -542,11 +540,11 @@ pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_in
     }
 
     pub fn int(self: Square) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn fromInt(i: Int) Square {
-        return @enumFromInt(i);
+        return @fromBackingInt(@intCast(i));
     }
 
     pub fn rank(self: Square) Rank {
@@ -611,7 +609,7 @@ pub const Square = enum(std.meta.Int(.unsigned, Rank.int_info.bits + File.int_in
                 break :horz val == std.math.clamp(val, min, max);
             },
 
-            else => std.debug.panic("unexpected enum int: @enumFromInt({d})", .{@intFromEnum(dir)}),
+            else => std.debug.panic("unexpected enum int: @enumFromInt({d})", .{@backingInt(dir)}),
         };
     }
 
@@ -659,16 +657,16 @@ pub const Direction = enum(i8) {
     const left = @as(comptime_int, Square.a1.int()) - @as(comptime_int, Square.b1.int());
 
     pub fn int(self: Direction) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn add(self: Direction, other: Direction) Direction {
-        return @enumFromInt(self.int() + other.int());
+        return @fromBackingInt(@intCast(self.int() + other.int()));
     }
 
     pub fn mul(self: Direction, amt: anytype) Direction {
         const a: Int = @intCast(amt);
-        return @enumFromInt(self.int() * a);
+        return @fromBackingInt(@intCast(self.int() * a));
     }
 
     pub fn flip(self: Direction) Direction {
@@ -698,7 +696,7 @@ pub const Castle = enum(u2) {
     pub const values = std.enums.values(Castle);
 
     fn int(self: Castle) Int {
-        return @intFromEnum(self);
+        return @backingInt(self);
     }
 
     pub fn char(self: Castle) u8 {
@@ -746,11 +744,11 @@ pub fn SameMutPtr(comptime Mut: type, comptime Src: type, comptime Dst: type) ty
     }
 
     const attrs: std.builtin.Type.Pointer.Attributes = .{
-        .@"const" = mut_info.is_const,
-        .@"volatile" = dst_info.is_volatile,
-        .@"allowzero" = dst_info.is_allowzero,
-        .@"addrspace" = dst_info.address_space,
-        .@"align" = dst_info.alignment,
+        .@"const" = mut_info.attrs.@"const",
+        .@"volatile" = dst_info.attrs.@"volatile",
+        .@"allowzero" = dst_info.attrs.@"allowzero",
+        .@"addrspace" = dst_info.attrs.@"addrspace",
+        .@"align" = dst_info.attrs.@"align",
     };
     return @Pointer(dst_info.size, attrs, dst_info.child, dst_info.sentinel());
 }

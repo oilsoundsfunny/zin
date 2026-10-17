@@ -13,7 +13,7 @@ const TunableValue = if (!tuning) void else struct {
 const Values = blk: {
     const Types: [tunables.len]type = @splat(Tunable.Int);
     var names: [tunables.len][]const u8 = undefined;
-    var attrs: [tunables.len]std.builtin.Type.StructField.Attributes = undefined;
+    var attrs: [tunables.len]std.builtin.Type.Struct.FieldAttributes = undefined;
     for (tunables[0..], names[0..], attrs[0..]) |*tunable, *name, *attr| {
         name.* = tunable.name[0..];
         attr.* = .{
@@ -63,8 +63,8 @@ pub const Tunable = struct {
 
 const tunables = blk: {
     const zon = @import("spsa.zig.zon");
-    const fields = std.meta.fields(@TypeOf(zon));
-    const inits: [fields.len]Tunable.Init = .{
+    const zon_info = @typeInfo(@TypeOf(zon)).@"struct";
+    const inits: [zon_info.field_names.len]Tunable.Init = .{
         // zig fmt: off
         .{ .name = "tm_time_mult", .min = 0, .max = 1024, .c_end =  4.0 },
         .{ .name = "tm_incr_mult", .min = 0, .max = 1024, .c_end = 64.0 },
@@ -224,10 +224,10 @@ const tunables = blk: {
         // zig fmt: on
     };
 
-    var tbl: [fields.len]Tunable = undefined;
+    var tbl: [zon_info.field_names.len]Tunable = undefined;
     for (tbl[0..], inits[0..]) |*tunable, tunable_init| {
         const v = @field(zon, tunable_init.name);
-        if (v != std.math.clamp(v, tunable_init.min, tunable_init.max)) {
+        if (v < tunable_init.min or v > tunable_init.max) {
             @compileError(std.fmt.comptimePrint(
                 "tunable {s} has value {} outside of [{}, {}]",
                 .{ tunable_init.name, v, tunable_init.min, tunable_init.max },
