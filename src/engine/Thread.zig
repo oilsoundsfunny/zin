@@ -580,10 +580,10 @@ fn correctEval(
         correction += switch (t) {
             // zig fmt: off
             .nonpawn =>
-                params.values.corr_nonpawn_stm_w * self.corrHistPtr(pool, .nonpawn, .{stm}).* +
-                params.values.corr_nonpawn_ntm_w * self.corrHistPtr(pool, .nonpawn, .{ntm}).*,
+                params.values.corrhist_nonpawn_stm_w * self.corrHistPtr(pool, .nonpawn, .{stm}).* +
+                params.values.corrhist_nonpawn_ntm_w * self.corrHistPtr(pool, .nonpawn, .{ntm}).*,
             inline else => |e|
-                @field(params.values, "corr_" ++ @tagName(e) ++ "_w") *
+                @field(params.values, "corrhist_" ++ @tagName(e) ++ "_w") *
                 self.corrHistPtr(pool, e, .{}).*,
             // zig fmt: off
         };
@@ -608,18 +608,18 @@ fn updateCorrHists(
             const ntm = stm.flip();
             hist.gravity(
                 self.corrHistPtr(pool, .nonpawn, .{stm}),
-                @divTrunc(bonus * params.values.corr_nonpawn_stm_update_w, 1024),
+                @divTrunc(bonus * params.values.corrhist_nonpawn_stm_update_w, 1024),
             );
             hist.gravity(
                 self.corrHistPtr(pool, .nonpawn, .{ntm}),
-                @divTrunc(bonus * params.values.corr_nonpawn_ntm_update_w, 1024),
+                @divTrunc(bonus * params.values.corrhist_nonpawn_ntm_update_w, 1024),
             );
         } else {
             const p, const w = switch (t) {
                 .nonpawn => unreachable,
                 inline else => |e| .{
                     self.corrHistPtr(pool, e, .{}),
-                    @field(params.values, "corr_" ++ @tagName(e) ++ "_update_w"),
+                    @field(params.values, "corrhist_" ++ @tagName(e) ++ "_update_w"),
                 },
             };
             hist.gravity(p, @divTrunc(bonus * w, 1024));
@@ -1168,9 +1168,23 @@ fn ab(
                 e += @intFromBool(se_score < sb - margins[0]);
                 e += @intFromBool(se_score < sb - margins[1]);
             } else if (sb >= b) {
-                const min = evaluation.score.loss + 1;
-                const max = evaluation.score.win - 1;
-                return std.math.clamp(sb, min, max);
+                const v = @min(sb, evaluation.score.win - 1);
+                pool.tt.write(key, .{
+                    .was_pv = was_pv,
+                    .flag = .lowerbound,
+                    .age = @truncate(pool.tt.age),
+                    .depth = @intCast(depth),
+                    .eval = @intCast(stat_eval),
+                    .score = @intCast(evaluation.score.toTT(v, ply)),
+                    .move = m,
+                });
+
+                if (!is_checked and v > corr_eval) {
+                    const scale = params.values.corrhist_multicut_scale;
+                    self.updateCorrHists(pool, sd, @divTrunc((v - corr_eval) * scale, 1024));
+                }
+
+                return v;
             } else if (a + 1 > b - 1 or ttscore != std.math.clamp(ttscore, a + 1, b - 1)) {
                 e -= 4;
             }
