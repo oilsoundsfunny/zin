@@ -508,19 +508,22 @@ pub const Picker = struct {
                 .king => std.debug.panic("found king capture", .{}),
             };
 
-            const hist = self.thread.getNoisyHist(move);
-            break :blk @intCast(@divTrunc(mvv + hist, 2));
+            const noisy_hist = self.thread.getNoisyHist(move);
+            const pawn_hist = self.thread.getPawnHist(move);
+            break :blk @intCast(@divTrunc(mvv + noisy_hist + pawn_hist, 3));
         };
     }
 
     fn scoreQuiet(self: *const Picker, move: Move) Thread.hist.Int {
         return if (self.shouldSkip(move)) evaluation.score.mate else blk: {
-            const score = @as(evaluation.score.Int, self.thread.getQuietHist(move)) +
+            const score =
+                @as(evaluation.score.Int, self.thread.getQuietHist(move)) +
+                @as(evaluation.score.Int, self.thread.getPawnHist(move)) +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2 +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 2)) +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 4)) +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 6));
-            const scaled = @divTrunc(score, 6);
+            const scaled = @divTrunc(score, 7);
             break :blk @intCast(scaled);
         };
     }
