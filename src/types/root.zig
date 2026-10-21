@@ -3,39 +3,49 @@ const std = @import("std");
 pub const IO = @import("IO.zig");
 
 const SquareSet = enum(@Int(.unsigned, Square.num)) {
-    none = (1 << (Square.num * 0)) - 1,
-    full = (1 << (Square.num * 1)) - 1,
+    none = (1 << Square.num * 0) - 1,
+    full = (1 << Square.num * 1) - 1,
+
+    // TODO: uhnghghgh i hate hardcoding
+    rank_1 = 0x00000000000000ff << @as(comptime_int, Rank.rank_1.int()) * File.num,
+    rank_2 = 0x00000000000000ff << @as(comptime_int, Rank.rank_2.int()) * File.num,
+    rank_3 = 0x00000000000000ff << @as(comptime_int, Rank.rank_3.int()) * File.num,
+    rank_4 = 0x00000000000000ff << @as(comptime_int, Rank.rank_4.int()) * File.num,
+    rank_5 = 0x00000000000000ff << @as(comptime_int, Rank.rank_5.int()) * File.num,
+    rank_6 = 0x00000000000000ff << @as(comptime_int, Rank.rank_6.int()) * File.num,
+    rank_7 = 0x00000000000000ff << @as(comptime_int, Rank.rank_7.int()) * File.num,
+    rank_8 = 0x00000000000000ff << @as(comptime_int, Rank.rank_8.int()) * File.num,
+    file_a = 0x0101010101010101 << @as(comptime_int, File.file_a.int()),
+    file_b = 0x0101010101010101 << @as(comptime_int, File.file_b.int()),
+    file_c = 0x0101010101010101 << @as(comptime_int, File.file_c.int()),
+    file_d = 0x0101010101010101 << @as(comptime_int, File.file_d.int()),
+    file_e = 0x0101010101010101 << @as(comptime_int, File.file_e.int()),
+    file_f = 0x0101010101010101 << @as(comptime_int, File.file_f.int()),
+    file_g = 0x0101010101010101 << @as(comptime_int, File.file_g.int()),
+    file_h = 0x0101010101010101 << @as(comptime_int, File.file_h.int()),
     _,
 
     pub const Int = std.meta.Tag(SquareSet);
 
-    fn fromRank(r: Rank) SquareSet {
-        return .fromInt(@as(Int, 0x00000000000000ff) << @as(Square.Int, r.int()) * File.num);
-    }
-
-    fn fromFile(f: File) SquareSet {
-        return .fromInt(@as(Int, 0x0101010101010101) << @as(Square.Int, f.int()));
-    }
-
-    fn fromSquare(s: Square) SquareSet {
-        return .fromInt(@as(Int, 1) << s.int());
+    pub fn fromInt(i: Int) SquareSet {
+        return @fromBackingInt(i);
     }
 
     pub fn fromSlice(comptime T: type, slice: []const T) SquareSet {
         var b = SquareSet.none;
         for (slice) |item| {
             b = b.bwo(switch (T) {
+                Int => .fromInt(item),
                 Square, Rank, File => item.toSet(),
                 SquareSet => item,
-                Int => fromInt(item),
                 else => @compileError("unexpected type " ++ @typeName(T)),
             });
         }
         return b;
     }
 
-    pub fn fromInt(i: Int) SquareSet {
-        return @fromBackingInt(@intCast(i));
+    pub fn fromSquare(s: Square) SquareSet {
+        return .fromInt(@as(Int, 1) << s.int());
     }
 
     pub fn int(self: SquareSet) Int {
@@ -43,15 +53,27 @@ const SquareSet = enum(@Int(.unsigned, Square.num)) {
     }
 
     pub fn bwa(self: SquareSet, other: SquareSet) SquareSet {
-        return fromInt(self.int() & other.int());
+        return .fromInt(self.int() & other.int());
     }
 
     pub fn bwo(self: SquareSet, other: SquareSet) SquareSet {
-        return fromInt(self.int() | other.int());
+        return .fromInt(self.int() | other.int());
     }
 
     pub fn bwx(self: SquareSet, other: SquareSet) SquareSet {
-        return fromInt(self.int() ^ other.int());
+        return .fromInt(self.int() ^ other.int());
+    }
+
+    pub fn bwa3(self: SquareSet, a: SquareSet, b: SquareSet) SquareSet {
+        return .fromInt(self.int() & a.int() & b.int());
+    }
+
+    pub fn bwo3(self: SquareSet, a: SquareSet, b: SquareSet) SquareSet {
+        return .fromInt(self.int() | a.int() | b.int());
+    }
+
+    pub fn bwx3(self: SquareSet, a: SquareSet, b: SquareSet) SquareSet {
+        return .fromInt(self.int() ^ a.int() ^ b.int());
     }
 
     pub fn flip(self: SquareSet) SquareSet {
@@ -64,32 +86,22 @@ const SquareSet = enum(@Int(.unsigned, Square.num)) {
     }
 
     pub fn flipFile(self: SquareSet) SquareSet {
-        const k = [_]Int{
-            0x5555555555555555,
-            0x3333333333333333,
-            0x0f0f0f0f0f0f0f0f,
-        };
+        const cs: [3]Int = .{ 0x5555555555555555, 0x3333333333333333, 0x0f0f0f0f0f0f0f0f };
         var x = self.int();
-
-        for (k, 0..) |c, i| {
-            const s = std.math.shl(usize, 1, i);
-            const m = std.math.shl(usize, 1, s);
-
-            const lhs = std.math.shr(Int, x, s) & c;
-            const rhs = (x & c) *% m;
+        inline for (cs, 0..) |c, i| {
+            const lhs = std.math.shl(Int, x & c, 1 << i);
+            const rhs = std.math.shr(Int, x, 1 << i) & c;
             x = lhs + rhs;
         }
-        return fromInt(x);
+        return .fromInt(x);
     }
 
     pub fn shl(self: SquareSet, amt: anytype) SquareSet {
-        const i = std.math.shl(Int, self.int(), amt);
-        return fromInt(i);
+        return .fromInt(std.math.shl(Int, self.int(), amt));
     }
 
     pub fn shr(self: SquareSet, amt: anytype) SquareSet {
-        const i = std.math.shr(Int, self.int(), amt);
-        return fromInt(i);
+        return .fromInt(std.math.shr(Int, self.int(), amt));
     }
 
     pub fn get(self: SquareSet, s: Square) bool {
@@ -105,11 +117,11 @@ const SquareSet = enum(@Int(.unsigned, Square.num)) {
     }
 
     pub fn getLow(self: SquareSet) SquareSet {
-        return self.bwa(fromInt(0 -% self.int()));
+        return self.bwa(.fromInt(0 -% self.int()));
     }
 
     pub fn popLow(self: *SquareSet) void {
-        self.* = self.bwa(fromInt(self.int() -% 1));
+        self.* = self.bwa(.fromInt(self.int() -% 1));
     }
 
     pub fn popOther(self: *SquareSet, other: SquareSet) void {
@@ -131,8 +143,8 @@ const SquareSet = enum(@Int(.unsigned, Square.num)) {
 };
 
 const CastleSet = enum(@Int(.unsigned, Castle.num)) {
-    none = (1 << (Castle.num * 0)) - 1,
-    full = (1 << (Castle.num * 1)) - 1,
+    none = (1 << Castle.num * 0) - 1,
+    full = (1 << Castle.num * 1) - 1,
     _,
 
     pub const Int = std.meta.Tag(CastleSet);
@@ -143,7 +155,7 @@ const CastleSet = enum(@Int(.unsigned, Castle.num)) {
     }
 
     pub fn fromInt(i: Int) CastleSet {
-        return @fromBackingInt(@intCast(i));
+        return @fromBackingInt(i);
     }
 
     pub fn int(self: CastleSet) Int {
@@ -206,7 +218,7 @@ pub const Ptype = enum(u3) {
     pub const values = std.enums.values(Ptype);
 
     pub fn fromInt(i: Int) Ptype {
-        return @fromBackingInt(@intCast(i));
+        return @fromBackingInt(i);
     }
 
     pub fn int(self: Ptype) Int {
@@ -245,7 +257,7 @@ pub const Color = enum(u1) {
     pub const values = std.enums.values(Color);
 
     pub fn fromInt(i: Int) Color {
-        return @fromBackingInt(@intCast(i));
+        return @fromBackingInt(i);
     }
 
     pub fn int(self: Color) Int {
@@ -391,7 +403,7 @@ pub const Piece = enum(@Int(.unsigned, Color.int_info.bits + Ptype.int_info.bits
     }
 
     pub fn fromInt(i: Int) Piece {
-        return @fromBackingInt(@intCast(i));
+        return @fromBackingInt(i);
     }
 };
 
@@ -440,7 +452,7 @@ pub const Rank = enum(u3) {
     }
 
     pub fn fromInt(i: Int) Rank {
-        return @fromBackingInt(@intCast(i));
+        return @fromBackingInt(i);
     }
 
     pub fn flip(self: Rank) Rank {
@@ -450,7 +462,9 @@ pub const Rank = enum(u3) {
     }
 
     pub fn toSet(self: Rank) Square.Set {
-        return Square.Set.fromRank(self);
+        return switch (self) {
+            inline else => |e| @field(Square.Set, @tagName(e)),
+        };
     }
 };
 
@@ -499,7 +513,7 @@ pub const File = enum(u3) {
     }
 
     pub fn fromInt(i: Int) File {
-        return @fromBackingInt(@intCast(i));
+        return @fromBackingInt(i);
     }
 
     pub fn flip(self: File) File {
@@ -509,7 +523,9 @@ pub const File = enum(u3) {
     }
 
     pub fn toSet(self: File) Square.Set {
-        return Square.Set.fromFile(self);
+        return switch (self) {
+            inline else => |e| @field(Square.Set, @tagName(e)),
+        };
     }
 };
 
@@ -544,7 +560,7 @@ pub const Square = enum(@Int(.unsigned, Rank.int_info.bits + File.int_info.bits)
     }
 
     pub fn fromInt(i: Int) Square {
-        return @fromBackingInt(@intCast(i));
+        return @fromBackingInt(i);
     }
 
     pub fn rank(self: Square) Rank {
@@ -593,7 +609,6 @@ pub const Square = enum(@Int(.unsigned, Rank.int_info.bits + File.int_info.bits)
                 const val = r + d * a;
                 const min = std.math.minInt(Rank.Int);
                 const max = std.math.maxInt(Rank.Int);
-
                 break :vert val == std.math.clamp(val, min, max);
             },
 
@@ -605,18 +620,17 @@ pub const Square = enum(@Int(.unsigned, Rank.int_info.bits + File.int_info.bits)
                 const val = f + d * a;
                 const min = std.math.minInt(File.Int);
                 const max = std.math.maxInt(File.Int);
-
                 break :horz val == std.math.clamp(val, min, max);
             },
 
-            else => std.debug.panic("unexpected enum int: @enumFromInt({d})", .{@backingInt(dir)}),
+            else => std.debug.panic("unexpected value @fromBackingInt({d})", .{@backingInt(dir)}),
         };
     }
 
     pub fn shift(self: Square, dir: Direction, amt: anytype) Square {
         const s: Direction.Int = self.int();
         const d: Direction.Int = dir.mul(amt).int();
-        return fromInt(@intCast(s + d));
+        return .fromInt(@intCast(s + d));
     }
 
     pub fn midpoint(self: Square, other: Square) Square {
@@ -661,12 +675,12 @@ pub const Direction = enum(i8) {
     }
 
     pub fn add(self: Direction, other: Direction) Direction {
-        return @fromBackingInt(@intCast(self.int() + other.int()));
+        return @fromBackingInt(self.int() + other.int());
     }
 
     pub fn mul(self: Direction, amt: anytype) Direction {
         const a: Int = @intCast(amt);
-        return @fromBackingInt(@intCast(self.int() * a));
+        return @fromBackingInt(self.int() * a);
     }
 
     pub fn flip(self: Direction) Direction {

@@ -61,6 +61,8 @@ pub const Position = struct {
     by_square: std.EnumArray(types.Square, types.Piece),
     castles: std.EnumMap(types.Castle, Castle),
 
+    threats: Threats,
+
     stm: types.Color,
     move: movegen.Move,
     src_piece: types.Piece,
@@ -81,11 +83,94 @@ pub const Position = struct {
     pv: movegen.RootMove,
     excluded: movegen.Move,
 
+    const Threats = struct {
+        pinned: std.EnumArray(types.Color, types.Square.Set),
+        pinners: std.EnumArray(types.Color, types.Square.Set),
+
+        checkers: types.Square.Set,
+        checkers_squares: std.EnumArray(types.Ptype, types.Square),
+
+        colors_threats: std.EnumArray(types.Color, types.Square.Set),
+        pieces_threats: std.EnumArray(types.Color, std.EnumArray(types.Ptype, types.Square.Set)),
+        lesser_threats: std.EnumArray(types.Color, types.Square.Set),
+
+        valid: bool,
+
+        fn ensure(self: *Threats, pos: *const Position) void {
+            if (!self.valid) {
+                self.update(pos);
+            }
+        }
+
+        fn update(self: *Threats, pos: *const Position) void {
+            self.updateColor(pos, .white);
+            self.updateColor(pos, .black);
+            self.valid = true;
+        }
+
+        fn updateColor(self: *Threats, pos: *const Position, color: types.Color) void {
+            const occ = pos.bothOcc().bwx(pos.pieceOcc(.init(.king, color.flip())));
+            const p_threats = bitboard.pAtk(pos.pieceOcc(.init(.pawn, color)));
+            const n_threats = bitboard.knightsAtk(pos.pieceOcc(.init(.knight, color)));
+            const b_threats, const r_threats = bitboard.slidersAtk(
+                pos.pieceOcc(.init(.bishop, color)),
+                pos.pieceOcc(.init(.rook, color)),
+                occ,
+            );
+            const k_threats = bitboard.kAtk(pos.pieceOcc(.init(.king, color)).lowSquare().?);
+
+            const minor_pieces = pos.ptypeOcc(.knight).bwo(pos.ptypeOcc(.bishop));
+            var lesser_threats = minor_pieces.bwa(p_threats);
+
+            const minor_threats = p_threats.bwo(n_threats).bwo(b_threats);
+            lesser_threats = pos.ptypeOcc(.rook).bwa(minor_threats);
+
+            const major_threats = minor_threats.bwo(r_threats);
+            lesser_threats = pos.ptypeOcc(.queen).bwa(major_threats);
+
+            const queens = pos.pieceOcc(.init(.queen, color));
+            var q_threats: types.Square.Set = .none;
+            while (queens.lowSquare()) |s| : (queens.popLow()) {
+                q_threats = q_threats.bwo(bitboard.bAtk(s, occ));
+                q_threats = q_threats.bwo(bitboard.rAtk(s, occ));
+            }
+
+            const threats = p_threats
+                .bwo(n_threats).bwo(b_threats).bwo(r_threats).bwo(q_threats).bwo(k_threats);
+            self.colors_threats.set(color, threats);
+            self.pieces_threats.set(color, .init(.{
+                .pawn = p_threats,
+                .knight = p_threats,
+                .bishop = p_threats,
+                .rook = p_threats,
+                .queen = p_threats,
+                .king = p_threats,
+            }));
+            self.lesser_threats.set(color, lesser_threats);
+        }
+
+        const init: Threats = .{
+            .pinned = .initFill(.none),
+            .pinners = .initFill(.none),
+
+            .checkers = .none,
+            .checkers_squares = .initUndefined(),
+
+            .lesser_threats = .initFill(.none),
+            .colors_threats = .initFill(.none),
+            .pieces_threats = .initFill(.initFill(.none)),
+
+            .valid = false,
+        };
+    };
+
     pub const init: Position = .{
         .by_color = .initFill(.none),
         .by_ptype = .initFill(.none),
         .by_square = .initFill(.none),
         .castles = .init(.{}),
+
+        .threats = .init,
 
         .stm = .white,
         .move = .none,
