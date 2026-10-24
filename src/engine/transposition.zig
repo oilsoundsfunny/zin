@@ -149,7 +149,9 @@ pub const Cluster = struct {
 
 pub const Table = struct {
     clusters: []Cluster,
-    age: u5,
+    age: Age,
+
+    pub const Age = u16;
 
     fn index(self: *const Table, key: zobrist.Int) usize {
         return zobrist.index(key, self.clusters.len);
@@ -253,7 +255,6 @@ pub const Table = struct {
     }
 
     pub fn doAge(self: *Table) void {
-        const Age = @TypeOf(self.age);
         var old = @atomicLoad(Age, &self.age, .monotonic);
         while (true) {
             old = @cmpxchgWeak(Age, &self.age, old, old +% 1, .monotonic, .monotonic) orelse break;

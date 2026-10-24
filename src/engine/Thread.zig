@@ -1169,13 +1169,15 @@ fn ab(
                 e += @intFromBool(se_score < sb - margins[1]);
             } else if (sb >= b) {
                 const v = @min(sb, evaluation.score.win - 1);
+                const age = @atomicLoad(transposition.Table.Age, &pool.tt.age, .monotonic);
+                const write_s = evaluation.score.toTT(v, ply);
                 pool.tt.write(key, .{
                     .was_pv = was_pv,
                     .flag = .lowerbound,
-                    .age = @truncate(pool.tt.age),
-                    .depth = @intCast(depth),
+                    .age = @truncate(age),
+                    .depth = @intCast(sd),
                     .eval = @intCast(stat_eval),
-                    .score = @intCast(evaluation.score.toTT(v, ply)),
+                    .score = @intCast(write_s),
                     .move = m,
                 });
 
@@ -1356,13 +1358,15 @@ fn ab(
     }
 
     if (!is_singular) {
+        const age = @atomicLoad(transposition.Table.Age, &pool.tt.age, .monotonic);
+        const write_s = evaluation.score.toTT(best.score, ply);
         pool.tt.write(key, .{
             .was_pv = was_pv or flag == .exact,
             .flag = flag,
-            .age = @truncate(pool.tt.age),
+            .age = @truncate(age),
             .depth = @intCast(depth),
             .eval = @intCast(stat_eval),
-            .score = @intCast(evaluation.score.toTT(best.score, ply)),
+            .score = @intCast(write_s),
             .move = best.move,
         });
     }
@@ -1527,13 +1531,15 @@ fn qs(
         return loss;
     }
 
+    const age = @atomicLoad(transposition.Table.Age, &pool.tt.age, .monotonic);
+    const write_s = evaluation.score.toTT(best.score, ply);
     pool.tt.write(key, .{
         .was_pv = tte.was_pv,
         .flag = flag,
-        .age = @truncate(pool.tt.age),
+        .age = @truncate(age),
         .depth = 0,
         .eval = @intCast(stat_eval),
-        .score = @intCast(evaluation.score.toTT(best.score, ply)),
+        .score = @intCast(write_s),
         .move = best.move,
     });
 
