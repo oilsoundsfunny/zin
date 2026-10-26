@@ -300,7 +300,7 @@ pub const Options = struct {
 pub const hist = struct {
     const Quiet = [color_n][ptype_n][square_n]Int;
     const Noisy = [color_n][ptype_n][square_n][ptype_n]Int;
-    const Cont = [4][color_n][ptype_n][square_n][ptype_n][square_n]Int;
+    const Cont = [5][color_n][ptype_n][square_n][ptype_n][square_n]Int;
     const Pawn = [color_n][square_n][square_n][ptype_n]Int;
 
     const Corr = enum {
@@ -336,68 +336,18 @@ pub const hist = struct {
     pub const min = std.math.minInt(Int) / 2;
     pub const max = -min;
 
-    fn quietBonus(d: Depth) evaluation.score.Int {
-        const v =
-            params.values.quiethist_bonus_quad * d * d +
-            params.values.quiethist_bonus_mult * d +
-            params.values.quiethist_bonus_bias;
-        return std.math.clamp(v, 0, params.values.quiethist_max_bonus);
-    }
-
-    fn quietMalus(d: Depth) evaluation.score.Int {
-        const v =
-            params.values.quiethist_malus_quad * d * d +
-            params.values.quiethist_malus_mult * d +
-            params.values.quiethist_malus_bias;
-        return std.math.clamp(v, 0, params.values.quiethist_max_malus);
-    }
-
-    fn noisyBonus(d: Depth) evaluation.score.Int {
-        const v =
-            params.values.noisyhist_bonus_quad * d * d +
-            params.values.noisyhist_bonus_mult * d +
-            params.values.noisyhist_bonus_bias;
-        return std.math.clamp(v, 0, params.values.noisyhist_max_bonus);
-    }
-
-    fn noisyMalus(d: Depth) evaluation.score.Int {
-        const v =
-            params.values.noisyhist_malus_quad * d * d +
-            params.values.noisyhist_malus_mult * d +
-            params.values.noisyhist_malus_bias;
-        return std.math.clamp(v, 0, params.values.noisyhist_max_malus);
-    }
-
-    fn contBonus(d: Depth) evaluation.score.Int {
-        const v =
-            params.values.conthist_bonus_quad * d * d +
-            params.values.conthist_bonus_mult * d +
-            params.values.conthist_bonus_bias;
-        return std.math.clamp(v, 0, params.values.conthist_max_bonus);
-    }
-
-    fn contMalus(d: Depth) evaluation.score.Int {
-        const v =
-            params.values.conthist_malus_quad * d * d +
-            params.values.conthist_malus_mult * d +
-            params.values.conthist_malus_bias;
-        return std.math.clamp(v, 0, params.values.conthist_max_malus);
-    }
-
-    fn pawnBonus(d: Depth) evaluation.score.Int {
-        const v =
-            params.values.pawnhist_bonus_quad * d * d +
-            params.values.pawnhist_bonus_mult * d +
-            params.values.pawnhist_bonus_bias;
-        return std.math.clamp(v, 0, params.values.pawnhist_max_bonus);
-    }
-
-    fn pawnMalus(d: Depth) evaluation.score.Int {
-        const v =
-            params.values.pawnhist_malus_quad * d * d +
-            params.values.pawnhist_malus_mult * d +
-            params.values.pawnhist_malus_bias;
-        return std.math.clamp(v, 0, params.values.pawnhist_max_malus);
+    fn delta(
+        comptime ht: enum { quiet, noisy, cont, pawn },
+        comptime dt: enum { bonus, malus },
+        d: Depth,
+    ) evaluation.score.Int {
+        const q, const m, const b, const l = .{
+            @field(params.values, @tagName(ht) ++ "hist_" ++ @tagName(dt) ++ "_quad"),
+            @field(params.values, @tagName(ht) ++ "hist_" ++ @tagName(dt) ++ "_mult"),
+            @field(params.values, @tagName(ht) ++ "hist_" ++ @tagName(dt) ++ "_bias"),
+            @field(params.values, @tagName(ht) ++ "hist_max_" ++ @tagName(dt)),
+        };
+        return std.math.clamp(q * d * d + m * d + b, 0, l);
     }
 
     fn gravity(p: *Int, dx: evaluation.score.Int) void {
@@ -580,10 +530,10 @@ fn correctEval(
         correction += switch (t) {
             // zig fmt: off
             .nonpawn =>
-                params.values.corr_nonpawn_stm_w * self.corrHistPtr(pool, .nonpawn, .{stm}).* +
-                params.values.corr_nonpawn_ntm_w * self.corrHistPtr(pool, .nonpawn, .{ntm}).*,
+                params.values.corrhist_nonpawn_stm_w * self.corrHistPtr(pool, .nonpawn, .{stm}).* +
+                params.values.corrhist_nonpawn_ntm_w * self.corrHistPtr(pool, .nonpawn, .{ntm}).*,
             inline else => |e|
-                @field(params.values, "corr_" ++ @tagName(e) ++ "_w") *
+                @field(params.values, "corrhist_" ++ @tagName(e) ++ "_w") *
                 self.corrHistPtr(pool, e, .{}).*,
             // zig fmt: off
         };
@@ -608,18 +558,18 @@ fn updateCorrHists(
             const ntm = stm.flip();
             hist.gravity(
                 self.corrHistPtr(pool, .nonpawn, .{stm}),
-                @divTrunc(bonus * params.values.corr_nonpawn_stm_update_w, 1024),
+                @divTrunc(bonus * params.values.corrhist_nonpawn_stm_update_w, 1024),
             );
             hist.gravity(
                 self.corrHistPtr(pool, .nonpawn, .{ntm}),
-                @divTrunc(bonus * params.values.corr_nonpawn_ntm_update_w, 1024),
+                @divTrunc(bonus * params.values.corrhist_nonpawn_ntm_update_w, 1024),
             );
         } else {
             const p, const w = switch (t) {
                 .nonpawn => unreachable,
                 inline else => |e| .{
                     self.corrHistPtr(pool, e, .{}),
-                    @field(params.values, "corr_" ++ @tagName(e) ++ "_update_w"),
+                    @field(params.values, "corrhist_" ++ @tagName(e) ++ "_update_w"),
                 },
             };
             hist.gravity(p, @divTrunc(bonus * w, 1024));
@@ -634,10 +584,10 @@ fn updateHists(
     bad_noisy_moves: []const movegen.Move,
     bad_quiet_moves: []const movegen.Move,
 ) void {
-    const quiet_bonus = hist.quietBonus(depth);
-    const quiet_malus = hist.quietMalus(depth);
-    const noisy_bonus = hist.noisyBonus(depth);
-    const noisy_malus = hist.noisyMalus(depth);
+    const quiet_bonus = hist.delta(.quiet, .bonus, depth);
+    const quiet_malus = hist.delta(.quiet, .malus, depth);
+    const noisy_bonus = hist.delta(.noisy, .bonus, depth);
+    const noisy_malus = hist.delta(.noisy, .malus, depth);
 
     if (move.isNoisy()) {
         hist.gravity(self.noisyHistPtr(move), noisy_bonus);
@@ -647,9 +597,9 @@ fn updateHists(
             hist.gravity(self.quietHistPtr(qm), -quiet_malus);
         }
 
-        const cont_bonus = hist.contBonus(depth);
-        const cont_malus = hist.contMalus(depth);
-        const cont_plies: [4]usize = .{ 1, 2, 4, 6 };
+        const cont_bonus = hist.delta(.cont, .bonus, depth);
+        const cont_malus = hist.delta(.cont, .malus, depth);
+        const cont_plies: [5]usize = .{ 1, 2, 4, 6, 8 };
         for (cont_plies) |ply| {
             const p = self.contHistPtr(move, ply) orelse break;
             hist.gravity(p, cont_bonus);
@@ -663,8 +613,8 @@ fn updateHists(
         hist.gravity(self.noisyHistPtr(nm), -noisy_malus);
     }
 
-    const pawn_bonus = hist.pawnBonus(depth);
-    const pawn_malus = hist.pawnMalus(depth);
+    const pawn_bonus = hist.delta(.pawn, .bonus, depth);
+    const pawn_malus = hist.delta(.pawn, .malus, depth);
     for (bad_quiet_moves) |m| {
         hist.gravity(self.pawnHistPtr(m) orelse continue, -pawn_malus);
     } else for (bad_noisy_moves) |m| {

@@ -522,8 +522,9 @@ pub const Picker = struct {
                 @as(evaluation.score.Int, self.thread.getContHist(move, 1)) * 2 +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 2)) +
                 @as(evaluation.score.Int, self.thread.getContHist(move, 4)) +
-                @as(evaluation.score.Int, self.thread.getContHist(move, 6));
-            const scaled = @divTrunc(score, 7);
+                @as(evaluation.score.Int, self.thread.getContHist(move, 6)) +
+                @as(evaluation.score.Int, self.thread.getContHist(move, 8));
+            const scaled = @divTrunc(score, 8);
             break :blk @intCast(scaled);
         };
     }
