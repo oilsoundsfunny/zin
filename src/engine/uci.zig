@@ -124,18 +124,27 @@ fn parseOption(tokens: *std.mem.TokenIterator(u8, .any), pool: *Thread.Pool) !Co
 
         options.overhead = std.fmt.parseUnsigned(usize, value, 10) catch
             return error.UnknownCommand;
+    } else if (std.ascii.eqlIgnoreCase(name, "MultiPV")) {
+        if (!std.mem.eql(u8, aux, "value")) {
+            return error.UnknownCommand;
+        }
+
+        // TODO: impl multipv
+        _ = tokens.next() orelse return error.UnknownCommand;
+        if (tokens.peek()) |_| {
+            return error.UnknownCommand;
+        }
     } else if (std.ascii.eqlIgnoreCase(name, "Threads")) {
         if (!std.mem.eql(u8, aux, "value")) {
             return error.UnknownCommand;
         }
 
         const value = tokens.next() orelse return error.UnknownCommand;
-        options.threads = std.fmt.parseUnsigned(usize, value, 10) catch return error.UnknownCommand;
-
         if (tokens.peek()) |_| {
             return error.UnknownCommand;
         }
 
+        options.threads = std.fmt.parseUnsigned(usize, value, 10) catch return error.UnknownCommand;
         pool.realloc(options.threads) catch return error.UnknownCommand;
     } else if (std.ascii.eqlIgnoreCase(name, "UCI_Chess960")) {
         if (!std.mem.eql(u8, aux, "value")) {
