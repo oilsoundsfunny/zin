@@ -944,7 +944,7 @@ fn ab(
     const has_ttm = tth and
         pos.isMovePseudoLegal(tte.move) and
         pos.isMoveLegal(tte.move);
-    if (node.hasLower() and depth >= 3 and !has_ttm) {
+    if (node.hasLower() and depth >= 3 and !has_ttm and !is_checked) {
         d -= 1;
     }
 
