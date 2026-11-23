@@ -984,6 +984,12 @@ fn ab(
             break :nmp;
         }
 
+        if (ply > 0 and
+            pos.before(1).move.isNone() and
+            pos.before(1).stat_eval + 20 < -stat_eval) {
+            return b;
+        }
+
         const base_r = params.values.nmp_base_r;
         const depth_r = params.values.nmp_depth_mult * d;
         const improving_r = params.values.nmp_improving_r * @intFromBool(improving);
