@@ -16,6 +16,7 @@ const Board = @This();
 finny_table: nnue.FinnyTable,
 perspectives: types.BoundedArray(nnue.Accumulator.Perspective, null, 1024),
 positions: types.BoundedArray(Position, null, 1024),
+nulls_done: std.EnumArray(types.Color, u8),
 
 pub const FenError = error{
     InvalidPiece,
@@ -923,6 +924,7 @@ pub const init: Board = .{
     .finny_table = .init,
     .perspectives = .{ .buffer = @splat(.init), .len = 1 },
     .positions = .{ .buffer = @splat(.init), .len = 1 },
+    .nulls_done = .initFill(0),
 };
 
 pub fn parseFen(self: *Board, fen: []const u8) FenError!void {
@@ -1051,6 +1053,7 @@ pub fn doMove(self: *Board, move: movegen.Move) void {
 }
 
 pub fn doNull(self: *Board) void {
+    self.nulls_done.getPtr(self.positions.last().stm).* += 1;
     self.positions.last().move = .none;
     self.positions.last().src_piece = .none;
     self.positions.last().dst_piece = .none;
@@ -1075,6 +1078,7 @@ pub fn undoMove(self: *Board) void {
 
 pub fn undoNull(self: *Board) void {
     self.undoMove();
+    self.nulls_done.getPtr(self.positions.last().stm).* -= 1;
 }
 
 pub fn getRepeat(self: *const Board) usize {

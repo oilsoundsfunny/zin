@@ -993,7 +993,8 @@ fn ab(
             const max_r = params.values.nmp_deval_max_r;
             break :blk @min(@divTrunc(diff * mult, 1024), max_r);
         };
-        const r = @divTrunc(base_r + depth_r + deval_r + improving_r, 256);
+        const r = @divTrunc(base_r + depth_r + deval_r + improving_r, 256) +
+            board.nulls_done.getPtrConst(pos.stm).*;
 
         const s = null_search: {
             board.doNull();
