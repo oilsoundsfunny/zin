@@ -421,7 +421,7 @@ depth: Depth,
 seldepth: Depth,
 root_moves: movegen.RootMove.List,
 
-nmp_verif: bool,
+in_nmp: bool,
 quiethist: hist.Quiet,
 noisyhist: hist.Noisy,
 conthist: hist.Cont,
@@ -439,7 +439,7 @@ pub const init: Thread = .{
     .seldepth = 0,
     .root_moves = .{ .array = .init },
 
-    .nmp_verif = false,
+    .in_nmp = false,
     .quiethist = @splat(@splat(@splat(0))),
     .noisyhist = @splat(@splat(@splat(@splat(0)))),
     .conthist = @splat(@splat(@splat(@splat(@splat(@splat(0)))))),
@@ -972,10 +972,10 @@ fn ab(
     if (!is_pv and
         !is_singular and
         !is_checked and
+        !self.in_nmp and
         d >= 2 and
         b > evaluation.score.loss and
-        b <= corr_eval - params.values.nmp_eval_margin and
-        !self.nmp_verif)
+        b <= corr_eval - params.values.nmp_eval_margin)
     nmp: {
         const occ = pos.bothOcc();
         const kings = pos.ptypeOcc(.king);
@@ -997,7 +997,9 @@ fn ab(
 
         const s = null_search: {
             board.doNull();
+            self.in_nmp = true;
             defer board.undoNull();
+            defer self.in_nmp = false;
             break :null_search -self.ab(pool, node.flip(), ply + 1, -b, 1 - b, d - r);
         };
         if (s < b) {
@@ -1005,8 +1007,6 @@ fn ab(
         }
 
         const verified = d < 16 or verif_search: {
-            self.nmp_verif = true;
-            defer self.nmp_verif = false;
             const vs = self.ab(pool, .upperbound, ply + 1, b - 1, b, d - r);
             break :verif_search vs >= b;
         };
