@@ -530,14 +530,17 @@ fn pawnHistPtr(
 ) ?types.SameMutPtr(@TypeOf(self), *Thread, *hist.Int) {
     const pos = self.board.positions.last();
     const sp = pos.getSq(move.src);
+    const dp = pos.getSq(move.dst);
     return switch (sp) {
         .w_pawn, .b_pawn => &self.pawnhist[pos.stm.int()][move.src.int()][move.dst.int()][
             if (move.promotion()) |prm|
                 prm.int()
             else if (move.flag == .en_passant)
                 types.Ptype.pawn.int()
+            else if (dp != .none)
+                dp.ptype().int()
             else
-                pos.getSq(move.dst).ptype().int()
+                types.Ptype.num
         ],
         else => null,
     };
@@ -995,23 +998,16 @@ fn ab(
         };
         const r = @divTrunc(base_r + depth_r + deval_r + improving_r, 256);
 
-        const s = null_search: {
+        const s = null_score: {
             board.doNull();
             defer board.undoNull();
-            break :null_search -self.ab(pool, node.flip(), ply + 1, -b, 1 - b, d - r);
+            break :null_score -self.ab(pool, node.flip(), ply + 1, -b, 1 - b, d - r);
         };
-        if (s < b) {
-            break :nmp;
-        }
-
-        const verified = d < 16 or verif_search: {
-            self.nmp_verif = true;
-            defer self.nmp_verif = false;
-            const vs = self.ab(pool, .upperbound, ply + 1, b - 1, b, d - r);
-            break :verif_search vs >= b;
-        };
-        if (verified) {
-            return if (evaluation.score.isMate(s)) b else s;
+        if (s >= b) {
+            d -= r;
+            if (d <= 0) {
+                return self.qs(pool, ply, a, b);
+            }
         }
     }
 
