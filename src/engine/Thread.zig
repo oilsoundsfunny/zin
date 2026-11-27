@@ -1125,7 +1125,7 @@ fn ab(
                 const max = params.values.pvs_see_max_capthist * d;
                 break :noisy base - std.math.clamp(@divTrunc(sm.score * mult, 1024), -max, max);
             };
-            if (!pos.see(m, see_margin)) {
+            if (d < 9 and !pos.see(m, see_margin)) {
                 continue :move_loop;
             }
         }
