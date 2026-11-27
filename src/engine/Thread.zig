@@ -924,22 +924,19 @@ fn ab(
         pos.corr_eval = corr_eval;
     }
 
-    const stat_eval = pos.stat_eval;
-    const corr_eval = pos.corr_eval;
-
     const improving = !is_checked and
         if (ply >= 2 and pos.before(2).corr_eval != evaluation.score.none)
-            pos.before(2).corr_eval < corr_eval
+            pos.before(2).corr_eval < pos.corr_eval
         else if (ply >= 4 and pos.before(4).corr_eval != evaluation.score.none)
-            pos.before(4).corr_eval < corr_eval
+            pos.before(4).corr_eval < pos.corr_eval
         else if (ply >= 6 and pos.before(6).corr_eval != evaluation.score.none)
-            pos.before(6).corr_eval < corr_eval
+            pos.before(6).corr_eval < pos.corr_eval
         else
             true;
     const ntm_worsening = !is_checked and
         ply >= 1 and
         pos.before(1).corr_eval != evaluation.score.none and
-        pos.before(1).corr_eval >= -corr_eval;
+        pos.before(1).corr_eval >= -pos.corr_eval;
 
     const has_ttm = tth and
         pos.isMovePseudoLegal(tte.move) and
@@ -952,7 +949,7 @@ fn ab(
         !is_singular and
         !is_checked and
         d <= 7 and
-        corr_eval >= b + 6)
+        pos.corr_eval >= b + 6)
     {
         const margin = blk: {
             const by_d =
@@ -962,8 +959,8 @@ fn ab(
             const ntm = params.values.rfp_ntm_worsening * @intFromBool(ntm_worsening);
             break :blk @divTrunc(by_d, 1024) - ntm;
         };
-        if (corr_eval >= b + margin) {
-            const lhs = corr_eval * params.values.rfp_fail_firm;
+        if (pos.corr_eval >= b + margin) {
+            const lhs = pos.corr_eval * params.values.rfp_fail_firm;
             const rhs = b * (1024 - params.values.rfp_fail_firm);
             return evaluation.score.clamp(@divTrunc(lhs + rhs, 1024));
         }
@@ -974,7 +971,7 @@ fn ab(
         !is_checked and
         d >= 2 and
         b > evaluation.score.loss and
-        b <= corr_eval - params.values.nmp_eval_margin and
+        b <= pos.corr_eval - params.values.nmp_eval_margin and
         !self.nmp_verif)
     nmp: {
         const occ = pos.bothOcc();
@@ -988,7 +985,7 @@ fn ab(
         const depth_r = params.values.nmp_depth_mult * d;
         const improving_r = params.values.nmp_improving_r * @intFromBool(improving);
         const deval_r = blk: {
-            const diff = corr_eval - b;
+            const diff = pos.corr_eval - b;
             const mult = params.values.nmp_deval_mult;
             const max_r = params.values.nmp_deval_max_r;
             break :blk @min(@divTrunc(diff * mult, 1024), max_r);
@@ -1019,7 +1016,7 @@ fn ab(
         !is_singular and
         !is_checked and
         d <= 7 and
-        corr_eval + params.values.razoring_mult * d <= a)
+        pos.corr_eval + params.values.razoring_mult * d <= a)
     {
         const rs = self.qs(pool, ply + 1, a, b);
         if (rs <= a) {
@@ -1081,8 +1078,9 @@ fn ab(
                 !is_noisy and
                 !is_checked and
                 a < evaluation.score.win and
-                corr_eval + fp_margin <= a)
+                pos.corr_eval + fp_margin <= a)
             {
+                pos.corr_eval += @max(fp_margin, 0);
                 continue :move_loop;
             }
 
@@ -1096,8 +1094,9 @@ fn ab(
                 !is_quiet and
                 !is_checked and
                 a < evaluation.score.win and
-                corr_eval + bnfp_margin <= a)
+                pos.corr_eval + bnfp_margin <= a)
             {
+                pos.corr_eval += @max(bnfp_margin, 0);
                 continue :move_loop;
             }
 
@@ -1177,7 +1176,7 @@ fn ab(
         } else if (!is_checked and
             node == .lowerbound and
             d <= 7 and
-            a >= corr_eval + params.values.ldse_margin)
+            a >= pos.corr_eval + params.values.ldse_margin)
         {
             e += 1;
         }
@@ -1347,7 +1346,7 @@ fn ab(
             .flag = flag,
             .age = @truncate(pool.tt.age),
             .depth = @intCast(depth),
-            .eval = @intCast(stat_eval),
+            .eval = @intCast(pos.stat_eval),
             .score = @intCast(evaluation.score.toTT(best.score, ply)),
             .move = best.move,
         });
@@ -1356,10 +1355,10 @@ fn ab(
     if (!is_checked and
         !is_singular and
         !best.move.isNoisy() and
-        !(flag == .upperbound and best.score > corr_eval) and
-        !(flag == .lowerbound and best.score < corr_eval))
+        !(flag == .upperbound and best.score > pos.corr_eval) and
+        !(flag == .lowerbound and best.score < pos.corr_eval))
     {
-        self.updateCorrHists(pool, depth, best.score - corr_eval);
+        self.updateCorrHists(pool, depth, best.score - pos.corr_eval);
     }
 
     return best.score;
@@ -1412,33 +1411,34 @@ fn qs(
         return ttscore;
     }
 
-    const has_tteval = tth and
-        tte.eval > evaluation.score.loss and
-        tte.eval < evaluation.score.win;
-    const stat_eval = if (has_tteval) tte.eval else if (is_checked)
-        evaluation.score.none
-    else
-        board.evaluate();
+    pos.stat_eval, pos.corr_eval = evaluate: {
+        const has_tteval = tth and
+            tte.eval > evaluation.score.loss and
+            tte.eval < evaluation.score.win;
+        const stat_eval = if (has_tteval) tte.eval else if (is_checked)
+            evaluation.score.none
+        else
+            board.evaluate();
 
-    const is_ttscore_correct = tth and
-        ttscore > evaluation.score.loss and
-        ttscore < evaluation.score.win and
-        !(tte.flag == .upperbound and ttscore > stat_eval) and
-        !(tte.flag == .lowerbound and ttscore <= stat_eval);
-    const corr_eval = if (is_ttscore_correct) ttscore else if (is_checked)
-        evaluation.score.none
-    else
-        self.correctEval(pool, stat_eval);
+        const is_ttscore_correct = tth and
+            ttscore > evaluation.score.loss and
+            ttscore < evaluation.score.win and
+            !(tte.flag == .upperbound and ttscore > stat_eval) and
+            !(tte.flag == .lowerbound and ttscore <= stat_eval);
+        const corr_eval = if (is_ttscore_correct) ttscore else if (is_checked)
+            evaluation.score.none
+        else
+            self.correctEval(pool, stat_eval);
 
-    pos.stat_eval = stat_eval;
-    pos.corr_eval = corr_eval;
+        break :evaluate .{ stat_eval, corr_eval };
+    };
 
-    a = @max(a, stat_eval);
+    a = @max(a, pos.stat_eval);
     if (a >= b) {
         return a;
     }
 
-    var best: movegen.Move.Scored = .{ .move = .none, .score = @intCast(stat_eval) };
+    var best: movegen.Move.Scored = .{ .move = .none, .score = @intCast(pos.stat_eval) };
     var flag = transposition.Entry.Flag.upperbound;
 
     const has_ttm = tth and
@@ -1475,8 +1475,8 @@ fn qs(
 
         if (!is_checked) {
             const margin = params.values.qs_fp_margin;
-            if (corr_eval + margin <= a and !pos.see(m, draw + 1)) {
-                best.score = @intCast(@max(best.score, corr_eval + margin));
+            if (pos.corr_eval + margin <= a and !pos.see(m, draw + 1)) {
+                best.score = @intCast(@max(best.score, pos.corr_eval + margin));
                 continue :move_loop;
             }
         }
@@ -1518,7 +1518,7 @@ fn qs(
         .flag = flag,
         .age = @truncate(pool.tt.age),
         .depth = 0,
-        .eval = @intCast(stat_eval),
+        .eval = @intCast(pos.stat_eval),
         .score = @intCast(evaluation.score.toTT(best.score, ply)),
         .move = best.move,
     });
